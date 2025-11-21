@@ -7,10 +7,13 @@
     "start": "node index.js"
   },
   "dependencies": {
+    "@google-cloud/firestore": "^7.0.0",
+    "@google/generative-ai": "^0.24.1",
     "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
     "express": "^4.17.3",
     "firebase-admin": "^11.5.0",
-    "@google-cloud/firestore": "^7.0.0"
+    "nodemailer": "^7.0.10"
   },
   "engines": {
     "node": "16.x"

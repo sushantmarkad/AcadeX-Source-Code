@@ -2,102 +2,177 @@ import React, { useState, useEffect } from 'react';
 import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import './Dashboard.css';
 
-// Import the new components
+// Import components
 import AddTeacher from './AddTeacher';
 import AddStudent from './AddStudent';
-import ManageUsers from './ManageUsers';
+import AddHOD from './AddHOD';
+import AddDepartment from './AddDepartment';
+import ManageInstituteUsers from './ManageInstituteUsers';
 
-const DashboardHome = ({ instituteName }) => (
-    <div className="content-section">
-        <h2 className="content-title">Welcome, {instituteName || 'Admin'}!</h2>
-        <p className="content-subtitle">
-            Use the sidebar to manage teachers, add students, and view your institute's data.
-        </p>
-    </div>
-);
+const DashboardHome = ({ instituteName, instituteId, showModal }) => {
+    const [code, setCode] = useState(null);
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        const fetchCode = async () => {
+            if (!instituteId) return;
+            try {
+                const docRef = doc(db, "institutes", instituteId);
+                const snap = await getDoc(docRef);
+                if (snap.exists() && snap.data().code) {
+                    setCode(snap.data().code);
+                }
+            } catch (err) { console.error(err); }
+        };
+        fetchCode();
+    }, [instituteId]);
+
+    const generateCode = async () => {
+        setLoading(true);
+        const prefix = instituteName ? instituteName.substring(0, 3).toUpperCase() : "INS";
+        const randomNum = Math.floor(1000 + Math.random() * 9000);
+        const newCode = `${prefix}-${randomNum}`;
+
+        try {
+            await setDoc(doc(db, "institutes", instituteId), { 
+                code: newCode, instituteName, instituteId
+            }, { merge: true });
+            setCode(newCode);
+            showModal('Success', `New Institute Code Generated: ${newCode}`);
+        } catch (err) {
+            showModal('Error', 'Failed to generate code.', 'danger');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div className="content-section">
+            <div style={{marginBottom:'30px'}}>
+                <h2 className="content-title">Welcome, Admin!</h2>
+                <p className="content-subtitle">Manage {instituteName || 'your institute'}.</p>
+            </div>
+            
+            <div className="card" style={{ background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)', border: 'none' }}>
+                <div style={{display:'flex', alignItems:'center', gap:'12px', marginBottom:'15px'}}>
+                    <div className="icon-box-modern" style={{background:'white', color:'var(--tech-blue)'}}>
+                        <i className="fas fa-key"></i>
+                    </div>
+                    <h3 style={{margin:0, color:'#1e3a8a'}}>Institute Code</h3>
+                </div>
+                <p style={{ color: '#1e40af', marginBottom: '20px', fontSize:'14px' }}>
+                    Share this unique code with your students for registration.
+                </p>
+                {code ? (
+                    <div style={{ fontSize: '28px', fontWeight: '800', color: '#1e3a8a', background: 'rgba(255,255,255,0.6)', padding: '15px', borderRadius: '12px', textAlign:'center', letterSpacing:'2px', border:'1px solid rgba(255,255,255,0.8)' }}>
+                        {code}
+                    </div>
+                ) : (
+                    <button onClick={generateCode} className="btn-primary" disabled={loading}>
+                        {loading ? "Generating..." : "Generate Unique Code"}
+                    </button>
+                )}
+            </div>
+        </div>
+    );
+};
 
 export default function InstituteAdminDashboard() {
     const [adminInfo, setAdminInfo] = useState(null);
     const [activePage, setActivePage] = useState('dashboard');
     const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+    
+    const [modal, setModal] = useState({ isOpen: false, title: '', message: '', type: 'info', onConfirm: null });
+
     const navigate = useNavigate();
 
     useEffect(() => {
         const fetchAdminData = async () => {
             if (auth.currentUser) {
-                const userDocRef = doc(db, "users", auth.currentUser.uid);
-                const userDoc = await getDoc(userDocRef);
-                if (userDoc.exists()) {
-                    setAdminInfo(userDoc.data());
-                }
+                const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
+                if (userDoc.exists()) setAdminInfo(userDoc.data());
             }
         };
         fetchAdminData();
     }, []);
 
-    const handleLogout = async () => {
-        await signOut(auth);
-        navigate('/');
-    };
+    const handleLogout = async () => { await signOut(auth); navigate('/'); };
     
-    const NavLink = ({ page, icon, label }) => (
+    const showModal = (title, message, type = 'info', onConfirm = null) => {
+        setModal({ isOpen: true, title, message, type, onConfirm });
+    };
+    const closeModal = () => setModal({ ...modal, isOpen: false });
+
+    const NavLink = ({ page, iconClass, label }) => (
       <li className={activePage === page ? 'active' : ''} onClick={() => {setActivePage(page); setIsMobileNavOpen(false);}}>
-          <i className={`fas fa-${icon}`}></i> {/* Using FontAwesome icons */}
-          <span>{label}</span>
+          <i className={`fas ${iconClass}`}></i> <span>{label}</span>
       </li>
     );
 
     const renderContent = () => {
-        if (!adminInfo) {
-            return <div className="content-section"><p>Loading admin data...</p></div>;
-        }
-        
-        const instituteName = adminInfo.instituteName || "Your Institute";
-        const instituteId = adminInfo.instituteId;
+        if (!adminInfo) return <div style={{textAlign:'center', marginTop:'50px'}}>Loading...</div>;
+        const { instituteName, instituteId } = adminInfo;
 
         switch (activePage) {
-            case 'dashboard':
-                return <DashboardHome instituteName={instituteName} />;
-            case 'addTeacher':
-                return <AddTeacher instituteId={instituteId} />;
-            case 'addStudent':
-                return <AddStudent instituteId={instituteId} />;
-            case 'manageUsers':
-                return <ManageUsers instituteId={instituteId} />;
-            default:
-                return <DashboardHome instituteName={instituteName} />;
+            case 'dashboard': return <DashboardHome instituteName={instituteName} instituteId={instituteId} showModal={showModal} />;
+            // ✅ Pass showModal to ALL sub-components
+            case 'addDepartment': return <AddDepartment instituteId={instituteId} instituteName={instituteName} showModal={showModal} />;
+            case 'addHOD': return <AddHOD instituteId={instituteId} instituteName={instituteName} showModal={showModal} />;
+            case 'addTeacher': return <AddTeacher instituteId={instituteId} instituteName={instituteName} showModal={showModal} />;
+            case 'addStudent': return <AddStudent instituteId={instituteId} instituteName={instituteName} showModal={showModal} />;
+            case 'manageUsers': return <ManageInstituteUsers instituteId={instituteId} showModal={showModal} />;
+            default: return <DashboardHome instituteName={instituteName} instituteId={instituteId} showModal={showModal} />;
         }
     };
 
     return (
         <div className="dashboard-container">
+            {/* CUSTOM MODAL */}
+            {modal.isOpen && (
+                <div className="custom-modal-overlay">
+                    <div className="custom-modal-box">
+                        <div className={`modal-icon ${modal.type === 'danger' ? 'icon-danger' : 'icon-info'}`}>
+                            <i className={`fas ${modal.type === 'danger' ? 'fa-exclamation-triangle' : 'fa-info-circle'}`}></i>
+                        </div>
+                        <h3>{modal.title}</h3>
+                        <p>{modal.message}</p>
+                        <div className="modal-actions">
+                            {modal.onConfirm ? (
+                                <>
+                                    <button className="btn-secondary" onClick={closeModal}>Cancel</button>
+                                    <button className="btn-primary btn-danger-solid" onClick={() => { modal.onConfirm(); closeModal(); }}>Confirm</button>
+                                </>
+                            ) : (
+                                <button className="btn-primary" onClick={closeModal}>Okay</button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {isMobileNavOpen && <div className="nav-overlay" onClick={() => setIsMobileNavOpen(false)}></div>}
             <aside className={`sidebar ${isMobileNavOpen ? 'open' : ''}`}>
-                <div className="logo-container">
-                    <img src="https://iili.io/KoAVeZg.md.png" alt="AcadeX Logo" className="sidebar-logo"/>
-                    <span className="logo-text">AcadeX</span>
-                </div>
+                <div className="logo-container"><img src="https://iili.io/KoAVeZg.md.png" alt="Logo" className="sidebar-logo"/><span className="logo-text">Acadex</span></div>
+                {adminInfo && <div className="teacher-info"><h4>{adminInfo.firstName} {adminInfo.lastName}</h4><p>Institute Admin</p></div>}
                 <ul className="menu">
-                    <NavLink page="dashboard" icon="tachometer-alt" label="Dashboard" />
-                    <NavLink page="addTeacher" icon="user-plus" label="Add Teacher" />
-                    <NavLink page="addStudent" icon="user-graduate" label="Add Student" />
-                    <NavLink page="manageUsers" icon="users" label="Manage Users" />
+                    <NavLink page="dashboard" iconClass="fa-tachometer-alt" label="Dashboard" />
+                    <NavLink page="addDepartment" iconClass="fa-building" label="Departments" />
+                    <NavLink page="addHOD" iconClass="fa-user-tie" label="Add HOD" />
+                    <NavLink page="addTeacher" iconClass="fa-chalkboard-teacher" label="Add Teacher" />
+                    <NavLink page="addStudent" iconClass="fa-user-graduate" label="Add Student" />
+                    <NavLink page="manageUsers" iconClass="fa-users" label="Manage Users" />
                 </ul>
-                <div className="sidebar-footer">
-                     <button onClick={handleLogout} className="logout-btn">
-                        <i className="fas fa-sign-out-alt"></i>
-                        <span>Logout</span>
-                    </button>
-                </div>
+                <div className="sidebar-footer"><button onClick={handleLogout} className="logout-btn"><i className="fas fa-sign-out-alt"></i><span>Logout</span></button></div>
             </aside>
             <main className="main-content">
                  <header className="mobile-header">
-                    <button className="hamburger-icon" onClick={() => setIsMobileNavOpen(true)}>&#9776;</button>
-                    <div className="mobile-logo">AcadeX</div>
-                </header>
+                    <button className="hamburger-btn" onClick={() => setIsMobileNavOpen(true)}><i className="fas fa-bars"></i></button>
+                    <div className="mobile-brand"><img src="https://iili.io/KoAVeZg.md.png" alt="Logo" className="mobile-logo-img" /><span className="mobile-logo-text">AcadeX</span></div>
+                    <div style={{width:'40px'}}></div>
+                 </header>
                 {renderContent()}
             </main>
         </div>

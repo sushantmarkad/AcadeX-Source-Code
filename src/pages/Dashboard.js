@@ -5,8 +5,10 @@ import { auth, db } from '../firebase';
 import TeacherDashboard from './TeacherDashboard';
 import StudentDashboard from './StudentDashboard';
 import InstituteAdminDashboard from './InstituteAdminDashboard';
+import HODDashboard from './HODDashboard';
 import SuperAdminDashboard from './SuperAdminDashboard'; // ✅ Ensure this is a default import (no curly braces)
 import { useNavigate } from 'react-router-dom';
+import AnimatedPage from '../components/AnimatedPage';
 
 export default function Dashboard() {
   const [userRole, setUserRole] = useState(null);
@@ -34,8 +36,8 @@ export default function Dashboard() {
             setUserRole('error');
           }
         } catch (err) {
-            console.error("Error fetching user document:", err);
-            setUserRole('error');
+          console.error("Error fetching user document:", err);
+          setUserRole('error');
         }
       } else {
         navigate('/');
@@ -51,20 +53,24 @@ export default function Dashboard() {
 
   switch (userRole) {
     case 'super-admin':
-      return <SuperAdminDashboard />;
+      return <AnimatedPage><SuperAdminDashboard /></AnimatedPage>;
     case 'teacher':
-      return <TeacherDashboard />;
+      return <AnimatedPage><TeacherDashboard /></AnimatedPage>;
     case 'student':
-      return <StudentDashboard />;
+      return <AnimatedPage><StudentDashboard /></AnimatedPage>;
     case 'institute-admin':
-      return <InstituteAdminDashboard />;
+      return <AnimatedPage><InstituteAdminDashboard /></AnimatedPage>;
+    case 'hod':
+      return <AnimatedPage><HODDashboard /></AnimatedPage>;
     default:
       return (
-        <div style={{ textAlign: 'center', marginTop: '50px' }}>
-          <h1>An Error Occurred</h1>
-          <p>We couldn't find your user role. Please sign out and try again.</p>
-          <button onClick={() => auth.signOut().then(() => navigate('/'))}>Sign Out</button>
-        </div>
+        <AnimatedPage>
+          <div style={{ textAlign: 'center', marginTop: '50px' }}>
+            <h1>An Error Occurred</h1>
+            <p>We couldn't find your user role. Please sign out and try again.</p>
+            <button onClick={() => auth.signOut().then(() => navigate('/'))}>Sign Out</button>
+          </div>
+        </AnimatedPage>
       );
   }
 }

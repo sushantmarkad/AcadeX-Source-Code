@@ -5,13 +5,13 @@ import { getFirestore } from "firebase/firestore";
 import { getFunctions, httpsCallable } from "firebase/functions"; // Keep this for future use if you want
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDrZd5QDsIuVIW4ME3rCNiPVeYC0HNlnWE",
-  authDomain: "scheduplan-1b51d.firebaseapp.com",
-  projectId: "scheduplan-1b51d",
-  storageBucket: "scheduplan-1b51d.firebasestorage.app",
-  messagingSenderId: "327190164183",
-  appId: "1:327190164183:web:b1410de06ec219ba037692",
-  measurementId: "G-N7V5W8J5C0"
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.REACT_APP_FIREBASE_APP_ID,
+  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID
 };
 
 const app = initializeApp(firebaseConfig);

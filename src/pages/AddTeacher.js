@@ -1,56 +1,51 @@
-import React, { useState } from 'react';
-// Import the email function from our updated firebase.js
-import { auth, sendPasswordResetEmail } from '../firebase';
+import React, { useState, useEffect } from 'react';
+import { auth, sendPasswordResetEmail, db } from '../firebase';
+import { collection, query, where, getDocs } from "firebase/firestore";
 import './Dashboard.css';
 
-// Replace with your live backend URL from Render
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
-export default function AddTeacher({ instituteId }) {
-    const [form, setForm] = useState({
-        firstName: "", lastName: "", subject: "", qualification: "", email: "", password: ""
-    });
-    const [error, setError] = useState('');
-    const [success, setSuccess] = useState('');
+export default function AddTeacher({ instituteId, instituteName, showModal }) {
+    const [form, setForm] = useState({ firstName: "", lastName: "", email: "", subject: "", department: "", password: "" });
     const [loading, setLoading] = useState(false);
+    const [departments, setDepartments] = useState([]);
+
+    // Fetch Departments
+    useEffect(() => {
+        const fetchDepartments = async () => {
+            if (!instituteId) return;
+            try {
+                const q = query(collection(db, 'departments'), where('instituteId', '==', instituteId));
+                const snap = await getDocs(q);
+                setDepartments(snap.docs.map(doc => doc.data().name));
+            } catch (err) { console.error(err); }
+        };
+        fetchDepartments();
+    }, [instituteId]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        setError(''); setSuccess(''); setLoading(true);
+        setLoading(true);
 
         try {
-            // Step 1: Call your backend to create the user's Auth and Firestore record
             const response = await fetch(`${BACKEND_URL}/createUser`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    email: form.email,
-                    password: form.password,
-                    firstName: form.firstName,
-                    lastName: form.lastName,
-                    role: 'teacher',
-                    instituteId: instituteId,
-                    extras: {
-                        subject: form.subject,
-                        qualification: form.qualification
-                    }
+                body: JSON.stringify({ 
+                    ...form, 
+                    role: 'teacher', 
+                    instituteId, 
+                    instituteName 
                 })
             });
 
-            const data = await response.json();
-            if (!response.ok) {
-                throw new Error(data.error || 'Something went wrong during user creation.');
-            }
+            if (!response.ok) throw new Error("Failed to create teacher");
 
-            // Step 2: If creation was successful, send the password setup email
             await sendPasswordResetEmail(auth, form.email);
-            
-            setSuccess(`Teacher account for ${form.email} created! A password setup email has been sent to them.`);
-            setForm({ firstName: "", lastName: "", subject: "", qualification: "", email: "", password: "" });
-
+            showModal('Success', 'Teacher added successfully!');
+            setForm({ firstName: "", lastName: "", email: "", subject: "", department: "", password: "" });
         } catch (err) {
-            setError(`Failed to add teacher. Error: ${err.message}`);
-            console.error(err);
+            showModal('Error', err.message, 'danger');
         } finally {
             setLoading(false);
         }
@@ -58,25 +53,27 @@ export default function AddTeacher({ instituteId }) {
 
     return (
         <div className="content-section">
-            <h2 className="content-title">Add New Teacher</h2>
+            <h2 className="content-title">Add Teacher</h2>
             <div className="card">
                 <form onSubmit={handleSubmit}>
-                    <div className='instructions'>
-                        <p>This will create a teacher account and automatically send an email to them to set their own password.</p>
-                    </div>
-                    <div className="input-group"><label>Email Address</label><input type="email" placeholder="teacher@example.com" value={form.email} onChange={(e) => setForm({...form, email: e.target.value})} required /></div>
-                    <div className="input-group"><label>Temporary Password</label><input type="password" placeholder="Min. 6 characters" value={form.password} onChange={(e) => setForm({...form, password: e.target.value})} required /></div>
-                    <div className="input-group"><label>First Name</label><input type="text" placeholder="Jane" value={form.firstName} onChange={(e) => setForm({...form, firstName: e.target.value})} required /></div>
-                    <div className="input-group"><label>Last Name</label><input type="text" placeholder="Doe" value={form.lastName} onChange={(e) => setForm({...form, lastName: e.target.value})} /></div>
-                    <div className="input-group"><label>Subject</label><input type="text" placeholder="e.g., Computer Science" value={form.subject} onChange={(e) => setForm({...form, subject: e.target.value})} required /></div>
-                    <div className="input-group"><label>Qualification</label><input type="text" placeholder="e.g., M.Tech in CS" value={form.qualification} onChange={(e) => setForm({...form, qualification: e.target.value})} /></div>
+                    <div className="input-group"><label>First Name</label><input type="text" value={form.firstName} onChange={e => setForm({...form, firstName: e.target.value})} required /></div>
+                    <div className="input-group"><label>Last Name</label><input type="text" value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})} required /></div>
                     
-                    {error && <p className="error-message">{error}</p>}
-                    {success && <p className="success-message">{success}</p>}
+                    {/* ✅ ADDED DEPARTMENT DROPDOWN */}
+                    <div className="input-group">
+                        <label>Department</label>
+                        <select value={form.department} onChange={e => setForm({...form, department: e.target.value})} required>
+                            <option value="">Select Department</option>
+                            {departments.map((dept, index) => (
+                                <option key={index} value={dept}>{dept}</option>
+                            ))}
+                        </select>
+                    </div>
 
-                    <button type="submit" className="btn-primary" disabled={loading}>
-                        {loading ? 'Processing...' : 'Create Teacher & Send Invite'}
-                    </button>
+                    <div className="input-group"><label>Subject</label><input type="text" value={form.subject} onChange={e => setForm({...form, subject: e.target.value})} required /></div>
+                    <div className="input-group"><label>Email</label><input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} required /></div>
+                    <div className="input-group"><label>Temp Password</label><input type="password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} required /></div>
+                    <button className="btn-primary" disabled={loading}>{loading ? 'Adding...' : 'Add Teacher'}</button>
                 </form>
             </div>
         </div>
