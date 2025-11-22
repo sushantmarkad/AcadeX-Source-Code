@@ -24,20 +24,40 @@ body {
 
 .dashboard-container { display: flex; height: 100vh; width: 100%; overflow: hidden; }
 
-/* --- Sidebar --- */
+/* --- Sidebar (UPDATED FOR MOBILE SCROLLING) --- */
 .sidebar {
-  width: 260px; background-color: var(--card-bg); border-right: 1px solid var(--border-color);
-  display: flex; flex-direction: column; padding: 24px; flex-shrink: 0;
-  transition: transform 0.3s ease-in-out; z-index: 1000; height: 100vh; overflow-y: auto; 
+  width: 260px; 
+  background-color: var(--card-bg); 
+  border-right: 1px solid var(--border-color);
+  display: flex; 
+  flex-direction: column; 
+  padding: 24px; 
+  flex-shrink: 0;
+  z-index: 1000;
+  
+  /* ✅ FIX 1: Use Dynamic Height (dvh) to account for mobile URL bars */
+  height: 100vh; /* Fallback */
+  height: 100dvh; 
+  
+  /* ✅ FIX 2: Enable Smooth Momentum Scrolling on iOS */
+  overflow-y: auto; 
+  -webkit-overflow-scrolling: touch;
+  
+  /* ✅ FIX 3: Prevent scroll from leaking to the body */
+  overscroll-behavior: contain;
+  
+  /* Animation for sliding */
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.logo-container { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--border-color); }
+.logo-container { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
 .sidebar-logo { width: 40px; height: 40px; object-fit: contain; }
 .logo-text { font-size: 24px; font-weight: 700; color: var(--text-primary); }
 
 .teacher-info {
   padding: 16px; margin-bottom: 20px; background-color: var(--bg-color);
   border-radius: 12px; border: 1px solid var(--border-color); transition: all 0.2s ease;
+  flex-shrink: 0;
 }
 .teacher-info:hover { background-color: #eff6ff; border-color: var(--tech-blue); }
 .teacher-info h4 { margin: 0 0 5px 0; font-size: 15px; font-weight: 600; color: var(--text-primary); }
@@ -63,7 +83,7 @@ body {
 }
 .nav-badge { margin-left: auto; background: #ef4444; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; }
 
-.sidebar-footer { margin-top: auto; border-top: 1px solid var(--border-color); padding-top: 16px; }
+.sidebar-footer { margin-top: auto; border-top: 1px solid var(--border-color); padding-top: 16px; padding-bottom: 20px; flex-shrink: 0; }
 .logout-btn {
   display: flex; align-items: center; gap: 12px; width: 100%;
   padding: 12px 16px; background: transparent; border: none;
@@ -76,8 +96,9 @@ body {
 .main-content {
   flex: 1; padding: 30px; overflow-y: auto; overflow-x: hidden; 
   width: 100%; position: relative;
+  -webkit-overflow-scrolling: touch;
 }
-.content-section { max-width: 1200px; margin: 0 auto; width: 100%; }
+.content-section { max-width: 1200px; margin: 0 auto; width: 100%; padding-bottom: 40px; }
 .content-title { font-size: 28px; font-weight: 700; margin-bottom: 8px; color: var(--text-primary); line-height: 1.2; }
 .content-subtitle { font-size: 16px; color: var(--text-secondary); margin-top: 0; margin-bottom: 24px; }
 
@@ -98,7 +119,7 @@ body {
     font-size: 18px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); flex-shrink: 0;
 }
 
-/* --- ✅ FORMS & INPUTS (Restored!) --- */
+/* --- FORMS & INPUTS --- */
 .input-group { margin-bottom: 16px; }
 .input-group label { display: block; margin-bottom: 8px; font-size: 14px; font-weight: 500; color: var(--text-secondary); }
 .input-group input, .input-group select, .input-group textarea {
@@ -235,8 +256,26 @@ body {
 .mobile-header { display: none; }
 
 @media (max-width: 768px) {
-  .sidebar { position: fixed; top: 0; bottom: 0; left: 0; transform: translateX(-100%); z-index: 2000; }
+  /* ✅ UPDATED SIDEBAR FOR MOBILE SCROLLING */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    
+    /* Force full viewport height properly on mobile */
+    bottom: 0;
+    height: 100dvh;
+    
+    width: 280px; /* Slightly wider for better touch */
+    transform: translateX(-100%);
+    z-index: 2000;
+    
+    /* Add shadow so it stands out */
+    box-shadow: 4px 0 25px rgba(0, 0, 0, 0.15);
+  }
+  
   .sidebar.open { transform: translateX(0); }
+  
   .nav-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0, 0, 0, 0.5); z-index: 1500; }
   
   /* Mobile Header */
@@ -256,7 +295,6 @@ body {
     box-shadow: 0 4px 20px rgba(0,0,0,0.02);
   }
 
-  /* Centered Logo */
   .mobile-brand {
       position: absolute;
       left: 50%;
@@ -283,7 +321,6 @@ body {
       letter-spacing: -0.5px;
   }
 
-  /* Hamburger Icon */
   .hamburger-btn {
     background: transparent !important; 
     border: none !important; 
@@ -298,12 +335,10 @@ body {
     padding: 0;
   }
 
-  /* Content Padding */
   .main-content { padding: 16px; padding-top: 85px; width: 100vw; }
   .cards-grid { display: flex; flex-direction: column; gap: 16px; }
   .card { padding: 16px; }
 
-  /* ✅ FORCE BUTTONS TO BE FULL WIDTH & GRADIENT ON MOBILE */
   .btn-modern-primary,
   .btn-primary {
       width: 100% !important;
@@ -331,4 +366,222 @@ body {
       visibility: visible !important;
       box-shadow: 0 6px 15px rgba(239, 68, 68, 0.3) !important;
   }
+}
+/* --- Roadmap Styles --- */
+.roadmap-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+.roadmap-card {
+    border-left: 4px solid #3b82f6;
+    transition: transform 0.2s;
+}
+.roadmap-card:hover {
+    transform: translateY(-3px);
+}
+
+.roadmap-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.week-badge {
+    background: #eff6ff;
+    color: #3b82f6;
+    padding: 4px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+}
+
+.topic-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.topic-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s;
+    border: 1px solid transparent;
+}
+
+.topic-item:hover {
+    background: #f8fafc;
+}
+
+.topic-item.done {
+    text-decoration: line-through;
+    color: #94a3b8;
+    background: #f0fdf4;
+}
+
+.checkbox-circle {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid #cbd5e1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.topic-item.done .checkbox-circle {
+    background: #10b981;
+    border-color: #10b981;
+}
+/* --- Modern Textarea --- */
+textarea.modern-input {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    font-family: 'Poppins', sans-serif;
+    font-size: 14px;
+    color: #1e293b;
+    outline: none;
+    transition: all 0.2s;
+    resize: vertical;
+    min-height: 80px;
+}
+textarea.modern-input:focus {
+    border-color: var(--tech-blue);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* --- Ghost Button (Regenerate) --- */
+.btn-ghost {
+    background: transparent;
+    border: 1px solid #cbd5e1;
+    color: #64748b;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.btn-ghost:hover {
+    background: #f1f5f9;
+    color: #1e293b;
+    border-color: #94a3b8;
+}
+.btn-ghost i {
+    font-size: 12px;
+}
+/* --- FIX: Toast Z-Index --- */
+/* Force the Toast Container to be ABOVE the custom modal */
+.go4109123758, .Toaster { 
+    z-index: 99999 !important; /* Highest priority */
+}
+
+/* OR, target the container div created by react-hot-toast if the class above varies */
+div[style*="z-index"] {
+    z-index: 99999 !important;
+}
+
+
+/* --- Modal Action Buttons (Fix Alignment) --- */
+.modal-actions {
+    display: flex;
+    gap: 15px;             /* Consistent gap */
+    justify-content: center;
+    align-items: center;   /* Force vertical center */
+    margin-top: 20px;
+    width: 100%;
+}
+
+.custom-modal-box .btn-secondary,
+.custom-modal-box .btn-primary {
+    /* Force identical box model */
+    height: 42px;          
+    line-height: 1;        /* Reset line height */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 20px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0;             /* Remove default margins */
+    box-sizing: border-box; /* crucial for border height matching */
+}
+
+/* Secondary specific (Cancel) */
+.custom-modal-box .btn-secondary {
+    background: white;
+    border: 2px solid #e2e8f0; /* Explicit 2px border */
+    color: #64748b;
+}
+
+/* Primary specific (Confirm) */
+.custom-modal-box .btn-primary {
+    /* Use standard gradient or solid color */
+    background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
+    border: 2px solid transparent; /* Ghost border to match height exactly */
+    color: white;
+    box-shadow: 0 4px 10px rgba(37, 99, 235, 0.2);
+}
+/* --- Leaderboard Styles --- */
+.leaderboard-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.leaderboard-item {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    transition: all 0.2s;
+    background: white;
+}
+
+.leaderboard-item:hover {
+    background: #f8fafc;
+    transform: translateX(4px);
+}
+
+.rank-circle {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    margin-right: 15px;
+    flex-shrink: 0;
+}
+
+.student-details {
+    flex: 1;
+}
+
+.xp-badge {
+    background: #f0fdf4;
+    color: #15803d;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 14px;
+    border: 1px solid #bbf7d0;
 }

@@ -6,9 +6,9 @@ import TeacherDashboard from './TeacherDashboard';
 import StudentDashboard from './StudentDashboard';
 import InstituteAdminDashboard from './InstituteAdminDashboard';
 import HODDashboard from './HODDashboard';
-import SuperAdminDashboard from './SuperAdminDashboard'; // ✅ Ensure this is a default import (no curly braces)
+import SuperAdminDashboard from './SuperAdminDashboard';
 import { useNavigate } from 'react-router-dom';
-import AnimatedPage from '../components/AnimatedPage';
+import IOSPage from '../components/IOSPage'; // ✅ Using IOSPage
 
 export default function Dashboard() {
   const [userRole, setUserRole] = useState(null);
@@ -48,29 +48,34 @@ export default function Dashboard() {
   }, [navigate]);
 
   if (loading) {
-    return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}><h2>Loading...</h2></div>;
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <h2>Loading...</h2>
+      </div>
+    );
   }
 
+  // ✅ All dashboards wrapped in IOSPage for transition effect
   switch (userRole) {
     case 'super-admin':
-      return <AnimatedPage><SuperAdminDashboard /></AnimatedPage>;
+      return <IOSPage><SuperAdminDashboard /></IOSPage>;
     case 'teacher':
-      return <AnimatedPage><TeacherDashboard /></AnimatedPage>;
+      return <IOSPage><TeacherDashboard /></IOSPage>;
     case 'student':
-      return <AnimatedPage><StudentDashboard /></AnimatedPage>;
+      return <IOSPage><StudentDashboard /></IOSPage>;
     case 'institute-admin':
-      return <AnimatedPage><InstituteAdminDashboard /></AnimatedPage>;
+      return <IOSPage><InstituteAdminDashboard /></IOSPage>;
     case 'hod':
-      return <AnimatedPage><HODDashboard /></AnimatedPage>;
+      return <IOSPage><HODDashboard /></IOSPage>;
     default:
       return (
-        <AnimatedPage>
+        <IOSPage>
           <div style={{ textAlign: 'center', marginTop: '50px' }}>
             <h1>An Error Occurred</h1>
             <p>We couldn't find your user role. Please sign out and try again.</p>
             <button onClick={() => auth.signOut().then(() => navigate('/'))}>Sign Out</button>
           </div>
-        </AnimatedPage>
+        </IOSPage>
       );
   }
 }

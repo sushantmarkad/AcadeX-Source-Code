@@ -1,7 +1,8 @@
-import React, { Suspense, lazy } from "react";
+import React, { Suspense, lazy, useState } from "react";
 import { Routes, Route, useLocation } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
-import { Toaster } from 'react-hot-toast'; // ✅ Import Toaster
+import { Toaster } from 'react-hot-toast';
+import IOSSplashScreen from "./components/IOSSplashScreen";
 
 // Lazy load components
 const Login = lazy(() => import("./pages/Login"));
@@ -16,11 +17,23 @@ const CheckStatus = lazy(() => import("./pages/CheckStatus"));
 
 function App() {
   const location = useLocation();
+  const [showSplash, setShowSplash] = useState(true);
+
+  // Show Splash Screen first
+  if (showSplash) {
+    return (
+      <IOSSplashScreen 
+        logoSrc="https://iili.io/KoAVeZg.md.png" 
+        onComplete={() => setShowSplash(false)} 
+      />
+    );
+  }
+
   return (
     <Suspense fallback={<div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>Loading...</div>}>
-      {/* ✅ Add Toaster here for global notifications */}
       <Toaster position="top-center" reverseOrder={false} />
       
+      {/* mode="wait" ensures the old page slides out before the new one slides in */}
       <AnimatePresence mode="wait">
         <Routes location={location} key={location.pathname}>
           <Route path="/" element={<Login />} />

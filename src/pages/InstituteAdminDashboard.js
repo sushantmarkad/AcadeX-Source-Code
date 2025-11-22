@@ -3,7 +3,7 @@ import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
 import { doc, getDoc, setDoc } from "firebase/firestore";
-import toast, { Toaster } from 'react-hot-toast'; // ✅ Keep Toast for messages
+import toast, { Toaster } from 'react-hot-toast'; 
 import './Dashboard.css';
 
 // Import components
@@ -86,7 +86,7 @@ export default function InstituteAdminDashboard() {
     const [activePage, setActivePage] = useState('dashboard');
     const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
     
-    // ✅ RESTORED: Modal State for Confirmations
+    // ✅ MODAL STATE (Required for Delete Confirmation)
     const [modal, setModal] = useState({ isOpen: false, title: '', message: '', type: 'info', onConfirm: null });
 
     const navigate = useNavigate();
@@ -103,11 +103,10 @@ export default function InstituteAdminDashboard() {
 
     const handleLogout = async () => { await signOut(auth); navigate('/'); };
     
-    // ✅ RESTORED: Helper to show modal (ManageInstituteUsers needs this!)
+    // ✅ HELPER FUNCTIONS (Passed to children)
     const showModal = (title, message, type = 'info', onConfirm = null) => {
         setModal({ isOpen: true, title, message, type, onConfirm });
     };
-    
     const closeModal = () => setModal({ ...modal, isOpen: false });
 
     const NavLink = ({ page, iconClass, label }) => (
@@ -122,12 +121,12 @@ export default function InstituteAdminDashboard() {
 
         switch (activePage) {
             case 'dashboard': return <DashboardHome instituteName={instituteName} instituteId={instituteId} />;
-            case 'addDepartment': return <AddDepartment instituteId={instituteId} instituteName={instituteName} />;
-            case 'addHOD': return <AddHOD instituteId={instituteId} instituteName={instituteName} />;
-            case 'addTeacher': return <AddTeacher instituteId={instituteId} instituteName={instituteName} />;
-            case 'addStudent': return <AddStudent instituteId={instituteId} instituteName={instituteName} />;
             
-            // ✅ FIXED: Passing showModal here so Deleting works!
+            // ✅ FIXED: PASSING showModal TO ALL COMPONENTS
+            case 'addDepartment': return <AddDepartment instituteId={instituteId} instituteName={instituteName} showModal={showModal} />;
+            case 'addHOD': return <AddHOD instituteId={instituteId} instituteName={instituteName} showModal={showModal} />;
+            case 'addTeacher': return <AddTeacher instituteId={instituteId} instituteName={instituteName} showModal={showModal} />;
+            case 'addStudent': return <AddStudent instituteId={instituteId} instituteName={instituteName} showModal={showModal} />;
             case 'manageUsers': return <ManageInstituteUsers instituteId={instituteId} showModal={showModal} />;
             
             default: return <DashboardHome instituteName={instituteName} instituteId={instituteId} />;
@@ -136,10 +135,10 @@ export default function InstituteAdminDashboard() {
 
     return (
         <div className="dashboard-container">
-            {/* ✅ Toaster for Success Messages */}
+            {/* ✅ TOAST (For Success/Info) */}
             <Toaster position="top-right" reverseOrder={false} />
 
-            {/* ✅ Modal Overlay for Confirmations */}
+            {/* ✅ MODAL (For Delete Confirmation) */}
             {modal.isOpen && (
                 <div className="custom-modal-overlay">
                     <div className="custom-modal-box">

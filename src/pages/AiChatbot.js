@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import './AiChatbot.css';
 
-// ✅ FIXED: Correct URL with /chat endpoint
 const API_URL = "https://acadex-backend-n2wh.onrender.com/chat"; 
 
-export default function AiChatbot({ user }) {
+// ✅ Added isOpenProp and onClose to props
+export default function AiChatbot({ user, isOpenProp, onClose }) {
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState([
         { sender: 'bot', text: `Hey ${user.firstName}! Free period? I can generate a quick task list for ${user.department}. Say "Go"` }
@@ -12,6 +12,13 @@ export default function AiChatbot({ user }) {
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
     const messagesEndRef = useRef(null);
+
+    // ✅ Effect: Open chat when "Ask AI" button is clicked in Dashboard
+    useEffect(() => {
+        if (isOpenProp) {
+            setIsOpen(true);
+        }
+    }, [isOpenProp]);
 
     const scrollToBottom = () => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     useEffect(scrollToBottom, [messages]);
@@ -38,9 +45,7 @@ export default function AiChatbot({ user }) {
                 })
             });
 
-            if (!response.ok) {
-                throw new Error(`Server error: ${response.status}`);
-            }
+            if (!response.ok) throw new Error(`Server error: ${response.status}`);
 
             const data = await response.json();
             setMessages(prev => [...prev, { sender: 'bot', text: data.reply }]);
@@ -53,10 +58,19 @@ export default function AiChatbot({ user }) {
         }
     };
 
+    // ✅ Handle closing properly (updates parent state too)
+    const toggleChat = () => {
+        const newState = !isOpen;
+        setIsOpen(newState);
+        if (!newState && onClose) {
+            onClose(); // Tell dashboard we closed it
+        }
+    };
+
     return (
         <>
-            {/* ✅ FIXED: Added 'open' class for mobile CSS styling */}
-            <div className={`ai-fab ${isOpen ? 'open' : ''}`} onClick={() => setIsOpen(!isOpen)}>
+            {/* Floating Button with Toggle */}
+            <div className={`ai-fab ${isOpen ? 'open' : ''}`} onClick={toggleChat}>
                 {isOpen ? <i className="fas fa-times"></i> : <i className="fas fa-robot"></i>}
             </div>
 
