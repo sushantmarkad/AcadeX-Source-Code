@@ -496,38 +496,39 @@ div[style*="z-index"] {
     z-index: 99999 !important;
 }
 
-
-/* --- Modal Action Buttons (Fix Alignment) --- */
 .modal-actions {
-    display: flex;
-    gap: 15px;             /* Consistent gap */
-    justify-content: center;
-    align-items: center;   /* Force vertical center */
-    margin-top: 20px;
-    width: 100%;
+    display: flex; gap: 12px; justify-content: center; align-items: center;
+    margin-top: 20px; width: 100%;
 }
-
+.custom-modal-box .btn-secondary, .custom-modal-box .btn-primary {
+    height: 44px !important; /* Fixed height */
+    line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0 20px; font-size: 14px; font-weight: 600;
+    margin: 0; flex: 1; min-width: 100px; /* Prevent too small */
+    white-space: nowrap; /* Prevent text wrap */
+    box-shadow: none;
+    min-width: fit-content;
+}
 .custom-modal-box .btn-secondary,
 .custom-modal-box .btn-primary {
-    /* Force identical box model */
-    height: 42px;          
-    line-height: 1;        /* Reset line height */
+    height: 44px !important;
+    line-height: 1;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0 20px;
-    border-radius: 10px;
+    
+    /* ✅ FIX: Allow shrinking */
+    padding: 0 10px;       /* Reduced padding to make room */
     font-size: 14px;
     font-weight: 600;
-    margin: 0;             /* Remove default margins */
-    box-sizing: border-box; /* crucial for border height matching */
-}
-
-/* Secondary specific (Cancel) */
-.custom-modal-box .btn-secondary {
-    background: white;
-    border: 2px solid #e2e8f0; /* Explicit 2px border */
-    color: #64748b;
+    margin: 0;
+    
+    flex: 1;               /* Share space equally */
+    min-width: 0;          /* ✅ CRITICAL: Allows button to shrink below text size if needed */
+    
+    white-space: nowrap;
+    box-shadow: none;
 }
 
 /* Primary specific (Confirm) */
@@ -584,4 +585,83 @@ div[style*="z-index"] {
     font-weight: 700;
     font-size: 14px;
     border: 1px solid #bbf7d0;
+}
+/* ... existing code ... */
+
+/* ✅ NEW: Floating Delete Button */
+.floating-delete-btn {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2000; /* Above everything */
+    background: #ef4444;
+    color: white;
+    padding: 12px 24px;
+    border-radius: 30px;
+    box-shadow: 0 10px 25px rgba(239, 68, 68, 0.4);
+    border: none;
+    font-weight: 600;
+    font-size: 15px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    animation: slideUp 0.3s ease-out;
+}
+
+.floating-delete-btn:hover {
+    background: #dc2626;
+    transform: translateX(-50%) scale(1.05);
+}
+
+@media (max-width: 768px) {
+    .floating-delete-btn {
+        bottom: 80px; /* Higher on mobile to avoid covering nav/fab */
+        padding: 10px 20px;
+        font-size: 14px;
+    }
+}
+/* --- Focus Timer Overlay --- */
+.timer-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(255, 255, 255, 0.95); /* Clean white focus mode */
+    backdrop-filter: blur(10px);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 30000; animation: fadeIn 0.3s ease-out;
+}
+
+.timer-card {
+    background: white; padding: 40px; border-radius: 24px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.1);
+    text-align: center; width: 90%; max-width: 400px;
+    border: 1px solid #e2e8f0;
+}
+
+.timer-controls {
+    display: flex; gap: 15px; justify-content: center; margin-top: 20px;
+}
+
+.btn-danger-ghost {
+    background: transparent; border: 1px solid #fca5a5; color: #ef4444;
+    padding: 10px 20px; border-radius: 12px; font-weight: 600; cursor: pointer;
+}
+.btn-danger-ghost:hover { background: #fef2f2; }
+
+/* --- ✅ MODERN CARD BUTTONS (Requested Fix) --- */
+.btn-start-task {
+    width: auto;
+    padding: 10px 20px;
+    border-radius: 30px; /* Pill shape */
+    background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
+    color: white; border: none;
+    font-weight: 600; font-size: 13px;
+    box-shadow: 0 4px 15px rgba(37, 99, 235, 0.25); /* Nice glow */
+    transition: all 0.2s;
+    display: flex; align-items: center; gap: 8px;
+    margin-top: auto;
+}
+.btn-start-task:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(37, 99, 235, 0.35);
 }

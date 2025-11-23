@@ -60,6 +60,122 @@
   cursor: pointer; transition: 0.2s; margin-top: 15px;
 }
 .btn-google:hover { background: #f9fafb; border-color: #9ca3af; }
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+
+/* --- Universal Reset --- */
+* { box-sizing: border-box; }
+
+/* ✅ CHANGED: Removed 'body' selector. Use this wrapper instead. */
+.login-wrapper {
+  background: #f0f2f5;
+  font-family: "Poppins", sans-serif;
+  min-height: 100vh; /* Full screen height */
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
+
+.login-container {
+  width: 100%; 
+  max-width: 420px;
+  background: white;
+  padding: 40px;
+  border-radius: 16px;
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+  text-align: center;
+  min-width: 320px;
+}
+
+.login-header { margin-bottom: 24px; }
+.login-logo { width: 180px; display: block; margin: 0 auto 15px; }
+.login-header h1 { font-size: 24px; font-weight: 700; color: #1d2a32; margin: 0; }
+.login-header .highlight { color: #2563eb; }
+
+.login-form { text-align: left; }
+.input-group { margin-bottom: 18px; }
+.input-group label { font-size: 14px; font-weight: 600; color: #374151; margin-bottom: 8px; display: block; }
+
+.input-group input, .input-group select {
+  width: 100%; height: 48px; border: 1px solid #d1d5db;
+  border-radius: 10px; padding: 0 16px; font-size: 15px; color: #1f2937;
+  transition: all 0.2s; background: #fff;
+}
+.input-group input:focus, .input-group select:focus { 
+    outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1); 
+}
+
+/* --- BUTTONS --- */
+.btn-primary {
+  width: 100%; background: linear-gradient(135deg, #2563eb 0%, #4f46e5 100%);
+  color: #fff; border: none; padding: 14px; font-size: 16px;
+  font-weight: 600; border-radius: 10px; cursor: pointer; transition: 0.2s;
+  margin-top: 10px;
+}
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25); }
+
+.btn-google {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  width: 100%; background: #fff; color: #374151; border: 1px solid #d1d5db;
+  padding: 12px; font-size: 15px; font-weight: 600; border-radius: 10px;
+  cursor: pointer; transition: 0.2s; margin-top: 15px;
+}
+.btn-google:hover { background: #f9fafb; border-color: #9ca3af; }
+
+/* ✅ NEW: Secondary Button (Back Button Fix) */
+.btn-secondary {
+  width: 100%;
+  background: white;
+  color: #475569;
+  border: 1px solid #cbd5e1;
+  padding: 14px;
+  font-size: 16px;
+  font-weight: 600;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s;
+  margin-top: 10px; /* Space between Submit and Back */
+}
+.btn-secondary:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.separator {
+  display: flex; align-items: center; text-align: center; color: #9ca3af; margin: 20px 0; font-size: 13px; font-weight: 500;
+}
+.separator::before, .separator::after {
+  content: ''; flex: 1; border-bottom: 1px solid #e5e7eb;
+}
+.separator::before { margin-right: 10px; }
+.separator::after { margin-left: 10px; }
+
+.error-message {
+  color: #dc2626; background-color: #fee2e2; border-radius: 8px;
+  padding: 12px; margin-bottom: 16px; font-size: 14px; text-align: center; border: 1px solid #fecaca;
+}
+
+/* --- MOBILE --- */
+@media (max-width: 480px) {
+  .login-wrapper { padding: 0; background: white; } /* Remove gray bg on mobile */
+  
+  .login-container { 
+    margin: 0; 
+    padding: 30px 20px; 
+    border-radius: 0; 
+    box-shadow: none; 
+    min-height: 100vh; 
+    display: flex; 
+    flex-direction: column; 
+    justify-content: center; 
+  }
+  
+  .login-logo { width: 160px; }
+  .login-header h1 { font-size: 26px; }
+  .input-group input { height: 50px; font-size: 16px; }
+  .btn-primary { padding: 15px; }
+}
 
 .separator {
   display: flex; align-items: center; text-align: center; color: #9ca3af; margin: 20px 0; font-size: 13px; font-weight: 500;

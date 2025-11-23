@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { auth, db, sendPasswordResetEmail } from '../firebase'; // ✅ Import auth & email function
+import { auth, db, sendPasswordResetEmail } from '../firebase'; 
 import { collection, query, where, getDocs } from "firebase/firestore";
-import toast from 'react-hot-toast'; // ✅ Use Toast instead of showModal
+import toast from 'react-hot-toast'; 
 import './Dashboard.css';
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
@@ -11,6 +11,7 @@ export default function AddStudent({ instituteId, instituteName }) {
     const [loading, setLoading] = useState(false);
     const [departments, setDepartments] = useState([]);
 
+    // 1. Fetch Departments
     useEffect(() => {
         const fetchDepartments = async () => {
             if (!instituteId) return;
@@ -23,13 +24,29 @@ export default function AddStudent({ instituteId, instituteName }) {
         fetchDepartments();
     }, [instituteId]);
 
+    // 2. Handle Submit
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
-        const toastId = toast.loading("Creating Student...");
+        const toastId = toast.loading("Verifying Roll No...");
 
         try {
-            // 1. Create User in Backend (Database)
+            // ✅ STEP 1: Check for Duplicate Roll No
+            const q = query(
+                collection(db, "users"),
+                where("instituteId", "==", instituteId),
+                where("department", "==", form.department),
+                where("rollNo", "==", form.rollNo)
+            );
+            const snap = await getDocs(q);
+
+            if (!snap.empty) {
+                throw new Error(`Roll No. ${form.rollNo} already exists in ${form.department}!`);
+            }
+
+            // ✅ STEP 2: Create User in Backend (Database Only)
+            toast.loading("Creating Student...", { id: toastId });
+            
             const response = await fetch(`${BACKEND_URL}/createUser`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -41,15 +58,16 @@ export default function AddStudent({ instituteId, instituteName }) {
                 })
             });
 
+            const data = await response.json();
+
             if (!response.ok) {
-                const data = await response.json();
                 throw new Error(data.error || "Failed to create student");
             }
 
-            // 2. ✅ Send Firebase Built-in Reset Email from Frontend
+            // ✅ STEP 3: Send Reset Email (Frontend)
             await sendPasswordResetEmail(auth, form.email);
 
-            // 3. Show Success
+            // Success!
             toast.success('Student added! Reset email sent.', { id: toastId });
             setForm({ firstName: "", lastName: "", email: "", rollNo: "", department: "", password: "" });
 
@@ -81,7 +99,8 @@ export default function AddStudent({ instituteId, instituteName }) {
 
                     <div className="input-group"><label>Roll No</label><input type="text" value={form.rollNo} onChange={e => setForm({...form, rollNo: e.target.value})} required /></div>
                     <div className="input-group"><label>Email</label><input type="email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} required /></div>
-                    <div className="input-group"><label>Password</label><input type="password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} required /></div>
+                    <div className="input-group"><label>Temp Password</label><input type="password" value={form.password} onChange={e => setForm({...form, password: e.target.value})} required /></div>
+                    
                     <button className="btn-primary" disabled={loading}>{loading ? 'Adding...' : 'Add Student'}</button>
                 </form>
             </div>

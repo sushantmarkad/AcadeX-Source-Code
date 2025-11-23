@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
-import './Login.css'; // Reusing Login CSS
+import './Login.css'; 
 
 // ✅ Animation Imports
 import IOSPage from "../components/IOSPage";
@@ -13,7 +13,9 @@ import { buttonTap } from "../animations/interactionVariants";
 export default function CheckStatus() {
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState(''); // 'approved', 'pending', 'denied', 'error'
+  const [loading, setLoading] = useState(false);
+  
   const navigate = useNavigate();
   const playSound = useIOSSound();
 
@@ -21,87 +23,121 @@ export default function CheckStatus() {
     e.preventDefault();
     setMessage('');
     setStatus('');
+    setLoading(true);
     playSound('tap');
 
     if (!email) {
       setStatus('error');
-      setMessage('Please enter the email address you used to apply.');
+      setMessage('Please enter your email address.');
       playSound('error');
+      setLoading(false);
       return;
     }
 
     try {
-      const q = query(collection(db, "applications"), where("email", "==", email));
-      const querySnapshot = await getDocs(q);
+      // 1️⃣ Check Student Requests (Pending / Denied)
+      const qRequest = query(collection(db, "student_requests"), where("email", "==", email));
+      const snapRequest = await getDocs(qRequest);
 
-      if (querySnapshot.empty) {
-        setStatus('error');
-        setMessage('No application found with this email address.');
-        playSound('error');
+      if (!snapRequest.empty) {
+        const data = snapRequest.docs[0].data();
+        
+        if (data.status === 'pending') {
+          setStatus('pending');
+          setMessage('⏳ Application Pending. Waiting for HOD Approval.');
+          playSound('success'); // Soft success for found
+        } else if (data.status === 'denied') {
+          setStatus('denied');
+          setMessage('❌ Application Denied. Please contact your HOD.');
+          playSound('error');
+        } else {
+            setStatus('error');
+            setMessage('Unknown status.');
+        }
       } else {
-        const appData = querySnapshot.docs[0].data();
-        setStatus(appData.status);
-        playSound('success');
-        if (appData.status === 'approved') {
-          setMessage('Congratulations! Your application has been approved. You will receive your login credentials from the super admin shortly.');
-        } else if (appData.status === 'pending') {
-          setMessage('Your application is still pending. Please check back later.');
-        } else if (appData.status === 'denied') {
-          setMessage('We regret to inform you that your application was not approved at this time.');
+        // 2️⃣ Check Users Collection (Approved & Active)
+        // If approved, the request doc is deleted, so we must check the 'users' table.
+        const qUser = query(collection(db, "users"), where("email", "==", email));
+        const snapUser = await getDocs(qUser);
+
+        if (!snapUser.empty) {
+          setStatus('approved');
+          setMessage('✅ Account Active! You can Login now.');
+          playSound('success');
+        } else {
+          // 3️⃣ Not found anywhere
+          setStatus('error');
+          setMessage('No application found with this email.');
+          playSound('error');
         }
       }
+
     } catch (error) {
       setStatus('error');
-      setMessage('An error occurred while checking your status. Please try again.');
+      setMessage('Error checking status. Try again.');
+      console.error("Error:", error);
       playSound('error');
-      console.error("Error checking status:", error);
+    } finally {
+        setLoading(false);
     }
   };
 
+  // Dynamic CSS Class for Message
   const getMessageClass = () => {
     switch (status) {
       case 'approved': return 'success-message';
-      case 'error':
-      case 'denied': return 'error-message';
-      default: return 'info-message';
+      case 'pending': return 'info-message'; // Yellow/Blue style
+      case 'denied': 
+      case 'error': return 'error-message';
+      default: return '';
     }
   };
 
   return (
     <IOSPage>
-      {/* ✅ Added Wrapper for Centering */}
       <div className="login-wrapper">
         <div className="login-container">
           <div className="login-header">
             <img className="login-logo" src="https://iili.io/KoAVeZg.md.png" alt="AcadeX Logo" />
-            <h1>Check Application Status</h1>
+            <h1>Check Status</h1>
           </div>
+          
           <form className="login-form" onSubmit={handleCheckStatus}>
             <div className="input-group">
-              <label>Application Email</label>
+              <label>Email Address</label>
               <input
                 type="email"
-                placeholder="Enter the email used to apply"
+                placeholder="Enter your registered email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
               />
             </div>
             
-            {message && <p className={getMessageClass()}>{message}</p>}
+            {message && (
+                <motion.div 
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={getMessageClass()}
+                    style={{ padding: '12px', borderRadius: '10px', textAlign: 'center', fontWeight: '500', marginBottom: '15px' }}
+                >
+                    {message}
+                </motion.div>
+            )}
 
             <motion.button 
                 type="submit" 
                 className="btn-primary"
+                disabled={loading}
                 variants={buttonTap}
                 whileTap="tap"
             >
-                Check Status
+                {loading ? 'Checking...' : 'Check Status'}
             </motion.button>
             
             <p style={{ marginTop: '15px', textAlign: 'center' }}>
               Back to{" "}
-              <span style={{ color: "#075eec", cursor: "pointer" }} onClick={() => { playSound('tap'); navigate("/"); }}>
+              <span style={{ color: "#075eec", cursor: "pointer", fontWeight:'600' }} onClick={() => { playSound('tap'); navigate("/"); }}>
                 Sign In
               </span>
             </p>
