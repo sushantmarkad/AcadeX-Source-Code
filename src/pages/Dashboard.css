@@ -665,3 +665,33 @@ div[style*="z-index"] {
     transform: translateY(-2px);
     box-shadow: 0 8px 20px rgba(37, 99, 235, 0.35);
 }
+/* Modern Search Bar */
+.search-box-wrapper {
+    position: relative;
+    max-width: 350px;
+    margin-bottom: 25px;
+}
+.search-icon {
+    position: absolute;
+    left: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #94a3b8;
+    font-size: 16px;
+}
+.search-input-modern {
+    width: 100%;
+    padding: 12px 12px 12px 45px; /* Space for icon */
+    border: 1px solid #e2e8f0;
+    border-radius: 30px; /* Pill shape */
+    font-size: 14px;
+    background: white;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+    font-family: 'Poppins', sans-serif;
+}
+.search-input-modern:focus {
+    border-color: var(--tech-blue);
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15);
+    outline: none;
+}

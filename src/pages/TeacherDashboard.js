@@ -6,14 +6,14 @@ import { collection, doc, setDoc, serverTimestamp, onSnapshot, query, where, get
 import { QRCodeSVG } from 'qrcode.react';
 import { CSVLink } from 'react-csv';
 import toast, { Toaster } from 'react-hot-toast'; 
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid } from 'recharts'; 
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid, Defs, LinearGradient, Stop } from 'recharts'; // ✅ Added Defs, LinearGradient
 import './Dashboard.css'; 
 import AddTasks from './AddTasks';
 import Profile from './Profile';
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
-// Helper: Greeting
+// Helper: Dynamic Greeting
 const getGreeting = () => {
   const hour = new Date().getHours();
   if (hour < 12) return "Good morning";
@@ -22,7 +22,7 @@ const getGreeting = () => {
 };
 
 // ------------------------------------
-//  COMPONENT: TEACHER ANALYTICS (New)
+//  COMPONENT: TEACHER ANALYTICS (Modern & Real Data)
 // ------------------------------------
 const TeacherAnalytics = ({ teacherInfo }) => {
     const [chartData, setChartData] = useState([]);
@@ -41,7 +41,17 @@ const TeacherAnalytics = ({ teacherInfo }) => {
                     })
                 });
                 const data = await res.json();
-                if (data.chartData) setChartData(data.chartData);
+                
+                // If backend returns empty or valid data, use it. 
+                // Fallback to 0 values if empty to show empty chart instead of nothing.
+                const processedData = data.chartData || [
+                    { name: 'Sun', present: 0 }, { name: 'Mon', present: 0 }, 
+                    { name: 'Tue', present: 0 }, { name: 'Wed', present: 0 }, 
+                    { name: 'Thu', present: 0 }, { name: 'Fri', present: 0 }, 
+                    { name: 'Sat', present: 0 }
+                ];
+                
+                setChartData(processedData);
             } catch (e) { 
                 console.error(e); 
                 toast.error("Failed to load analytics");
@@ -54,14 +64,27 @@ const TeacherAnalytics = ({ teacherInfo }) => {
 
     if (loading) return <div className="content-section"><p>Loading Charts...</p></div>;
 
+    // Custom Tooltip for Chart
+    const CustomTooltip = ({ active, payload, label }) => {
+        if (active && payload && payload.length) {
+            return (
+                <div style={{ background: 'white', padding: '10px 15px', borderRadius: '10px', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', border: '1px solid #f1f5f9' }}>
+                    <p style={{ margin: 0, fontWeight: 'bold', color: '#1e293b', fontSize: '14px' }}>{label}</p>
+                    <p style={{ margin: 0, color: '#3b82f6', fontSize: '13px' }}>Present: {payload[0].value}</p>
+                </div>
+            );
+        }
+        return null;
+    };
+
     return (
         <div className="content-section">
             <h2 className="content-title">Class Analytics</h2>
             <p className="content-subtitle">Performance trends for <strong>{teacherInfo.subject}</strong></p>
 
             <div className="cards-grid">
-                {/* Weekly Trend Chart */}
-                <div className="card" style={{height: '400px', padding:'25px', gridColumn: '1 / -1'}}>
+                {/* Weekly Trend Chart - Styled */}
+                <div className="card" style={{height: '400px', padding:'25px', gridColumn: '1 / -1', overflow:'hidden'}}>
                      <div style={{display:'flex', alignItems:'center', gap:'12px', marginBottom:'20px'}}>
                         <div className="icon-box-modern" style={{background:'#e0f2fe', color:'#0284c7'}}>
                              <i className="fas fa-chart-bar"></i>
@@ -71,24 +94,17 @@ const TeacherAnalytics = ({ teacherInfo }) => {
                     
                     <ResponsiveContainer width="100%" height="85%">
                         <BarChart data={chartData} margin={{top: 10, right: 10, left: -20, bottom: 0}}>
+                            <defs>
+                                <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="0%" stopColor="#3b82f6" stopOpacity={1}/>
+                                    <stop offset="100%" stopColor="#2563eb" stopOpacity={0.6}/>
+                                </linearGradient>
+                            </defs>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                             <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill:'#64748b', fontSize:12}} dy={10} />
                             <YAxis axisLine={false} tickLine={false} tick={{fill:'#64748b', fontSize:12}} />
-                            <Tooltip 
-                                cursor={{fill: '#f8fafc'}} 
-                                contentStyle={{borderRadius:'12px', border:'none', boxShadow:'0 10px 30px rgba(0,0,0,0.1)'}} 
-                            />
-                            <Bar dataKey="present" fill="#3b82f6" radius={[6, 6, 0, 0]} barSize={40} animationDuration={1000}>
-                                {chartData.map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={`url(#colorGradient-${index})`} />
-                                ))}
-                            </Bar>
-                            <defs>
-                                <linearGradient id="colorGradient-0" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="0%" stopColor="#3b82f6" stopOpacity={1}/>
-                                    <stop offset="100%" stopColor="#2563eb" stopOpacity={0.8}/>
-                                </linearGradient>
-                            </defs>
+                            <Tooltip content={<CustomTooltip />} cursor={{fill: '#f8fafc'}} />
+                            <Bar dataKey="present" fill="url(#barGradient)" radius={[8, 8, 0, 0]} barSize={45} animationDuration={1500} />
                         </BarChart>
                     </ResponsiveContainer>
                 </div>
@@ -98,7 +114,7 @@ const TeacherAnalytics = ({ teacherInfo }) => {
 };
 
 // ------------------------------------
-//  DASHBOARD HOME (Live & Past)
+//  DASHBOARD HOME (Live & Past - Restored Styles)
 // ------------------------------------
 const DashboardHome = ({ teacherInfo, activeSession, attendanceList, sessionError, onSessionToggle }) => {
     const [qrCodeValue, setQrCodeValue] = useState('');
@@ -165,20 +181,41 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, sessionErro
                     <p className="content-subtitle">Manage your classroom activities.</p>
                 </div>
                 
-                {/* ✅ View Toggle */}
-                <div className="view-toggle">
-                    <button onClick={() => setViewMode('live')} className={viewMode === 'live' ? 'active' : ''}>Live Class</button>
-                    <button onClick={() => setViewMode('history')} className={viewMode === 'history' ? 'active' : ''}>Past Reports</button>
+                {/* ✅ Modern View Toggle */}
+                <div style={{display:'flex', gap:'5px', background:'#fff', padding:'5px', borderRadius:'12px', border: '1px solid #e2e8f0', boxShadow: '0 2px 5px rgba(0,0,0,0.02)'}}>
+                    <button 
+                        onClick={() => setViewMode('live')} 
+                        style={{
+                            padding:'8px 20px', borderRadius:'8px', border:'none', cursor:'pointer', fontWeight:'600', fontSize:'13px',
+                            background: viewMode === 'live' ? '#eff6ff' : 'transparent',
+                            color: viewMode === 'live' ? '#2563eb' : '#64748b',
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        Live Class
+                    </button>
+                    <button 
+                        onClick={() => setViewMode('history')} 
+                        style={{
+                            padding:'8px 20px', borderRadius:'8px', border:'none', cursor:'pointer', fontWeight:'600', fontSize:'13px',
+                            background: viewMode === 'history' ? '#eff6ff' : 'transparent',
+                            color: viewMode === 'history' ? '#2563eb' : '#64748b',
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        Past Reports
+                    </button>
                 </div>
             </div>
             
-            {/* --- VIEW 1: LIVE CLASS --- */}
+            {/* --- VIEW 1: LIVE CLASS (Restored Gradient Cards) --- */}
             {viewMode === 'live' && (
                 <div className="cards-grid">
-                    {/* Session Control */}
+                    {/* Session Control - Gradient Restored */}
                     <div className="card" style={{ 
-                        background: activeSession ? 'linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%)' : 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
-                        border: 'none', display: 'flex', flexDirection: 'column', justifyContent: 'space-between'
+                        background: activeSession ? 'linear-gradient(135deg, #d1fae5 0%, #ecfdf5 100%)' : 'linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%)',
+                        border: activeSession ? '1px solid #a7f3d0' : '1px solid #bfdbfe',
+                        display: 'flex', flexDirection: 'column', justifyContent: 'space-between'
                     }}>
                         <div>
                             <div style={{display:'flex', alignItems:'center', gap:'12px', marginBottom:'12px'}}>
@@ -186,19 +223,21 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, sessionErro
                                     <i className={`fas ${activeSession ? 'fa-broadcast-tower' : 'fa-play'}`}></i>
                                 </div>
                                 <div>
-                                    <h3 style={{margin:0, color: activeSession ? '#14532d' : '#1e3a8a', fontSize: '18px'}}>{activeSession ? 'Session Live' : 'Start Class'}</h3>
+                                    <h3 style={{margin:0, color: activeSession ? '#14532d' : '#1e3a8a', fontSize: '18px', fontWeight: '700'}}>
+                                        {activeSession ? 'Session Live' : 'Start Class'}
+                                    </h3>
                                     {activeSession && <span className="status-badge-pill" style={{background:'white', color:'#15803d', fontSize:'10px', padding:'2px 8px', marginTop:'4px'}}>ACTIVE</span>}
                                 </div>
                             </div>
-                            <p style={{ color: activeSession ? '#166534' : '#1e40af', marginBottom: '20px', fontSize:'13px' }}>
-                                {activeSession ? `Code refreshes in ${timer}s.` : "Create secure QR session."}
+                            <p style={{ color: activeSession ? '#166534' : '#1e40af', marginBottom: '20px', fontSize:'13px', opacity: 0.9 }}>
+                                {activeSession ? `QR Code refreshes automatically in ${timer}s.` : "Start a secure QR session for today."}
                             </p>
                         </div>
                         <button 
                             onClick={onSessionToggle} 
                             className={activeSession ? "btn-modern-danger" : "btn-modern-primary"} 
                             disabled={!teacherInfo}
-                            style={{ marginTop: 'auto' }} 
+                            style={{ marginTop: 'auto', boxShadow: 'none' }} 
                         >
                             {activeSession ? 'End Session' : 'Start New Session'}
                         </button>
@@ -206,20 +245,26 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, sessionErro
 
                     {/* Live Stats */}
                     <div className="card">
-                         <div style={{display:'flex', alignItems:'center', gap:'12px', marginBottom:'20px'}}>
-                            <div className="icon-box-modern" style={{background:'#fff7ed', color:'#ea580c'}}><i className="fas fa-users"></i></div>
+                        <div style={{display:'flex', alignItems:'center', gap:'12px', marginBottom:'20px'}}>
+                            <div className="icon-box-modern" style={{background:'#fff7ed', color:'#ea580c'}}>
+                                <i className="fas fa-users"></i>
+                            </div>
                             <h3 style={{margin:0, fontSize: '18px'}}>Total Present</h3>
                         </div>
+                        
                         {activeSession ? (
                             <div style={{marginTop: 'auto'}}>
                                 <div style={{display:'flex', alignItems:'baseline', gap:'8px'}}>
-                                    <span style={{fontSize:'56px', fontWeight:'800', color:'#1e293b'}}>{attendanceList.length}</span>
-                                    <span style={{color:'#64748b', fontSize:'16px', fontWeight:500}}>Students</span>
+                                    <span style={{fontSize:'56px', fontWeight:'800', color:'var(--text-primary)', lineHeight: '1'}}>
+                                        {attendanceList.length}
+                                    </span>
+                                    <span style={{color:'var(--text-secondary)', fontSize:'16px', fontWeight:500}}>Students</span>
                                 </div>
                             </div>
                         ) : (
-                            <div style={{textAlign:'center', padding:'20px 0', opacity:0.6, marginTop:'auto'}}>
-                                <p style={{margin:0, fontSize:'14px', fontStyle: 'italic'}}>Waiting for session...</p>
+                            <div style={{textAlign:'center', padding:'30px 0', opacity:0.5, marginTop:'auto'}}>
+                                <i className="fas fa-clock" style={{fontSize:'24px', marginBottom:'10px'}}></i>
+                                <p style={{margin:0, fontSize:'13px', fontStyle: 'italic'}}>Waiting for session...</p>
                             </div>
                         )}
                     </div>
@@ -227,33 +272,53 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, sessionErro
                     {/* QR Code */}
                     {activeSession && (
                         <div className="card card-full-width" style={{textAlign:'center', border: 'none', boxShadow: '0 8px 30px rgba(0,0,0,0.06)'}}>
+                            <div style={{marginBottom: '20px'}}>
+                                <h3 style={{margin:0, color: '#1e293b'}}>Scan for Attendance</h3>
+                                <p style={{color:'#64748b', fontSize:'13px'}}>Project this on the classroom screen</p>
+                            </div>
                             <div className="qr-code-wrapper" style={{background: 'white', padding:'20px', borderRadius: '16px', boxShadow: '0 10px 25px rgba(37,99,235,0.1)', display: 'inline-block'}}>
-                                <QRCodeSVG value={qrCodeValue} size={250} />
+                                <QRCodeSVG value={qrCodeValue} size={220} />
                             </div>
                             <div style={{marginTop: '24px', maxWidth:'300px', marginInline:'auto'}}>
-                                <div style={{display:'flex', justifyContent:'space-between', marginBottom:'8px', fontSize:'13px', fontWeight:'600', color:'#64748b'}}>
-                                    <span>Security Refresh</span><span>{timer}s</span>
+                                <div style={{display:'flex', justifyContent:'space-between', marginBottom:'8px', fontSize:'12px', fontWeight:'600', color:'#64748b'}}>
+                                    <span>Security Refreshes in </span>
+                                    <span>{timer}s</span>
                                 </div>
-                                <div style={{width: '100%', height: '8px', background: '#f1f5f9', borderRadius: '4px', overflow:'hidden'}}>
+                                <div style={{width: '100%', height: '6px', background: '#f1f5f9', borderRadius: '3px', overflow:'hidden'}}>
                                     <div style={{width: `${(timer/10)*100}%`, height: '100%', background: 'linear-gradient(90deg, #2563eb, #14b8a6)', transition: 'width 1s linear'}}></div>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* List */}
+                    {/* Attendance List */}
                      {activeSession && (
-                         <div className="card card-full-width" style={{marginTop: '10px', padding:'0', overflow:'hidden'}}>
+                         <div className="card card-full-width" style={{marginTop: '20px', padding:'0', overflow:'hidden'}}>
                             <div style={{padding:'20px', borderBottom:'1px solid #f1f5f9', display:'flex', justifyContent:'space-between', alignItems:'center', background:'#f8fafc'}}>
-                                <h3 style={{margin:0, fontSize:'16px', fontWeight:'700'}}>Live Student List</h3>
-                                <span className="status-badge-pill" style={{background:'#dcfce7', color:'#15803d'}}>Live</span>
+                                <h3 style={{margin:0, fontSize:'16px', fontWeight:'700', color:'#1e293b'}}>Live Student List</h3>
+                                <span className="status-badge-pill" style={{background:'#dcfce7', color:'#15803d'}}>Live Updates</span>
                             </div>
+                            
                             <div className="table-wrapper" style={{border:'none', borderRadius:0}}>
                                 <table className="attendance-table">
-                                    <thead style={{background:'white'}}><tr><th>Roll No.</th><th>Name</th></tr></thead>
+                                    <thead style={{background:'white'}}>
+                                        <tr>
+                                            <th>Roll No.</th>
+                                            <th>Name</th>
+                                        </tr>
+                                    </thead>
                                     <tbody>
-                                        {attendanceList.map(s => (<tr key={s.id}><td style={{fontWeight:'600', color:'#334155'}}>{s.rollNo}</td><td>{s.firstName} {s.lastName}</td></tr>))}
-                                        {attendanceList.length === 0 && <tr><td colSpan="2" style={{textAlign:'center', padding:'40px', color:'#94a3b8'}}>Waiting for scans...</td></tr>}
+                                        {attendanceList.map(s => (
+                                            <tr key={s.id}>
+                                                <td style={{fontWeight:'600', color:'#334155'}}>{s.rollNo}</td>
+                                                <td style={{fontWeight:'500'}}>{s.firstName} {s.lastName}</td>
+                                            </tr>
+                                        ))}
+                                        {attendanceList.length === 0 && (
+                                            <tr><td colSpan="2" style={{textAlign:'center', padding:'40px', color:'var(--text-secondary)'}}>
+                                                <i className="fas fa-spinner fa-spin" style={{marginRight:'8px'}}></i> Waiting for scans...
+                                            </td></tr>
+                                        )}
                                     </tbody>
                                 </table>
                             </div>
@@ -262,23 +327,23 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, sessionErro
                 </div>
             )}
 
-            {/* --- VIEW 2: PAST REPORTS (✅ Redesigned) --- */}
+            {/* --- VIEW 2: PAST REPORTS (Improved UI) --- */}
             {viewMode === 'history' && (
                 <div className="cards-grid">
                      {/* Date Picker Card */}
                     <div className="card card-full-width" style={{display:'flex', alignItems:'center', gap:'20px', padding:'20px', background:'#f8fafc'}}>
                         <div style={{flex:1}}>
-                            <label style={{fontSize:'12px', fontWeight:'700', color:'#64748b', marginBottom:'6px', display:'block', textTransform:'uppercase'}}>Select Date</label>
+                            <label style={{fontSize:'11px', fontWeight:'700', color:'#64748b', marginBottom:'6px', display:'block', textTransform:'uppercase', letterSpacing:'0.5px'}}>Select Date</label>
                             <input 
                                 type="date" 
                                 value={selectedDate} 
                                 onChange={(e) => setSelectedDate(e.target.value)}
-                                style={{width:'100%', padding:'12px', border:'1px solid #cbd5e1', borderRadius:'10px', fontSize:'15px', fontWeight:'500'}}
+                                style={{width:'100%', padding:'10px', border:'1px solid #cbd5e1', borderRadius:'8px', fontSize:'14px', fontWeight:'500', outline:'none'}}
                             />
                         </div>
-                        <div style={{flex:2, paddingLeft:'20px', borderLeft:'1px solid #e2e8f0'}}>
-                            <p style={{fontSize:'13px', color:'#64748b', margin:0}}>Report for:</p>
-                            <h3 style={{margin:'4px 0 0 0', fontSize:'22px', color:'#1e293b'}}>{new Date(selectedDate).toDateString()}</h3>
+                        <div style={{flex:2, paddingLeft:'20px', borderLeft:'2px solid #e2e8f0'}}>
+                            <p style={{fontSize:'12px', color:'#64748b', margin:0, textTransform:'uppercase', letterSpacing:'0.5px'}}>Viewing Report for:</p>
+                            <h3 style={{margin:'4px 0 0 0', fontSize:'20px', color:'#1e293b'}}>{new Date(selectedDate).toDateString()}</h3>
                         </div>
                     </div>
 
@@ -286,7 +351,7 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, sessionErro
                     <div className="card" style={{background:'#f0fdf4', borderLeft:'5px solid #10b981', padding:'20px'}}>
                         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                             <div>
-                                <span style={{fontSize:'12px', fontWeight:'bold', color:'#166534', textTransform:'uppercase'}}>Present</span>
+                                <span style={{fontSize:'11px', fontWeight:'800', color:'#166534', textTransform:'uppercase'}}>Present</span>
                                 <h2 style={{margin:'5px 0 0 0', fontSize:'32px', color:'#14532d'}}>{historyStats.present}</h2>
                             </div>
                             <div className="icon-box-modern" style={{background:'rgba(255,255,255,0.5)', color:'#15803d'}}><i className="fas fa-check-circle"></i></div>
@@ -296,7 +361,7 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, sessionErro
                     <div className="card" style={{background:'#fef2f2', borderLeft:'5px solid #ef4444', padding:'20px'}}>
                         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                             <div>
-                                <span style={{fontSize:'12px', fontWeight:'bold', color:'#991b1b', textTransform:'uppercase'}}>Absent</span>
+                                <span style={{fontSize:'11px', fontWeight:'800', color:'#991b1b', textTransform:'uppercase'}}>Absent</span>
                                 <h2 style={{margin:'5px 0 0 0', fontSize:'32px', color:'#7f1d1d'}}>{historyStats.absent}</h2>
                             </div>
                              <div className="icon-box-modern" style={{background:'rgba(255,255,255,0.5)', color:'#dc2626'}}><i className="fas fa-times-circle"></i></div>
@@ -306,7 +371,7 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, sessionErro
                     <div className="card" style={{background:'#eff6ff', borderLeft:'5px solid #3b82f6', padding:'20px'}}>
                         <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                             <div>
-                                <span style={{fontSize:'12px', fontWeight:'bold', color:'#1e40af', textTransform:'uppercase'}}>Total</span>
+                                <span style={{fontSize:'11px', fontWeight:'800', color:'#1e40af', textTransform:'uppercase'}}>Total</span>
                                 <h2 style={{margin:'5px 0 0 0', fontSize:'32px', color:'#1e3a8a'}}>{historyStats.total}</h2>
                             </div>
                              <div className="icon-box-modern" style={{background:'rgba(255,255,255,0.5)', color:'#2563eb'}}><i className="fas fa-users"></i></div>
@@ -316,21 +381,32 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, sessionErro
                     {/* Detailed List */}
                     <div className="card card-full-width" style={{marginTop:'10px'}}>
                         <div style={{padding:'20px', borderBottom:'1px solid #f1f5f9'}}>
-                            <h3 style={{margin:0, fontSize:'18px'}}>Detailed List</h3>
+                            <h3 style={{margin:0, fontSize:'18px', color:'#1e293b'}}>Attendance List</h3>
                         </div>
                         <div className="table-wrapper" style={{border:'none'}}>
                             <table className="attendance-table">
-                                <thead><tr><th>Roll No</th><th>Name</th><th>Time In</th><th>Status</th></tr></thead>
+                                <thead style={{background:'#f8fafc'}}>
+                                    <tr>
+                                        <th>Roll No</th>
+                                        <th>Name</th>
+                                        <th>Time In</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
                                 <tbody>
                                     {historyList.map(item => (
                                         <tr key={item.id}>
                                             <td style={{fontWeight:'bold', color:'#334155'}}>{item.rollNo}</td>
                                             <td>{item.firstName} {item.lastName}</td>
-                                            <td>{item.timestamp?.toDate().toLocaleTimeString()}</td>
+                                            <td style={{color:'#64748b'}}>{item.timestamp?.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</td>
                                             <td><span className="status-badge status-approved">Present</span></td>
                                         </tr>
                                     ))}
-                                    {historyList.length === 0 && <tr><td colSpan="4" style={{textAlign:'center', padding:'30px', color:'#94a3b8', fontStyle:'italic'}}>No attendance records found for this date.</td></tr>}
+                                    {historyList.length === 0 && (
+                                        <tr><td colSpan="4" style={{textAlign:'center', padding:'40px', color:'#94a3b8', fontStyle:'italic'}}>
+                                            No records found for this date.
+                                        </td></tr>
+                                    )}
                                 </tbody>
                             </table>
                         </div>
@@ -353,13 +429,11 @@ export default function TeacherDashboard() {
   const [sessionError, setSessionError] = useState('');
   const navigate = useNavigate();
 
-  // 1. Sound Effect
   const playSessionStartSound = () => {
     const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2578/2578-preview.mp3');
     audio.play().catch(error => console.log("Audio play failed:", error));
   };
 
-  // 2. Fetch Teacher Profile
   useEffect(() => {
     if (!auth.currentUser) return;
     const userDocRef = doc(db, "users", auth.currentUser.uid);
@@ -367,7 +441,6 @@ export default function TeacherDashboard() {
     return () => unsubscribe();
   }, []);
 
-  // 3. Fetch Active Session
   useEffect(() => {
     if (!auth.currentUser) return;
     const q = query(collection(db, 'live_sessions'), where('teacherId', '==', auth.currentUser.uid), where('isActive', '==', true));
@@ -375,7 +448,6 @@ export default function TeacherDashboard() {
     return () => unsubscribe();
   }, []);
 
-  // 4. Fetch Attendance List
   useEffect(() => {
     if (activeSession) {
         const q = query(collection(db, 'attendance'), where('sessionId', '==', activeSession.sessionId));
@@ -384,7 +456,6 @@ export default function TeacherDashboard() {
     } else setAttendanceList([]);
   }, [activeSession]);
 
-  // 5. Handle Session
   const handleSession = async () => {
     if (activeSession) {
         const toastId = toast.loading("Ending Session...");
@@ -432,7 +503,7 @@ export default function TeacherDashboard() {
     if(!teacherInfo) return <div style={{textAlign: 'center', marginTop: '50px'}}>Loading...</div>;
     switch (activePage) {
         case 'dashboard': return <DashboardHome teacherInfo={teacherInfo} activeSession={activeSession} attendanceList={attendanceList} sessionError={sessionError} onSessionToggle={handleSession} />;
-        case 'analytics': return <TeacherAnalytics teacherInfo={teacherInfo} />; // ✅ Integrated
+        case 'analytics': return <TeacherAnalytics teacherInfo={teacherInfo} />; // ✅ New Tab
         case 'addTasks': return <AddTasks />;
         case 'profile': return <Profile user={teacherInfo} />;
         default: return <DashboardHome teacherInfo={teacherInfo} activeSession={activeSession} attendanceList={attendanceList} sessionError={sessionError} onSessionToggle={handleSession} />;
@@ -440,20 +511,14 @@ export default function TeacherDashboard() {
   };
 
   const csvHeaders = [ { label: "Roll No.", key: "rollNo" }, { label: "First Name", key: "firstName" }, { label: "Last Name", key: "lastName" }, { label: "Email", key: "studentEmail" } ];
-
-  const NavLink = ({ page, iconClass, label }) => (
-      <li className={activePage === page ? 'active' : ''} onClick={() => {setActivePage(page); setIsMobileNavOpen(false);}} style={{display:'flex', alignItems:'center', gap:'12px'}}>
-          <i className={`fas ${iconClass}`} style={{width:'20px', textAlign:'center'}}></i> <span>{label}</span>
-      </li>
-  );
+  const NavLink = ({ page, iconClass, label }) => ( <li className={activePage === page ? 'active' : ''} onClick={() => {setActivePage(page); setIsMobileNavOpen(false);}} style={{display:'flex', alignItems:'center', gap:'12px'}}><i className={`fas ${iconClass}`} style={{width:'20px', textAlign:'center'}}></i> <span>{label}</span></li> );
   
   return (
     <div className="dashboard-container">
-      <Toaster position="top-center" reverseOrder={false} />
+      <Toaster position="top-center" />
       {isMobileNavOpen && <div className="nav-overlay" onClick={() => setIsMobileNavOpen(false)}></div>}
-      
       <aside className={`sidebar ${isMobileNavOpen ? 'open' : ''}`}>
-        <div className="logo-container"><img src="https://iili.io/KoAVeZg.md.png" alt="Logo" className="sidebar-logo"/><span className="logo-text">Acadex</span></div>
+        <div className="logo-container"><img src="https://iili.io/KoAVeZg.md.png" alt="AcadeX Logo" className="sidebar-logo"/><span className="logo-text">Acadex</span></div>
         {teacherInfo && ( <div className="teacher-info" onClick={() => { setActivePage('profile'); setIsMobileNavOpen(false); }} style={{cursor:'pointer'}}><h4>{teacherInfo.firstName} {teacherInfo.lastName}</h4><p>{teacherInfo.subject}</p><div className="edit-profile-pill"><i className="fas fa-pen" style={{fontSize:'10px'}}></i><span>Edit Profile</span></div></div> )}
         <ul className="menu">
             <NavLink page="dashboard" iconClass="fa-th-large" label="Dashboard" />
@@ -465,7 +530,6 @@ export default function TeacherDashboard() {
         </ul>
         <div className="sidebar-footer"><button onClick={handleLogout} className="logout-btn"><i className="fas fa-sign-out-alt"></i><span>Logout</span></button></div>
       </aside>
-
       <main className="main-content">
         <header className="mobile-header"><button className="hamburger-btn" onClick={() => setIsMobileNavOpen(true)}><i className="fas fa-bars"></i></button><div className="mobile-brand"><img src="https://iili.io/KoAVeZg.md.png" alt="Logo" className="mobile-logo-img" /><span className="mobile-logo-text">AcadeX</span></div><div style={{width:'40px'}}></div></header>
         {renderContent()}

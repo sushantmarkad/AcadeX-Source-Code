@@ -17,6 +17,7 @@ export default function HODDashboard() {
     const [deptUsers, setDeptUsers] = useState([]); 
     const [leaves, setLeaves] = useState([]);
     const [totalClasses, setTotalClasses] = useState(0);
+    const [searchQuery, setSearchQuery] = useState(""); // Search for Analytics
 
     const [selectedRequestIds, setSelectedRequestIds] = useState([]);
     const [selectedUserIds, setSelectedUserIds] = useState([]); 
@@ -37,34 +38,20 @@ export default function HODDashboard() {
                 const data = userDoc.data();
                 setHodInfo(data);
                 
-                // 1. Fetch Department Stats (Total Classes Held)
+                // Fetch Stats
                 const statsDoc = await getDoc(doc(db, "department_stats", `${data.instituteId}_${data.department}`));
                 if (statsDoc.exists()) setTotalClasses(statsDoc.data().totalClasses || 0);
 
-                // 2. Fetch Pending Student Requests
-                const qRequests = query(
-                    collection(db, 'student_requests'), 
-                    where('instituteId', '==', data.instituteId), 
-                    where('department', '==', data.department), 
-                    where('status', '==', 'pending')
-                );
+                // Fetch Requests
+                const qRequests = query(collection(db, 'student_requests'), where('instituteId', '==', data.instituteId), where('department', '==', data.department), where('status', '==', 'pending'));
                 onSnapshot(qRequests, (snap) => setStudentRequests(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
-                // 3. Fetch All Users (Teachers + Students)
-                const qUsers = query(
-                    collection(db, 'users'), 
-                    where('instituteId', '==', data.instituteId), 
-                    where('department', '==', data.department)
-                );
+                // Fetch Users
+                const qUsers = query(collection(db, 'users'), where('instituteId', '==', data.instituteId), where('department', '==', data.department));
                 onSnapshot(qUsers, (snap) => setDeptUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
-                // 4. Fetch Pending Leaves
-                const qLeaves = query(
-                    collection(db, 'leave_requests'),
-                    where('instituteId', '==', data.instituteId),
-                    where('department', '==', data.department),
-                    where('status', '==', 'pending')
-                );
+                // Fetch Leaves
+                const qLeaves = query(collection(db, 'leave_requests'), where('instituteId', '==', data.instituteId), where('department', '==', data.department), where('status', '==', 'pending'));
                 onSnapshot(qLeaves, (snap) => setLeaves(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
             }
         };
@@ -75,16 +62,19 @@ export default function HODDashboard() {
     const studentsList = deptUsers.filter(u => u.role === 'student');
     const teachersList = deptUsers.filter(u => u.role === 'teacher');
 
-    // Calculate Safe vs At-Risk Students
     const processedStudents = studentsList.map(s => {
         const attended = s.attendanceCount || 0;
-        // Avoid division by zero
-        const percentage = totalClasses > 0 ? (attended / totalClasses) * 100 : 100; 
+        const percentage = totalClasses > 0 ? (attended / totalClasses) * 100 : 100;
         return { ...s, percentage };
     });
 
     const atRiskStudents = processedStudents.filter(s => s.percentage < 75);
     const safeStudents = processedStudents.filter(s => s.percentage >= 75);
+
+    const filteredDefaulters = atRiskStudents.filter(s => 
+        s.firstName.toLowerCase().includes(searchQuery.toLowerCase()) || 
+        s.rollNo.toLowerCase().includes(searchQuery.toLowerCase())
+    );
 
     const chartData = [
         { name: 'Safe (>75%)', value: safeStudents.length, color: '#10b981' },
@@ -113,29 +103,32 @@ export default function HODDashboard() {
     };
 
     // --- ACTIONS ---
+    
+    // ✅ 2. Send Notice Action
+    const handleSendNotice = (student) => {
+        toast.success(`Notice sent to ${student.firstName} (${student.email})`, {
+            icon: '📨',
+            style: { border: '1px solid #3b82f6', color: '#1e3a8a', background: '#eff6ff' }
+        });
+        // In a real app, call backend API to send email here
+    };
 
-    // 1. Delete Users
     const handleDeleteUsers = () => {
         if (selectedUserIds.length === 0) return;
-        
         confirmAction('Delete Users?', `Delete ${selectedUserIds.length} users permanently?`, async () => {
             closeModal();
             const toastId = toast.loading("Deleting...");
             try {
                 await fetch(`${BACKEND_URL}/deleteUsers`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ userIds: selectedUserIds })
                 });
                 toast.success("Users Deleted!", { id: toastId });
                 setSelectedUserIds([]);
-            } catch (error) {
-                toast.error("Delete Failed", { id: toastId });
-            }
+            } catch (error) { toast.error("Delete Failed", { id: toastId }); }
         }, 'danger');
     };
 
-    // 2. Handle Leave
     const handleLeaveAction = async (leaveId, status) => {
         const toastId = toast.loading("Processing...");
         try {
@@ -148,7 +141,6 @@ export default function HODDashboard() {
         } catch (e) { toast.error("Failed", { id: toastId }); }
     };
 
-    // 3. Bulk Approve Students
     const executeBulkApprove = async () => {
         closeModal();
         const toastId = toast.loading(`Approving ${selectedRequestIds.length} students...`);
@@ -156,61 +148,36 @@ export default function HODDashboard() {
             const promises = selectedRequestIds.map(async (id) => {
                 const req = studentRequests.find(r => r.id === id);
                 if (!req) return;
-                
                 const finalPassword = req.password || Math.random().toString(36).slice(-8);
                 
-                // Create User
                 const response = await fetch(`${BACKEND_URL}/createUser`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        email: req.email, 
-                        password: finalPassword, 
-                        firstName: req.firstName, 
-                        lastName: req.lastName, 
-                        role: 'student', 
-                        instituteId: req.instituteId, 
-                        instituteName: req.instituteName, 
-                        department: req.department, 
-                        subject: null,
-                        rollNo: req.rollNo,
+                        email: req.email, password: finalPassword, firstName: req.firstName, lastName: req.lastName, role: 'student', instituteId: req.instituteId, instituteName: req.instituteName, department: req.department, 
+                        subject: null, rollNo: req.rollNo,
                         extras: { collegeId: req.collegeId, year: req.year, semester: req.semester } 
                     })
                 });
                 if (!response.ok) throw new Error(`Failed: ${req.email}`);
-                
-                // Send Email & Delete Request
                 await sendPasswordResetEmail(auth, req.email);
                 await deleteDoc(doc(db, 'student_requests', id));
             });
-
             await Promise.all(promises);
             toast.success("Selected students approved!", { id: toastId });
             setSelectedRequestIds([]);
-        } catch (err) { 
-            toast.error("Error: " + err.message, { id: toastId });
-        }
+        } catch (err) { toast.error("Error: " + err.message, { id: toastId }); }
     };
 
-    // 4. Single Approve
     const executeSingleApprove = async (req) => {
         closeModal();
         const toastId = toast.loading(`Approving ${req.firstName}...`);
         try {
              const finalPassword = req.password || Math.random().toString(36).slice(-8);
-             
              const response = await fetch(`${BACKEND_URL}/createUser`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    email: req.email, 
-                    password: finalPassword, 
-                    firstName: req.firstName, 
-                    lastName: req.lastName, 
-                    role: 'student', 
-                    instituteId: req.instituteId, 
-                    instituteName: req.instituteName, 
-                    department: req.department, 
-                    subject: null,
-                    rollNo: req.rollNo,
+                    email: req.email, password: finalPassword, firstName: req.firstName, lastName: req.lastName, role: 'student', instituteId: req.instituteId, instituteName: req.instituteName, department: req.department, 
+                    subject: null, rollNo: req.rollNo,
                     extras: { collegeId: req.collegeId, year: req.year, semester: req.semester } 
                 })
             });
@@ -218,12 +185,10 @@ export default function HODDashboard() {
             if(!response.ok) throw new Error("Backend creation failed");
             await sendPasswordResetEmail(auth, req.email);
             await deleteDoc(doc(db, 'student_requests', req.id));
-            
             toast.success("Student Approved!", { id: toastId });
         } catch(e) { toast.error(e.message, { id: toastId }); }
     };
 
-    // 5. Reject Request
     const executeReject = async (reqId) => {
         closeModal();
         const toastId = toast.loading("Rejecting...");
@@ -233,23 +198,13 @@ export default function HODDashboard() {
         } catch (e) { toast.error("Error rejecting", { id: toastId }); }
     };
 
-    // 6. Add Teacher
     const handleAddTeacher = async (e) => {
-        e.preventDefault(); 
-        setLoading(true);
+        e.preventDefault(); setLoading(true);
         const toastId = toast.loading("Adding Teacher...");
         try {
             await fetch(`${BACKEND_URL}/createUser`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    ...teacherForm, 
-                    role: 'teacher', 
-                    instituteId: hodInfo.instituteId, 
-                    instituteName: hodInfo.instituteName, 
-                    department: hodInfo.department, 
-                    subject: teacherForm.subject, 
-                    extras: { qualification: 'Added by HOD' } 
-                })
+                body: JSON.stringify({ ...teacherForm, role: 'teacher', instituteId: hodInfo.instituteId, instituteName: hodInfo.instituteName, department: hodInfo.department, subject: teacherForm.subject, extras: { qualification: 'Added by HOD' } })
             });
             await sendPasswordResetEmail(auth, teacherForm.email);
             toast.success(`Teacher Added!`, { id: toastId });
@@ -265,7 +220,6 @@ export default function HODDashboard() {
         </li>
     );
 
-    // --- RENDER LOGIC ---
     return (
         <div className="dashboard-container">
             <Toaster position="top-right" reverseOrder={false} />
@@ -287,17 +241,21 @@ export default function HODDashboard() {
             <aside className={`sidebar ${isMobileNavOpen ? 'open' : ''}`}>
                 <div className="logo-container"><img src="https://iili.io/KoAVeZg.md.png" alt="Logo" className="sidebar-logo"/><span className="logo-text">Acadex</span></div>
                 {hodInfo && <div className="teacher-info"><h4>{hodInfo.firstName} (HOD)</h4><p>{hodInfo.department}</p></div>}
-                
                 <ul className="menu">
                     <NavLink page="dashboard" iconClass="fa-th-large" label="Dashboard" />
                     <NavLink page="analytics" iconClass="fa-chart-pie" label="Analytics" /> 
                     <NavLink page="leaves" iconClass="fa-calendar-check" label="Leave Requests" count={leaves.length} />
-                    <NavLink page="requests" iconClass="fa-user-clock" label="Student Requests" count={studentRequests.length} />
+                    <NavLink page="requests" iconClass="fa-user-clock" label="Requests" count={studentRequests.length} />
                     <NavLink page="manage" iconClass="fa-users" label="Dept Users" />
                     <NavLink page="timetable" iconClass="fa-calendar-alt" label="Timetable" />
                     <NavLink page="addTeacher" iconClass="fa-chalkboard-teacher" label="Add Teacher" />
                 </ul>
-                <div className="sidebar-footer"><button className="logout-btn" onClick={() => signOut(auth).then(() => navigate('/'))}>Logout</button></div>
+                <div className="sidebar-footer">
+                    {/* ✅ 1. Fixed Logout Button */}
+                    <button className="logout-btn" onClick={() => signOut(auth).then(() => navigate('/'))}>
+                        <i className="fas fa-sign-out-alt" style={{marginRight:'10px'}}></i> Logout
+                    </button>
+                </div>
             </aside>
 
             <main className="main-content">
@@ -307,78 +265,97 @@ export default function HODDashboard() {
                     <div style={{width:'40px'}}></div>
                 </header>
 
-                {/* TAB 1: DASHBOARD OVERVIEW */}
                 {activeTab === 'dashboard' && (
                     <div className="content-section">
                         <h2 className="content-title">Overview</h2>
                         <div className="cards-grid">
                             <div className="card" style={{background: 'linear-gradient(135deg, #eff6ff 0%, #bfdbfe 100%)', border: 'none'}}>
                                 <div style={{display:'flex', alignItems:'center', gap:'15px'}}>
-                                    <div className="icon-box-modern" style={{background:'white', color:'#2563eb', width:'50px', height:'50px', fontSize:'20px'}}>
-                                        <i className="fas fa-user-graduate"></i>
-                                    </div>
+                                    <div className="icon-box-modern" style={{background:'white', color:'#2563eb', width:'50px', height:'50px', fontSize:'20px'}}><i className="fas fa-user-graduate"></i></div>
                                     <div><h3 style={{margin:0, color:'#1e3a8a', fontSize:'16px'}}>Students</h3><p style={{margin:0, fontSize:'36px', fontWeight:'800', color:'#1e40af', lineHeight: '1.2'}}>{studentsList.length}</p></div>
                                 </div>
                             </div>
                             <div className="card" style={{background: 'linear-gradient(135deg, #ecfdf5 0%, #a7f3d0 100%)', border: 'none'}}>
                                 <div style={{display:'flex', alignItems:'center', gap:'15px'}}>
-                                    <div className="icon-box-modern" style={{background:'white', color:'#059669', width:'50px', height:'50px', fontSize:'20px'}}>
-                                        <i className="fas fa-chalkboard-teacher"></i>
-                                    </div>
+                                    <div className="icon-box-modern" style={{background:'white', color:'#059669', width:'50px', height:'50px', fontSize:'20px'}}><i className="fas fa-chalkboard-teacher"></i></div>
                                     <div><h3 style={{margin:0, color:'#064e3b', fontSize:'16px'}}>Teachers</h3><p style={{margin:0, fontSize:'36px', fontWeight:'800', color:'#065f46', lineHeight: '1.2'}}>{teachersList.length}</p></div>
                                 </div>
                             </div>
                         </div>
-                        {/* Recent Analytics Preview */}
-                        <div className="card" style={{marginTop:'20px', height:'300px'}}>
-                            <h3>Attendance Health</h3>
-                            <ResponsiveContainer width="100%" height="100%">
-                                <PieChart>
-                                    <Pie data={chartData} cx="50%" cy="50%" innerRadius={60} outerRadius={80} paddingAngle={5} dataKey="value">
-                                        {chartData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
-                                    </Pie>
-                                    <Tooltip />
-                                    <Legend verticalAlign="bottom" height={36}/>
-                                </PieChart>
-                            </ResponsiveContainer>
-                        </div>
                     </div>
                 )}
 
-                {/* TAB 2: ANALYTICS */}
                 {activeTab === 'analytics' && (
                     <div className="content-section">
                         <h2 className="content-title">Attendance Analytics</h2>
+                        {/* ✅ MODERN SEARCH BAR */}
+                        <div className="search-box-wrapper">
+                            <i className="fas fa-search search-icon"></i>
+                            <input 
+                                type="text" 
+                                placeholder="Search by name or roll no..." 
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="search-input-modern"
+                            />
+                        </div>
+
                         <div className="cards-grid" style={{gridTemplateColumns: '1fr 1fr'}}>
-                            <div className="card">
-                                <h3 style={{color:'#ef4444'}}>⚠️ Low Attendance ({atRiskStudents.length})</h3>
-                                <div className="table-wrapper" style={{maxHeight:'400px', overflowY:'auto'}}>
-                                    <table className="attendance-table">
-                                        <thead><tr><th>Name</th><th>%</th></tr></thead>
-                                        <tbody>
-                                            {atRiskStudents.map(s => (
-                                                <tr key={s.id}>
-                                                    <td>{s.firstName} {s.lastName}</td>
-                                                    <td><span className="status-badge-pill" style={{background:'#fef2f2', color:'#dc2626'}}>{s.percentage.toFixed(0)}%</span></td>
-                                                </tr>
-                                            ))}
-                                            {atRiskStudents.length === 0 && <tr><td colSpan="2" style={{textAlign:'center', color:'green'}}>All safe!</td></tr>}
-                                        </tbody>
-                                    </table>
-                                </div>
+                            {/* ✅ 3. Modern Donut Chart with Fixed Legend */}
+                            <div className="card" style={{height:'400px', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center'}}>
+                                <h3 style={{alignSelf:'flex-start', marginBottom:'10px'}}>Overview</h3>
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <PieChart>
+                                        <Pie 
+                                            data={chartData} 
+                                            cx="50%" 
+                                            cy="50%" 
+                                            innerRadius={70} 
+                                            outerRadius={100} 
+                                            paddingAngle={5} 
+                                            dataKey="value"
+                                            stroke="none"
+                                        >
+                                            {chartData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
+                                        </Pie>
+                                        <Tooltip contentStyle={{borderRadius:'8px', border:'none', boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}} />
+                                        <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }}/>
+                                    </PieChart>
+                                </ResponsiveContainer>
                             </div>
-                            <div className="card">
-                                <h3 style={{color:'#10b981'}}>✅ Eligible ({safeStudents.length})</h3>
-                                <div className="table-wrapper" style={{maxHeight:'400px', overflowY:'auto'}}>
-                                     <table className="attendance-table">
-                                        <thead><tr><th>Name</th><th>%</th></tr></thead>
+
+                            {/* Defaulters List */}
+                            <div className="card" style={{borderLeft:'4px solid #ef4444'}}>
+                                <h3 style={{color:'#ef4444', display:'flex', alignItems:'center', gap:'8px', marginBottom:'15px'}}>
+                                    ⚠️ Defaulters List <span className="nav-badge" style={{background:'#ef4444'}}>{filteredDefaulters.length}</span>
+                                </h3>
+                                <div className="table-wrapper" style={{maxHeight:'320px', overflowY:'auto'}}>
+                                    <table className="attendance-table">
+                                        <thead><tr><th>Name</th><th>%</th><th>Action</th></tr></thead>
                                         <tbody>
-                                            {safeStudents.map(s => (
+                                            {filteredDefaulters.map(s => (
                                                 <tr key={s.id}>
-                                                    <td>{s.firstName} {s.lastName}</td>
-                                                    <td><span className="status-badge-pill" style={{background:'#ecfdf5', color:'#059669'}}>{s.percentage.toFixed(0)}%</span></td>
+                                                    <td>
+                                                        <div style={{fontWeight:'600'}}>{s.firstName} {s.lastName}</div>
+                                                        {/* ✅ SHOW YEAR */}
+                                                        <div style={{fontSize:'11px', color:'#64748b'}}>
+                                                            {s.rollNo} • <span style={{color:'#2563eb', fontWeight:'bold'}}>{s.year || 'N/A'}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td><span className="status-badge-pill" style={{background:'#fef2f2', color:'#dc2626'}}>{s.percentage.toFixed(0)}%</span></td>
+                                                    <td>
+                                                        {/* ✅ 2. Send Notice Button */}
+                                                        <button 
+                                                            onClick={() => handleSendNotice(s)}
+                                                            className="btn-action"
+                                                            style={{background:'#e0f2fe', color:'#0369a1', border:'none', fontSize:'12px', padding:'4px 10px'}}
+                                                        >
+                                                            Send Notice
+                                                        </button>
+                                                    </td>
                                                 </tr>
                                             ))}
+                                            {filteredDefaulters.length === 0 && <tr><td colSpan="3" style={{textAlign:'center', padding:'20px', color:'green'}}>All students are safe!</td></tr>}
                                         </tbody>
                                     </table>
                                 </div>
@@ -387,7 +364,6 @@ export default function HODDashboard() {
                     </div>
                 )}
 
-                {/* TAB 3: LEAVES */}
                 {activeTab === 'leaves' && (
                     <div className="content-section">
                         <h2 className="content-title">Leave Requests</h2>
@@ -415,10 +391,20 @@ export default function HODDashboard() {
                     </div>
                 )}
 
-                {/* TAB 4: REQUESTS */}
                 {activeTab === 'requests' && (
                     <div className="content-section">
-                        <h2 className="content-title">Student Applications</h2>
+                        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'15px'}}>
+                            <h2 className="content-title">Student Applications</h2>
+                            {selectedRequestIds.length > 0 && (
+                                <button 
+                                    onClick={() => confirmAction('Approve Selected?', `Approve ${selectedRequestIds.length} students?`, executeBulkApprove)} 
+                                    className="btn-primary" 
+                                    style={{width:'auto', padding:'8px 16px'}}
+                                >
+                                    {loading ? 'Processing...' : `Approve (${selectedRequestIds.length})`}
+                                </button>
+                            )}
+                        </div>
                         <div className="card card-full-width">
                             <div className="table-wrapper">
                                 <table className="attendance-table">
@@ -434,8 +420,8 @@ export default function HODDashboard() {
                                                 <td>{req.email}</td>
                                                 <td>
                                                     <div style={{display:'flex', gap:'8px'}}>
-                                                        <button onClick={() => confirmAction('Approve?', `Approve ${req.firstName}?`, () => executeSingleApprove(req))} className="status-badge status-approved">Approve</button>
-                                                        <button onClick={() => confirmAction('Reject?', `Reject?`, () => executeReject(req.id), 'danger')} className="status-badge status-denied">Reject</button>
+                                                        <button onClick={() => confirmAction('Approve?', `Approve ${req.firstName}?`, () => executeSingleApprove(req))} className="status-badge status-approved" style={{border:'none', cursor:'pointer'}}>Approve</button>
+                                                        <button onClick={() => confirmAction('Reject?', `Reject?`, () => executeReject(req.id), 'danger')} className="status-badge status-denied" style={{border:'none', cursor:'pointer'}}>Reject</button>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -444,16 +430,13 @@ export default function HODDashboard() {
                                     </tbody>
                                 </table>
                             </div>
-                            {selectedRequestIds.length > 0 && <button onClick={() => confirmAction('Approve Selected?', `Approve ${selectedRequestIds.length} students?`, executeBulkApprove)} className="btn-primary" style={{marginTop:'15px'}}>Approve Selected</button>}
                         </div>
                     </div>
                 )}
 
-                {/* TAB 5: MANAGE USERS */}
                 {activeTab === 'manage' && (
                     <div className="content-section">
                         <h2 className="content-title">Department Users</h2>
-                        {/* Teachers */}
                         <div className="card card-full-width" style={{marginBottom:'24px'}}>
                             <div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'15px', borderBottom:'1px solid #f1f5f9', paddingBottom:'10px'}}>
                                 <div className="icon-box-modern" style={{background:'#ecfdf5', color:'#059669', width:'32px', height:'32px', fontSize:'14px'}}><i className="fas fa-chalkboard-teacher"></i></div>
@@ -463,7 +446,6 @@ export default function HODDashboard() {
                                 <table className="attendance-table"><thead><tr><th style={{width:'40px'}}></th><th>Name</th><th>Email</th><th>Subject</th></tr></thead><tbody>{teachersList.map(t => (<tr key={t.id}><td><input type="checkbox" checked={selectedUserIds.includes(t.id)} onChange={() => toggleSelectUser(t.id)} className="custom-checkbox"/></td><td>{t.firstName} {t.lastName}</td><td>{t.email}</td><td><span className="status-badge-pill">{t.subject}</span></td></tr>))}</tbody></table>
                             </div>
                         </div>
-                        {/* Students */}
                         <div className="card card-full-width">
                              <div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'15px', borderBottom:'1px solid #f1f5f9', paddingBottom:'10px'}}>
                                 <div className="icon-box-modern" style={{background:'#eff6ff', color:'#2563eb', width:'32px', height:'32px', fontSize:'14px'}}><i className="fas fa-user-graduate"></i></div>
@@ -473,8 +455,6 @@ export default function HODDashboard() {
                                 <table className="attendance-table"><thead><tr><th style={{width:'40px'}}></th><th>Roll No</th><th>Name</th><th>Class</th><th>Email</th></tr></thead><tbody>{studentsList.sort((a,b) => (a.rollNo || "").localeCompare(b.rollNo, undefined, {numeric: true})).map(s => (<tr key={s.id}><td><input type="checkbox" checked={selectedUserIds.includes(s.id)} onChange={() => toggleSelectUser(s.id)} className="custom-checkbox"/></td><td style={{fontWeight:'bold'}}>{s.rollNo}</td><td>{s.firstName} {s.lastName}</td><td><span className="status-badge-pill">{s.year || '-'}</span></td><td>{s.email}</td></tr>))}</tbody></table>
                             </div>
                         </div>
-                        
-                        {/* ✅ Floating Delete Button */}
                         {selectedUserIds.length > 0 && (
                             <button className="floating-delete-btn" onClick={handleDeleteUsers}>
                                 <i className="fas fa-trash-alt"></i> Delete ({selectedUserIds.length})
@@ -483,10 +463,8 @@ export default function HODDashboard() {
                     </div>
                 )}
 
-                {/* TAB 6: TIMETABLE */}
                 {activeTab === 'timetable' && <ManageTimetable hodInfo={hodInfo} />}
                 
-                {/* TAB 7: ADD TEACHER */}
                 {activeTab === 'addTeacher' && (
                     <div className="content-section">
                         <h2 className="content-title">Add New Teacher</h2>

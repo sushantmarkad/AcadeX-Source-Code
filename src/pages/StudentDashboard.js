@@ -28,11 +28,50 @@ const getMinutesFromTime = (timeStr) => {
     return h * 60 + m;
 };
 
-// --- COMPONENT: Leave Request Form ---
+// --- COMPONENT: Leave Request Form & History ---
 const LeaveRequestForm = ({ user }) => {
     const [form, setForm] = useState({ reason: '', fromDate: '', toDate: '' });
     const [loading, setLoading] = useState(false);
+    const [myLeaves, setMyLeaves] = useState([]);
 
+    // 1. Real-Time Listener for Leave History
+    useEffect(() => {
+        if (!user.uid) return;
+
+        const q = query(
+            collection(db, 'leave_requests'),
+            where('studentId', '==', user.uid)
+            // Note: orderBy requires an index. If it crashes, remove orderBy or create the index in Firebase Console.
+        );
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const leavesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            
+            // Sort locally to avoid index issues for now (Newest first)
+            leavesData.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+            
+            setMyLeaves(leavesData);
+
+            // ✅ SMART NOTIFICATION: Check for updates
+            snapshot.docChanges().forEach((change) => {
+                if (change.type === "modified") {
+                    const newData = change.doc.data();
+                    if (newData.status === 'approved') {
+                        toast.success(`🎉 Your leave for "${newData.reason}" was Approved!`, {
+                            duration: 6000,
+                            style: { border: '1px solid #10b981', background: '#ecfdf5', color: '#064e3b' }
+                        });
+                    } else if (newData.status === 'rejected') {
+                        toast.error(`Your leave for "${newData.reason}" was Rejected.`, { duration: 5000 });
+                    }
+                }
+            });
+        });
+
+        return () => unsubscribe();
+    }, [user.uid]);
+
+    // 2. Submit Request
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
@@ -59,8 +98,9 @@ const LeaveRequestForm = ({ user }) => {
 
     return (
         <div className="content-section">
+            {/* REQUEST FORM */}
             <h2 className="content-title">Request Leave</h2>
-            <div className="card">
+            <div className="card" style={{marginBottom: '30px'}}>
                 <form onSubmit={handleSubmit}>
                     <div className="input-group"><label>Reason</label><input type="text" required value={form.reason} onChange={e => setForm({...form, reason: e.target.value})} placeholder="e.g. Sick Leave" /></div>
                     <div style={{display:'flex', gap:'15px'}}>
@@ -69,6 +109,36 @@ const LeaveRequestForm = ({ user }) => {
                     </div>
                     <button className="btn-primary" disabled={loading}>{loading ? 'Sending...' : 'Submit Request'}</button>
                 </form>
+            </div>
+
+            {/* ✅ LEAVE HISTORY LIST */}
+            <h3 style={{color:'#1e293b', margin:'0 0 15px 0', fontSize:'18px'}}>My Leave History</h3>
+            
+            <div className="cards-grid">
+                {myLeaves.length > 0 ? (
+                    myLeaves.map(leave => (
+                        <div key={leave.id} className="card" style={{
+                            borderLeft: `5px solid ${leave.status === 'approved' ? '#10b981' : leave.status === 'rejected' ? '#ef4444' : '#f59e0b'}`,
+                            position: 'relative', padding: '15px'
+                        }}>
+                            <div style={{display:'flex', justifyContent:'space-between', alignItems:'start'}}>
+                                <div>
+                                    <h4 style={{margin:'0 0 5px 0', fontSize:'16px'}}>{leave.reason}</h4>
+                                    <p style={{margin:0, fontSize:'13px', color:'#64748b'}}>
+                                        {new Date(leave.fromDate).toLocaleDateString()} ➔ {new Date(leave.toDate).toLocaleDateString()}
+                                    </p>
+                                </div>
+                                <span className={`status-badge status-${leave.status}`} style={{textTransform: 'uppercase', fontSize:'11px', letterSpacing:'0.5px'}}>
+                                    {leave.status}
+                                </span>
+                            </div>
+                        </div>
+                    ))
+                ) : (
+                    <div className="card" style={{textAlign:'center', padding:'30px', color:'#94a3b8', fontStyle:'italic'}}>
+                        No leave history found.
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -136,7 +206,6 @@ const SmartScheduleCard = ({ user, onOpenAI }) => {
         return () => clearInterval(interval);
     }, [user]);
 
-    // Smart Nudge Toast
     useEffect(() => {
         if (currentSlot?.type === 'Free') {
             toast("🎉 It's a Free Period! Check your Tasks.", {
@@ -188,7 +257,21 @@ const DashboardHome = ({ user, onOpenAI }) => {
     const [liveSession, setLiveSession] = useState(null);
     const [showScanner, setShowScanner] = useState(false);
     const [recentAttendance, setRecentAttendance] = useState([]);
+    const [stats, setStats] = useState({ totalClasses: 0, attended: 0 });
 
+    // Fetch Stats
+    useEffect(() => {
+        if (!user?.instituteId || !user?.department) return;
+        const fetchStats = async () => {
+            const statsDoc = await getDoc(doc(db, "department_stats", `${user.instituteId}_${user.department}`));
+            const total = statsDoc.exists() ? statsDoc.data().totalClasses : 0;
+            const attended = user.attendanceCount || 0;
+            setStats({ totalClasses: total, attended });
+        };
+        fetchStats();
+    }, [user]);
+
+    // Listen for active sessions
     useEffect(() => {
         if (!user?.instituteId) return;
         const q = query(collection(db, "live_sessions"), where("isActive", "==", true), where("instituteId", "==", user.instituteId));
@@ -198,6 +281,7 @@ const DashboardHome = ({ user, onOpenAI }) => {
         return () => unsubscribe();
     }, [user]);
 
+    // Recent Attendance
     useEffect(() => {
         if (!auth.currentUser) return;
         const q = query(collection(db, "attendance"), where("studentId", "==", auth.currentUser.uid), orderBy("timestamp", "desc"), limit(3));
@@ -207,11 +291,12 @@ const DashboardHome = ({ user, onOpenAI }) => {
         return () => unsubscribe();
     }, [user]);
 
-    // ✅ 75% Attendance Alert
+    // 75% Attendance Alert
     useEffect(() => {
-        const totalClasses = 50; // Ideally fetch from DB or Institute config
+        const totalClasses = stats.totalClasses || 50; 
         const attended = user?.attendanceCount || 0;
-        const percentage = (attended / totalClasses) * 100;
+        const percentage = totalClasses > 0 ? (attended / totalClasses) * 100 : 100;
+        
         if (percentage < 75 && percentage > 0) {
             toast((t) => (
                 <div style={{display:'flex', alignItems:'center', gap:'10px'}}>
@@ -220,7 +305,7 @@ const DashboardHome = ({ user, onOpenAI }) => {
                 </div>
             ), { duration: 6000, style: { border: '1px solid #f59e0b', background: '#fffbeb', color: '#92400e' } });
         }
-    }, [user]);
+    }, [user, stats]);
 
     const handleScan = (sessionId) => {
         toast.loading("Verifying...");
@@ -250,6 +335,9 @@ const DashboardHome = ({ user, onOpenAI }) => {
         return () => scanner?.clear();
     }, [showScanner]);
 
+    const percentage = stats.totalClasses > 0 ? Math.round((stats.attended / stats.totalClasses) * 100) : 100;
+    const isLow = percentage < 75;
+
     return (
         <div className="content-section">
             <div style={{ marginBottom: '25px' }}>
@@ -260,6 +348,24 @@ const DashboardHome = ({ user, onOpenAI }) => {
             <div className="cards-grid">
                 <SmartScheduleCard user={user} onOpenAI={onOpenAI} />
                 
+                {/* 1. ATTENDANCE PROGRESS */}
+                <div className="card" style={{ background: isLow ? '#fef2f2' : '#f0fdf4', borderLeft: `5px solid ${isLow ? '#ef4444' : '#10b981'}` }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                        <h3 style={{ margin: 0, color: '#1e293b', fontSize: '16px' }}>Attendance</h3>
+                        <span style={{ fontWeight: '800', fontSize: '18px', color: isLow ? '#dc2626' : '#059669' }}>{percentage}%</span>
+                    </div>
+                    <div style={{ width: '100%', height: '10px', background: 'rgba(0,0,0,0.05)', borderRadius: '5px', overflow: 'hidden' }}>
+                        <div style={{ width: `${percentage}%`, height: '100%', background: isLow ? '#ef4444' : '#10b981', transition: 'width 0.5s' }}></div>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '10px', fontSize: '12px', color: '#64748b' }}>
+                        <span>Attended: <strong>{stats.attended}</strong> / {stats.totalClasses}</span>
+                        <span style={{ color: isLow ? '#b91c1c' : '#15803d', fontWeight: '600' }}>
+                            {isLow ? "⚠️ Low" : "🎉 Good Job!"}
+                        </span>
+                    </div>
+                </div>
+
+                {/* 2. LIVE ATTENDANCE */}
                 <div className="card" style={{ background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)', border: 'none' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '15px' }}>
                         <div className="icon-box-modern"><i className="fas fa-qrcode"></i></div>
@@ -276,6 +382,7 @@ const DashboardHome = ({ user, onOpenAI }) => {
                 
                 {showScanner && <div className="card scanner-card"><div id="qr-reader"></div><button className="btn-secondary" onClick={() => setShowScanner(false)}>Cancel</button></div>}
 
+                {/* 3. RECENT HISTORY */}
                 <div className="card">
                     <h3>Recent History</h3>
                     <div className="recent-attendance-list">
@@ -292,13 +399,6 @@ const DashboardHome = ({ user, onOpenAI }) => {
     );
 };
 
-// Placeholders
-const Goals = () => <div>My Goals (Coming Soon)</div>;
-const Coding = () => <div>Coding Practice (Coming Soon)</div>;
-
-// ------------------------------
-//  MAIN COMPONENT
-// ------------------------------
 export default function StudentDashboard() {
   const [activePage, setActivePage] = useState('dashboard');
   const [user, setUser] = useState(null);
@@ -306,6 +406,7 @@ export default function StudentDashboard() {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const navigate = useNavigate();
 
+  // Real-time User Listener
   useEffect(() => {
     if (!auth.currentUser) return;
     const unsub = onSnapshot(doc(db, "users", auth.currentUser.uid), (doc) => setUser(doc.data()));
@@ -322,7 +423,7 @@ export default function StudentDashboard() {
       case 'profile': return <Profile user={user} />;
       case 'plans': return <CareerRoadmap user={user} />; 
       case 'leaderboard': return <Leaderboard user={user} />;
-      case 'leave': return <LeaveRequestForm user={user} />; // ✅ New
+      case 'leave': return <LeaveRequestForm user={user} />;
       default: return <DashboardHome user={user} onOpenAI={() => setIsChatOpen(true)} />;
     }
   };
@@ -346,9 +447,9 @@ export default function StudentDashboard() {
                 <p>Roll No: {user.rollNo}</p>
                 <p style={{fontSize:'14px', color:'#059669', fontWeight:'700', margin:'4px 0'}}>
                     {user.xp || 0} XP 
-                    {user.badges?.map(b => <span key={b} style={{marginLeft:'4px'}}>{b === 'novice' ? '🌱' : '🔥'}</span>)}
+                    {user.badges?.map(b => <span key={b} style={{marginLeft:'4px'}}>{b === 'novice' ? '🌱' : b === 'enthusiast' ? '🔥' : b === 'expert' ? '💎' : '👑'}</span>)}
                 </p>
-                {user.year && <p style={{fontSize:'13px', color:'#2563eb', fontWeight:'600'}}>Class: {user.year}</p>}
+                {user.year && <p style={{fontSize:'13px', color:'#2563eb', fontWeight:'600', margin:'2px 0'}}>Class: {user.year}</p>}
             </div>
         )}
         <ul className="menu">
@@ -356,7 +457,7 @@ export default function StudentDashboard() {
             <NavLink page="tasks" iconClass="fa-check-circle" label="Free Period Tasks" />
             <NavLink page="leaderboard" iconClass="fa-trophy" label="Leaderboard" />
             <NavLink page="plans" iconClass="fa-paper-plane" label="Future Plans" />
-            <NavLink page="leave" iconClass="fa-calendar-minus" label="Apply Leave" /> {/* ✅ New */}
+            <NavLink page="leave" iconClass="fa-calendar-minus" label="Apply Leave" />
             <NavLink page="profile" iconClass="fa-user" label="Profile" />
         </ul>
         <div className="sidebar-footer"><button onClick={handleLogout} className="logout-btn"><i className="fas fa-sign-out-alt"></i> <span>Logout</span></button></div>
