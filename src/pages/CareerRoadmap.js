@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
 import { doc, updateDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
+import ReactDOM from 'react-dom';
 import './Dashboard.css';
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
@@ -208,25 +209,32 @@ export default function CareerRoadmap({ user }) {
     return (
         <div className="content-section">
             {/* ✅ VERIFICATION MODAL */}
-            {verifyModal.isOpen && (
-                <div className="custom-modal-overlay">
-                    <div className="custom-modal-box">
-                        <h3>Claim Your XP 🎯</h3>
-                        <p style={{fontSize:'13px', color:'#64748b', marginBottom:'15px'}}>Briefly summarize what you learned to complete this task:</p>
-                        <textarea 
-                            className="modern-input" 
-                            rows="3"
-                            placeholder="I learned about..."
-                            value={summary}
-                            onChange={(e) => setSummary(e.target.value)}
-                        />
-                        <div className="modal-actions">
-                            <button className="btn-secondary" onClick={() => setVerifyModal({ isOpen: false })}>Cancel</button>
-                            <button className="btn-primary" onClick={submitVerification}>Claim 50 XP</button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {/* ✅ VERIFICATION MODAL (Fixed with Portal) */}
+{verifyModal.isOpen && ReactDOM.createPortal(
+    <div className="custom-modal-overlay" style={{
+        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
+        zIndex: 99999, // Ensure this is higher than sidebar (usually 10000)
+        background: 'rgba(0, 0, 0, 0.6)', backdropFilter: 'blur(5px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center'
+    }}>
+        <div className="custom-modal-box">
+            <h3>Claim Your XP 🎯</h3>
+            <p style={{fontSize:'13px', color:'#64748b', marginBottom:'15px'}}>Briefly summarize what you learned to complete this task:</p>
+            <textarea 
+                className="modern-input" 
+                rows="3"
+                placeholder="I learned about..."
+                value={summary}
+                onChange={(e) => setSummary(e.target.value)}
+            />
+            <div className="modal-actions">
+                <button className="btn-secondary" onClick={() => setVerifyModal({ isOpen: false })}>Cancel</button>
+                <button className="btn-primary" onClick={submitVerification}>Claim 50 XP</button>
+            </div>
+        </div>
+    </div>,
+    document.body // 👈 This pushes it to the top level of the DOM
+)}
 
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'30px'}}>
                 <div>

@@ -1,212 +1,215 @@
 import React, { useState, useEffect } from 'react';
-import { auth, db } from '../firebase';
-import { collection, addDoc, serverTimestamp, query, where, onSnapshot, doc, getDoc, deleteDoc } from 'firebase/firestore';
+import { db, auth } from '../firebase';
+import { collection, query, where, onSnapshot, getDoc, doc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import './Dashboard.css';
 
+const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
+
 export default function AddTasks() {
-    const [task, setTask] = useState({ title: '', description: '', link: '', deadline: '', assignTo: 'All Students' });
-    const [myTasks, setMyTasks] = useState([]);
-    const [teacherInfo, setTeacherInfo] = useState(null);
+    const [activeTab, setActiveTab] = useState('create'); 
+    const [teacher, setTeacher] = useState(null);
+    const [tasks, setTasks] = useState([]);
+    const [selectedTask, setSelectedTask] = useState(null); 
+    const [submissions, setSubmissions] = useState([]);
     const [loading, setLoading] = useState(false);
 
-    // 1. Fetch Teacher Info
-    useEffect(() => {
-        const fetchTeacherData = async () => {
-            if (auth.currentUser) {
-                const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
-                if (userDoc.exists()) {
-                    setTeacherInfo(userDoc.data());
-                }
-            }
-        };
-        fetchTeacherData();
-    }, []);
+    // Form State
+    const [form, setForm] = useState({ title: '', description: '', targetYear: 'All', dueDate: '' });
+    
+    // Grading State
+    const [gradingId, setGradingId] = useState(null);
+    const [marks, setMarks] = useState('');
+    const [feedback, setFeedback] = useState('');
 
-    // 2. Fetch Recent Tasks
     useEffect(() => {
         if (auth.currentUser) {
-            const q = query(
-                collection(db, 'tasks'), 
-                where('teacherId', '==', auth.currentUser.uid)
-            );
-            const unsubscribe = onSnapshot(q, (snapshot) => {
-                const tasksData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-                // Sort by created time (newest first)
-                tasksData.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
-                setMyTasks(tasksData);
-            });
-            return () => unsubscribe();
+            getDoc(doc(db, 'users', auth.currentUser.uid)).then(d => setTeacher(d.data()));
         }
     }, []);
 
-    const handleSubmit = async (e) => {
+    useEffect(() => {
+        if (!auth.currentUser) return;
+        const q = query(collection(db, 'assignments'), where('teacherId', '==', auth.currentUser.uid));
+        const unsub = onSnapshot(q, (snap) => {
+            setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+        return () => unsub();
+    }, []);
+
+    const handleCreate = async (e) => {
         e.preventDefault();
-        if (!teacherInfo) return toast.error("Teacher info not loaded.");
-        
         setLoading(true);
+        const toastId = toast.loading("Assigning Task...");
         try {
-            await addDoc(collection(db, 'tasks'), {
-                ...task,
-                teacherId: auth.currentUser.uid,
-                teacherName: `${teacherInfo.firstName} ${teacherInfo.lastName}`,
-                department: teacherInfo.department,
-                instituteId: teacherInfo.instituteId,
-                createdAt: serverTimestamp()
+            await fetch(`${BACKEND_URL}/createAssignment`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ...form,
+                    teacherId: auth.currentUser.uid,
+                    teacherName: teacher.firstName,
+                    department: teacher.department
+                })
             });
-            toast.success("Task Assigned!");
-            setTask({ title: '', description: '', link: '', deadline: '', assignTo: 'All Students' });
-        } catch (err) {
-            console.error(err);
-            toast.error("Failed to assign task.");
-        } finally {
-            setLoading(false);
-        }
+            toast.success("Task Assigned!", { id: toastId });
+            setForm({ title: '', description: '', targetYear: 'All', dueDate: '' });
+        } catch (err) { toast.error("Failed.", { id: toastId }); }
+        finally { setLoading(false); }
     };
 
-    const handleDelete = async (id) => {
-        if(window.confirm("Delete this task?")) {
-            await deleteDoc(doc(db, 'tasks', id));
-            toast.success("Task removed.");
-        }
+    const viewSubmissions = async (task) => {
+        setSelectedTask(task);
+        const toastId = toast.loading("Loading Submissions...");
+        try {
+            const res = await fetch(`${BACKEND_URL}/getSubmissions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ assignmentId: task.id })
+            });
+            const data = await res.json();
+            setSubmissions(data.submissions);
+            toast.dismiss(toastId);
+        } catch (err) { toast.error("Error fetching.", { id: toastId }); }
+    };
+
+    const submitGrade = async (submissionId) => {
+        if(!marks) return toast.error("Enter marks!");
+        if(marks > 100 || marks < 0) return toast.error("Marks must be 0-100");
+        
+        try {
+            await fetch(`${BACKEND_URL}/gradeSubmission`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ submissionId, marks, feedback })
+            });
+            toast.success("Graded successfully!");
+            setGradingId(null);
+            setMarks('');
+            setFeedback('');
+            setSubmissions(prev => prev.map(s => s.id === submissionId ? { ...s, status: 'Graded', marks, feedback } : s));
+        } catch (e) { toast.error("Failed to save grade"); }
     };
 
     return (
         <div className="content-section">
-            <h2 className="content-title">Task Management</h2>
-            <p className="content-subtitle">Assign homework and projects to your students.</p>
+            <h2 className="content-title">Assignments & Grading</h2>
+            
+            <div className="task-tabs">
+                <button className={`task-tab ${activeTab === 'create' ? 'active' : ''}`} onClick={() => setActiveTab('create')}>Create New</button>
+                <button className={`task-tab ${activeTab === 'evaluate' ? 'active' : ''}`} onClick={() => { setActiveTab('evaluate'); setSelectedTask(null); }}>Evaluate</button>
+            </div>
 
-            {/* --- LAYOUT CHANGE: Removed outer 'cards-grid' to allow vertical stacking --- */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '30px' }}>
-
-                {/* CARD 1: Assign Task Form */}
+            {/* --- CREATE MODE --- */}
+            {activeTab === 'create' && (
                 <div className="card">
-                    <div style={{borderBottom:'1px solid #f1f5f9', paddingBottom:'15px', marginBottom:'20px'}}>
-                        <h3 style={{margin:0, color:'#1e293b'}}>Assign New Task</h3>
-                    </div>
-                    
-                    <form onSubmit={handleSubmit}>
+                    <h3>Assign New Task</h3>
+                    <form onSubmit={handleCreate} style={{marginTop:'20px'}}>
                         <div className="input-group">
                             <label>Target Audience</label>
-                            <select value={task.assignTo} onChange={e => setTask({...task, assignTo: e.target.value})}>
-                                <option value="All Students">All Students</option>
-                                <option value="FE">First Year (FE)</option>
-                                <option value="SE">Second Year (SE)</option>
-                                <option value="TE">Third Year (TE)</option>
-                                <option value="BE">Final Year (BE)</option>
+                            <select value={form.targetYear} onChange={e => setForm({...form, targetYear: e.target.value})}>
+                                <option value="All">All Students</option>
+                                <option value="FE">FE (First Year)</option>
+                                <option value="SE">SE (Second Year)</option>
+                                <option value="TE">TE (Third Year)</option>
+                                <option value="BE">BE (Final Year)</option>
                             </select>
                         </div>
-
-                        <div className="input-group">
-                            <label>Task Title</label>
-                            <input 
-                                type="text" 
-                                placeholder="e.g. Complete Lab 3" 
-                                value={task.title} 
-                                onChange={e => setTask({...task, title: e.target.value})} 
-                                required 
-                            />
-                        </div>
-
-                        <div className="input-group">
-                            <label>Description / Instructions</label>
-                            <textarea 
-                                className="modern-input" 
-                                rows="3" 
-                                placeholder="Details about the task..."
-                                value={task.description}
-                                onChange={e => setTask({...task, description: e.target.value})}
-                                required 
-                            ></textarea>
-                        </div>
-
-                        <div style={{display:'flex', gap:'15px', flexWrap:'wrap'}}>
-                            <div className="input-group" style={{flex:1}}>
-                                <label>Reference Link (Optional)</label>
-                                <input 
-                                    type="url" 
-                                    placeholder="https://..." 
-                                    value={task.link} 
-                                    onChange={e => setTask({...task, link: e.target.value})} 
-                                />
-                            </div>
-                            <div className="input-group" style={{flex:1}}>
-                                <label>Deadline</label>
-                                <input 
-                                    type="date" 
-                                    value={task.deadline} 
-                                    onChange={e => setTask({...task, deadline: e.target.value})} 
-                                    required 
-                                />
-                            </div>
-                        </div>
-
-                        <button className="btn-primary" disabled={loading}>
-                            {loading ? 'Assigning...' : 'Assign Task'}
-                        </button>
+                        <div className="input-group"><label>Title</label><input required value={form.title} onChange={e => setForm({...form, title: e.target.value})} placeholder="e.g. Write a Report on AI" /></div>
+                        <div className="input-group"><label>Description</label><textarea className="modern-input" rows="4" required value={form.description} onChange={e => setForm({...form, description: e.target.value})} style={{lineHeight:'1.6'}} /></div>
+                        <div className="input-group"><label>Due Date</label><input type="date" required value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} /></div>
+                        <button className="btn-primary" disabled={loading}>{loading ? 'Assigning...' : 'Assign Task'}</button>
                     </form>
                 </div>
+            )}
 
-                {/* CARD 2: Active Tasks List (Now separate below the form) */}
-                <div>
-                    <h3 style={{margin:'0 0 15px 0', color:'#334155'}}>My Active Tasks</h3>
-                    
-                    <div className="cards-grid">
-                        {myTasks.length > 0 ? (
-                            myTasks.map(t => (
-                                <div key={t.id} className="card" style={{padding:'20px', borderLeft: '4px solid #3b82f6', position:'relative'}}>
-                                    
-                                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'start', marginBottom:'10px'}}>
-                                        <h4 style={{margin:0, fontSize:'16px', color:'#1e293b'}}>{t.title}</h4>
-                                        <span className="status-badge-pill" style={{fontSize:'10px', background:'#eff6ff', color:'#2563eb'}}>
-                                            {t.assignTo}
-                                        </span>
-                                    </div>
-
-                                    <p style={{fontSize:'13px', color:'#64748b', margin:'0 0 15px 0', lineHeight:'1.5'}}>
-                                        {t.description}
-                                    </p>
-
-                                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', borderTop:'1px solid #f1f5f9', paddingTop:'12px'}}>
-                                        <div style={{display:'flex', alignItems:'center', gap:'10px'}}>
-                                            <span style={{fontSize:'12px', color:'#94a3b8'}}>
-                                                <i className="fas fa-calendar-alt" style={{marginRight:'5px'}}></i>
-                                                {t.deadline}
-                                            </span>
-                                            {t.link && (
-                                                <a href={t.link} target="_blank" rel="noreferrer" style={{fontSize:'12px', color:'#2563eb', textDecoration:'none'}}>
-                                                    <i className="fas fa-link" style={{marginRight:'4px'}}></i> Link
-                                                </a>
-                                            )}
-                                        </div>
-
-                                        <button 
-                                            onClick={() => handleDelete(t.id)} 
-                                            style={{
-                                                background: '#fee2e2', 
-                                                color: '#ef4444', 
-                                                border:'none', 
-                                                borderRadius:'6px', 
-                                                padding:'6px 10px', 
-                                                cursor:'pointer'
-                                            }}
-                                            title="Delete Task"
-                                        >
-                                            <i className="fas fa-trash"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                            ))
-                        ) : (
-                            <div className="card" style={{textAlign:'center', padding:'40px', color:'#94a3b8'}}>
-                                <i className="fas fa-clipboard-check" style={{fontSize:'30px', marginBottom:'10px', opacity:0.5}}></i>
-                                <p>No active tasks found.</p>
+            {/* --- EVALUATE MODE (Modern Card List) --- */}
+            {activeTab === 'evaluate' && !selectedTask && (
+                <div className="tasks-grid">
+                    {tasks.map(task => (
+                        <div key={task.id} className="task-card" onClick={() => viewSubmissions(task)} style={{cursor: 'pointer'}}>
+                            <div className="task-card-header">
+                                <div className="task-icon" style={{background:'#eff6ff', color:'#2563eb'}}><i className="fas fa-clipboard-list"></i></div>
+                                <span className="status-badge-pill" style={{background:'#f3f4f6', color:'#4b5563'}}>
+                                    {task.targetYear === 'All' ? 'All Years' : task.targetYear}
+                                </span>
                             </div>
-                        )}
+                            
+                            <h3 className="task-title" style={{marginBottom:'8px'}}>{task.title}</h3>
+                            
+                            <div className="task-meta" style={{marginTop:'auto'}}>
+                                <span><i className="far fa-calendar-alt"></i> Due: {new Date(task.dueDate).toLocaleDateString()}</span>
+                            </div>
+
+                            <button className="btn-secondary" style={{marginTop:'15px', width:'100%', fontSize:'13px'}}>
+                                View Submissions &rarr;
+                            </button>
+                        </div>
+                    ))}
+                    {tasks.length === 0 && <div className="empty-state-card"><p>No tasks created yet.</p></div>}
+                </div>
+            )}
+
+            {/* --- GRADING VIEW --- */}
+            {activeTab === 'evaluate' && selectedTask && (
+                <div>
+                    <div style={{display:'flex', alignItems:'center', gap:'15px', marginBottom:'20px'}}>
+                        <button onClick={() => setSelectedTask(null)} className="btn-ghost" style={{width:'auto'}}>← Back</button>
+                        <h3 style={{margin:0}}>Submissions: {selectedTask.title}</h3>
+                    </div>
+                    
+                    <div className="table-wrapper">
+                        <table className="attendance-table">
+                            <thead><tr><th>Student</th><th>Roll No</th><th>Document</th><th>Marks / Status</th><th>Action</th></tr></thead>
+                            <tbody>
+                                {submissions.map(sub => (
+                                    <tr key={sub.id}>
+                                        <td style={{fontWeight:'600'}}>{sub.studentName}</td>
+                                        <td>{sub.rollNo}</td>
+                                        <td>
+                                            <a href={sub.documentUrl} target="_blank" rel="noreferrer" className="btn-link-doc">
+                                                <i className="fas fa-file-pdf"></i> View PDF
+                                            </a>
+                                        </td>
+                                        <td>
+                                            {sub.status === 'Graded' ? (
+                                                <div>
+                                                    <span style={{fontSize:'15px', fontWeight:'800', color:'#15803d'}}>{sub.marks}</span>
+                                                    <span style={{fontSize:'12px', color:'#64748b'}}>/100</span>
+                                                    {sub.feedback && <div style={{fontSize:'11px', color:'#64748b', marginTop:'2px'}}>"{sub.feedback}"</div>}
+                                                </div>
+                                            ) : (
+                                                gradingId === sub.id ? (
+                                                    <div className="grading-wrapper">
+                                                        <input type="number" className="grading-input" placeholder="0-100" value={marks} onChange={e => setMarks(e.target.value)} autoFocus />
+                                                        <input type="text" className="grading-input-text" placeholder="Feedback (opt)..." value={feedback} onChange={e => setFeedback(e.target.value)} />
+                                                    </div>
+                                                ) : <span className="status-badge status-pending">Pending</span>
+                                            )}
+                                        </td>
+                                        <td>
+                                            {sub.status !== 'Graded' && (
+                                                gradingId === sub.id ? (
+                                                    <div style={{display:'flex', gap:'5px'}}>
+                                                        <button onClick={() => submitGrade(sub.id)} className="btn-icon-check" title="Save"><i className="fas fa-check"></i></button>
+                                                        <button onClick={() => setGradingId(null)} className="btn-icon-cancel" title="Cancel"><i className="fas fa-times"></i></button>
+                                                    </div>
+                                                ) : (
+                                                    <button onClick={() => { setGradingId(sub.id); setMarks(''); setFeedback(''); }} className="btn-primary" style={{padding:'6px 12px', fontSize:'12px', width:'auto', margin:0}}>
+                                                        Grade
+                                                    </button>
+                                                )
+                                            )}
+                                            {sub.status === 'Graded' && <span className="status-badge status-approved">Done</span>}
+                                        </td>
+                                    </tr>
+                                ))}
+                                {submissions.length === 0 && <tr><td colSpan="5" style={{textAlign:'center', padding:'30px', color:'#94a3b8'}}>No submissions received yet.</td></tr>}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
-
-            </div>
+            )}
         </div>
     );
 }

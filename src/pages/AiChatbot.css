@@ -41,7 +41,7 @@
 /* --- Main Chat Window --- */
 .ai-chat-window {
   position: fixed;
-  bottom: 160px;
+  bottom: 90px;
   right: 25px;
   width: 380px;
   height: 650px;
@@ -341,7 +341,7 @@
 
 /* --- MOBILE RESPONSIVENESS (Best Experience) --- */
 @media (max-width: 480px) {
-  .ai-fab { bottom: 20px; right: 20px; width: 50px; height: 50px; }
+  .ai-fab { bottom: 90px; right: 20px; width: 50px; height: 50px; }
   
   .ai-chat-window {
     position: fixed;

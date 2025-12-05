@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import ReactDOM from 'react-dom'; // ✅ Required for Portal
 import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
@@ -30,9 +31,24 @@ const getMinutesFromTime = (timeStr) => {
     return h * 60 + m;
 };
 
-// --- COMPONENT: Leave Request Form & History ---
+// --- HELPER: Relative Time ---
+const getRelativeTime = (timestamp) => {
+    if (!timestamp) return 'Just now';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const now = new Date();
+    const diffInSeconds = Math.floor((now - date) / 1000);
+
+    if (diffInSeconds < 60) return 'Just now';
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
+    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
+    if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d ago`;
+    return date.toLocaleDateString();
+};
+
+// --- COMPONENT: Leave Request Form ---
 const LeaveRequestForm = ({ user }) => {
     const [form, setForm] = useState({ reason: '', fromDate: '', toDate: '' });
+    const [file, setFile] = useState(null);
     const [loading, setLoading] = useState(false);
     const [myLeaves, setMyLeaves] = useState([]);
 
@@ -50,24 +66,41 @@ const LeaveRequestForm = ({ user }) => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setLoading(true);
-        const toastId = toast.loading("Sending Request...");
+        // ✅ Toast loading with ID to update later
+        const toastId = toast.loading("Uploading & Sending...");
+
         try {
-            await fetch(`${BACKEND_URL}/requestLeave`, {
+            const formData = new FormData();
+            formData.append('uid', user.uid);
+            formData.append('name', `${user.firstName} ${user.lastName}`);
+            formData.append('rollNo', user.rollNo);
+            formData.append('department', user.department);
+            formData.append('instituteId', user.instituteId);
+            formData.append('reason', form.reason);
+            formData.append('fromDate', form.fromDate);
+            formData.append('toDate', form.toDate);
+            
+            if (file) formData.append('document', file);
+
+            const res = await fetch(`${BACKEND_URL}/requestLeave`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    uid: user.uid, 
-                    name: `${user.firstName} ${user.lastName}`, 
-                    rollNo: user.rollNo, 
-                    department: user.department,
-                    instituteId: user.instituteId,
-                    ...form 
-                })
+                body: formData 
             });
+
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+
+            // ✅ Update existing toast to success
             toast.success("Request sent to HOD!", { id: toastId });
+            
             setForm({ reason: '', fromDate: '', toDate: '' });
-        } catch (err) { toast.error("Failed to send.", { id: toastId }); }
-        finally { setLoading(false); }
+            setFile(null);
+        } catch (err) { 
+            // ✅ Update existing toast to error
+            toast.error(err.message, { id: toastId }); 
+        } finally { 
+            setLoading(false); 
+        }
     };
 
     return (
@@ -75,14 +108,34 @@ const LeaveRequestForm = ({ user }) => {
             <h2 className="content-title">Request Leave</h2>
             <div className="card" style={{marginBottom: '30px'}}>
                 <form onSubmit={handleSubmit}>
-                    <div className="input-group"><label>Reason</label><input type="text" required value={form.reason} onChange={e => setForm({...form, reason: e.target.value})} placeholder="e.g. Sick Leave" /></div>
-                    <div style={{display:'flex', gap:'15px'}}>
-                        <div className="input-group" style={{flex:1}}><label>From</label><input type="date" required value={form.fromDate} onChange={e => setForm({...form, fromDate: e.target.value})} /></div>
-                        <div className="input-group" style={{flex:1}}><label>To</label><input type="date" required value={form.toDate} onChange={e => setForm({...form, toDate: e.target.value})} /></div>
+                    <div className="input-group">
+                        <label>Reason</label>
+                        <input type="text" required value={form.reason} onChange={e => setForm({...form, reason: e.target.value})} placeholder="e.g. Medical Leave" />
                     </div>
-                    <button className="btn-primary" disabled={loading}>{loading ? 'Sending...' : 'Submit Request'}</button>
+                    
+                    <div style={{display:'flex', gap:'15px', flexWrap:'wrap'}}>
+                        <div className="input-group" style={{flex:1}}>
+                            <label>From</label>
+                            <input type="date" required value={form.fromDate} onChange={e => setForm({...form, fromDate: e.target.value})} />
+                        </div>
+                        <div className="input-group" style={{flex:1}}>
+                            <label>To</label>
+                            <input type="date" required value={form.toDate} onChange={e => setForm({...form, toDate: e.target.value})} />
+                        </div>
+                    </div>
+
+                    <div className="input-group">
+                        <label>Attach Proof (Optional)</label>
+                        <input type="file" accept="image/*,.pdf" onChange={(e) => setFile(e.target.files[0])} style={{padding:'10px', background:'#f8fafc'}} />
+                        <small style={{color:'#64748b'}}>Upload medical certificate or letter (Max 5MB)</small>
+                    </div>
+
+                    <button className="btn-primary" disabled={loading}>
+                        {loading ? 'Sending...' : 'Submit Request'}
+                    </button>
                 </form>
             </div>
+
             <h3 style={{color:'#1e293b', margin:'0 0 15px 0', fontSize:'18px'}}>My Leave History</h3>
             <div className="cards-grid">
                 {myLeaves.length > 0 ? (
@@ -91,7 +144,14 @@ const LeaveRequestForm = ({ user }) => {
                             <div style={{display:'flex', justifyContent:'space-between', alignItems:'start'}}>
                                 <div>
                                     <h4 style={{margin:'0 0 5px 0', fontSize:'16px'}}>{leave.reason}</h4>
-                                    <p style={{margin:0, fontSize:'13px', color:'#64748b'}}>{new Date(leave.fromDate).toLocaleDateString()} ➔ {new Date(leave.toDate).toLocaleDateString()}</p>
+                                    <p style={{margin:0, fontSize:'13px', color:'#64748b'}}>
+                                        {new Date(leave.fromDate).toLocaleDateString()} ➔ {new Date(leave.toDate).toLocaleDateString()}
+                                    </p>
+                                    {leave.documentUrl && (
+                                        <a href={leave.documentUrl} target="_blank" rel="noreferrer" style={{display:'inline-flex', alignItems:'center', gap:'5px', fontSize:'12px', color:'#2563eb', marginTop:'8px', textDecoration:'none', background:'#eff6ff', padding:'4px 8px', borderRadius:'6px'}}>
+                                            <i className="fas fa-paperclip"></i> View Proof
+                                        </a>
+                                    )}
                                 </div>
                                 <span className={`status-badge status-${leave.status}`} style={{textTransform: 'uppercase', fontSize:'11px', letterSpacing:'0.5px'}}>{leave.status}</span>
                             </div>
@@ -108,16 +168,27 @@ const NoticesView = ({ notices }) => {
     return (
         <div className="content-section">
             <h2 className="content-title">Notice Board</h2>
-            <div className="cards-grid" style={{gridTemplateColumns:'1fr'}}>
-                {notices.length > 0 ? notices.map(n => (
-                    <div key={n.id} className="card" style={{borderLeft:'5px solid #2563eb', padding:'25px'}}>
-                        <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px'}}>
-                            <h3 style={{margin:0, fontSize:'18px', color:'#1e3a8a'}}>{n.title}</h3>
-                            <span style={{fontSize:'11px', fontWeight:'600', color:'#94a3b8'}}>{n.createdAt?.toDate ? n.createdAt.toDate().toLocaleDateString() : 'Just now'}</span>
+            <p className="content-subtitle">Stay updated with the latest announcements.</p>
+            <div className="notice-list">
+                {notices.length > 0 ? notices.map((n, index) => {
+                    const isNew = (new Date() - (n.createdAt?.toDate ? n.createdAt.toDate() : new Date())) / (1000 * 60 * 60) < 24;
+                    return (
+                        <div key={n.id} className="notice-card" style={{animationDelay: `${index * 0.1}s`}}>
+                            <div className="notice-icon-box"><i className="fas fa-bullhorn"></i></div>
+                            <div className="notice-content">
+                                <div className="notice-header">
+                                    <h3 className="notice-title">{n.title}{isNew && <span className="badge-new">NEW</span>}</h3>
+                                    <span className="notice-time">{getRelativeTime(n.createdAt)}</span>
+                                </div>
+                                <p className="notice-body">{n.message}</p>
+                                <div className="notice-footer">
+                                    <span className="notice-dept-badge">{n.department || 'General'}</span>
+                                    {n.targetYear !== 'All' && <span className="notice-year-badge">{n.targetYear}</span>}
+                                </div>
+                            </div>
                         </div>
-                        <p style={{color:'#334155', fontSize:'14px', marginBottom:'15px'}}>{n.message}</p>
-                    </div>
-                )) : <div className="card" style={{textAlign:'center', padding:'40px'}}>📭 No announcements.</div>}
+                    );
+                }) : <div className="empty-state-card"><div className="empty-icon"><i className="fas fa-inbox"></i></div><h3>No Announcements</h3><p>You're all caught up!</p></div>}
             </div>
         </div>
     );
@@ -134,9 +205,7 @@ const SmartScheduleCard = ({ user }) => {
             let sem = user.semester || (user.year === 'FE' ? '1' : user.year === 'SE' ? '3' : user.year === 'TE' ? '5' : '7');
             const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
             const today = days[new Date().getDay()];
-
             if (today === 'Sunday') { setCurrentSlot({ type: 'Holiday', subject: 'Weekend! Relax.' }); setLoading(false); return; }
-
             try {
                 const docSnap = await getDoc(doc(db, 'timetables', `${user.department}_Sem${sem}_${today}`));
                 if (docSnap.exists()) {
@@ -157,7 +226,6 @@ const SmartScheduleCard = ({ user }) => {
     }, [user]);
 
     const isFree = currentSlot?.type === 'Free' || currentSlot?.type === 'Break' || currentSlot?.type === 'Holiday';
-    
     if (loading) return <div className="card" style={{padding:'20px', textAlign:'center'}}>Loading...</div>;
 
     return (
@@ -173,6 +241,48 @@ const SmartScheduleCard = ({ user }) => {
             </div>
             {isFree && <FreePeriodQuiz user={user} isFree={isFree} />}
         </>
+    );
+};
+
+// --- COMPONENT: Attendance Overview ---
+const AttendanceOverview = ({ user }) => {
+    const [percentage, setPercentage] = useState(0);
+    const [totalClasses, setTotalClasses] = useState(0);
+    const [attendedClasses, setAttendedClasses] = useState(0);
+
+    useEffect(() => {
+        const fetchStats = async () => {
+            if (!user?.instituteId || !user?.department) return;
+            try {
+                const statsDoc = await getDoc(doc(db, "department_stats", `${user.instituteId}_${user.department}`));
+                const total = statsDoc.exists() ? (statsDoc.data().totalClasses || 0) : 0;
+                setTotalClasses(total);
+                const myAttended = user.attendanceCount || 0; 
+                setAttendedClasses(myAttended);
+                if (total > 0) setPercentage(Math.min(100, Math.round((myAttended / total) * 100)));
+            } catch (err) { console.error("Error fetching stats:", err); }
+        };
+        fetchStats();
+    }, [user]);
+
+    const getColor = (pct) => pct >= 75 ? '#10b981' : pct >= 60 ? '#f59e0b' : '#ef4444';
+    const strokeColor = getColor(percentage);
+
+    return (
+        <div className="card" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '20px' }}>
+            <div style={{ position: 'relative', width: '80px', height: '80px' }}>
+                <svg width="80" height="80" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" strokeWidth="10" />
+                    <circle cx="50" cy="50" r="45" fill="none" stroke={strokeColor} strokeWidth="10" strokeDasharray="283" strokeDashoffset={283 - (283 * percentage) / 100} strokeLinecap="round" transform="rotate(-90 50 50)" style={{ transition: 'stroke-dashoffset 1s ease-out' }} />
+                </svg>
+                <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: '#1e293b' }}>{percentage}%</div>
+            </div>
+            <div>
+                <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Attendance</h3>
+                <p style={{ margin: '5px 0 0 0', fontSize: '13px', color: '#64748b' }}>You have attended <strong>{attendedClasses}</strong> out of <strong>{totalClasses}</strong> classes.</p>
+                {percentage < 75 && <span style={{ fontSize: '11px', color: '#ef4444', fontWeight: '600' }}>⚠️ Low Attendance!</span>}
+            </div>
+        </div>
     );
 };
 
@@ -197,7 +307,7 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
             <h2 className="content-title">Welcome, {user.firstName}!</h2>
             <div className="cards-grid">
                 <SmartScheduleCard user={user} />
-                
+                <AttendanceOverview user={user} />
                 <div className="card" style={{ background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)', border: 'none' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '15px' }}>
                         <div className="icon-box-modern"><i className="fas fa-qrcode"></i></div>
@@ -211,7 +321,6 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                         </>
                     ) : <p style={{textAlign:'center', color:'#64748b'}}>No active sessions.</p>}
                 </div>
-                
                 <div className="card">
                     <h3>Recent History</h3>
                     <div className="recent-attendance-list">
@@ -236,25 +345,21 @@ const MobileFooter = ({ activePage, setActivePage, badgeCount, liveSession, onSc
                 <i className="fas fa-home"></i>
                 <span>Home</span>
             </button>
-            
             <button className={`nav-item ${activePage === 'notices' ? 'active' : ''}`} onClick={() => setActivePage('notices')} style={{position:'relative'}}>
                 <i className="fas fa-bullhorn"></i>
                 <span>Updates</span>
                 {badgeCount > 0 && <span className="nav-badge" style={{position:'absolute', top:'-5px', right:'15px', padding:'2px 6px'}}>{badgeCount}</span>}
             </button>
-
             <div className="scan-btn-wrapper">
                 <button className="scan-btn" onClick={onScan}>
                     <i className="fas fa-qrcode"></i>
                     {liveSession && <div className="scan-badge">1</div>}
                 </button>
             </div>
-
             <button className={`nav-item ${activePage === 'leaderboard' ? 'active' : ''}`} onClick={() => setActivePage('leaderboard')}>
                 <i className="fas fa-trophy"></i>
                 <span>Rank</span>
             </button>
-
             <button className={`nav-item ${activePage === 'profile' ? 'active' : ''}`} onClick={() => setActivePage('profile')}>
                 <i className="fas fa-user"></i>
                 <span>Profile</span>
@@ -280,7 +385,6 @@ export default function StudentDashboard() {
   const [recentAttendance, setRecentAttendance] = useState([]);
   
   const scannerRef = useRef(null); 
-
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -331,13 +435,13 @@ export default function StudentDashboard() {
   const badgeCount = Math.max(0, notices.length - readCount);
   const handleLogout = async () => { await signOut(auth); navigate('/'); };
 
-  // --- ✅ NEW SCANNER LOGIC ---
   const onScanSuccess = (decodedText) => {
         if (scannerRef.current) {
             scannerRef.current.pause(true); 
         }
         setShowScanner(false);
-        toast.loading("Verifying...");
+        // ✅ Store ID so we can update it
+        const toastId = toast.loading("Verifying...");
         
         navigator.geolocation.getCurrentPosition(async (position) => {
             try {
@@ -348,14 +452,18 @@ export default function StudentDashboard() {
                     body: JSON.stringify({ sessionId: decodedText, studentLocation: { latitude: position.coords.latitude, longitude: position.coords.longitude } })
                 });
                 const data = await response.json();
-                toast.dismiss();
-                if (response.ok) toast.success(data.message); else toast.error(data.error);
+                
+                // ✅ Update existing toast instead of creating new one
+                if (response.ok) {
+                    toast.success(data.message, { id: toastId });
+                } else {
+                    toast.error(data.error, { id: toastId });
+                }
             } catch (error) { 
-                toast.error(error.message); 
-                toast.dismiss();
+                toast.error(error.message, { id: toastId }); 
             }
         }, (err) => {
-            toast.error("Location permission denied.");
+            toast.error("Location permission denied.", { id: toastId });
             setShowScanner(false);
         });
   };
@@ -393,19 +501,17 @@ export default function StudentDashboard() {
     }
   };
 
-  const NavLink = ({ page, iconClass, label, count }) => (
-    <li className={activePage === page ? 'active' : ''} onClick={() => {setActivePage(page); setIsMobileNavOpen(false);}}>
-        <div style={{display:'flex', alignItems:'center', width:'100%'}}>
-            <i className={`fas ${iconClass}`} style={{ width: '24px', textAlign: 'center' }}></i>
-            <span>{label}</span>
-            {count > 0 && <span className="nav-badge" style={{ background: '#ef4444', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '12px', marginLeft: 'auto', fontWeight: 'bold' }}>{count}</span>}
-        </div>
-    </li>
-  );
-
   return (
     <div className="dashboard-container">
-      <Toaster position="bottom-center" toastOptions={{ duration: 2000, style: { background: '#1e293b', color: '#fff', marginBottom: '10px', zIndex: 9999 }}} />
+      {/* ✅ UPDATED TOASTER CONFIGURATION */}
+      <Toaster 
+          position="bottom-center" 
+          toastOptions={{ 
+              duration: 4000, 
+              style: { background: '#1e293b', color: '#fff', marginBottom: '20px', zIndex: 99999 } 
+          }} 
+      />
+      
       {isMobileNavOpen && <div className="nav-overlay" onClick={() => setIsMobileNavOpen(false)} />}
       
       <aside className={`sidebar ${isMobileNavOpen ? 'open' : ''}`} style={{ zIndex: isMobileNavOpen ? 200 : 50 }}>
@@ -418,13 +524,50 @@ export default function StudentDashboard() {
             </div>
         )}
         <ul className="menu">
-            <NavLink page="dashboard" iconClass="fa-home" label="Dashboard" />
-            <NavLink page="notices" iconClass="fa-bullhorn" label="Notice Board" count={badgeCount} />
-            <NavLink page="tasks" iconClass="fa-check-circle" label="Free Period Tasks" />
-            <NavLink page="leaderboard" iconClass="fa-trophy" label="Leaderboard" />
-            <NavLink page="plans" iconClass="fa-paper-plane" label="Future Plans" />
-            <NavLink page="leave" iconClass="fa-calendar-minus" label="Apply Leave" />
-            <NavLink page="profile" iconClass="fa-user" label="Profile" />
+            {/* ✅ FIXED GAP */}
+            <li className={activePage === 'dashboard' ? 'active' : ''} onClick={() => {setActivePage('dashboard'); setIsMobileNavOpen(false);}}>
+                <div style={{display:'flex', alignItems:'center', width:'100%', gap: '15px'}}>
+                    <i className="fas fa-home" style={{ width: '24px', textAlign: 'center' }}></i>
+                    <span>Dashboard</span>
+                </div>
+            </li>
+            <li className={activePage === 'notices' ? 'active' : ''} onClick={() => {setActivePage('notices'); setIsMobileNavOpen(false);}}>
+                <div style={{display:'flex', alignItems:'center', width:'100%', gap: '15px'}}>
+                    <i className="fas fa-bullhorn" style={{ width: '24px', textAlign: 'center' }}></i>
+                    <span>Notice Board</span>
+                    {badgeCount > 0 && <span className="nav-badge" style={{ background: '#ef4444', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '12px', marginLeft: 'auto', fontWeight: 'bold' }}>{badgeCount}</span>}
+                </div>
+            </li>
+            <li className={activePage === 'tasks' ? 'active' : ''} onClick={() => {setActivePage('tasks'); setIsMobileNavOpen(false);}}>
+                <div style={{display:'flex', alignItems:'center', width:'100%', gap: '15px'}}>
+                    <i className="fas fa-check-circle" style={{ width: '24px', textAlign: 'center' }}></i>
+                    <span>Free Period Tasks</span>
+                </div>
+            </li>
+            <li className={activePage === 'leaderboard' ? 'active' : ''} onClick={() => {setActivePage('leaderboard'); setIsMobileNavOpen(false);}}>
+                <div style={{display:'flex', alignItems:'center', width:'100%', gap: '15px'}}>
+                    <i className="fas fa-trophy" style={{ width: '24px', textAlign: 'center' }}></i>
+                    <span>Leaderboard</span>
+                </div>
+            </li>
+            <li className={activePage === 'plans' ? 'active' : ''} onClick={() => {setActivePage('plans'); setIsMobileNavOpen(false);}}>
+                <div style={{display:'flex', alignItems:'center', width:'100%', gap: '15px'}}>
+                    <i className="fas fa-paper-plane" style={{ width: '24px', textAlign: 'center' }}></i>
+                    <span>Future Plans</span>
+                </div>
+            </li>
+            <li className={activePage === 'leave' ? 'active' : ''} onClick={() => {setActivePage('leave'); setIsMobileNavOpen(false);}}>
+                <div style={{display:'flex', alignItems:'center', width:'100%', gap: '15px'}}>
+                    <i className="fas fa-calendar-minus" style={{ width: '24px', textAlign: 'center' }}></i>
+                    <span>Apply Leave</span>
+                </div>
+            </li>
+            <li className={activePage === 'profile' ? 'active' : ''} onClick={() => {setActivePage('profile'); setIsMobileNavOpen(false);}}>
+                <div style={{display:'flex', alignItems:'center', width:'100%', gap: '15px'}}>
+                    <i className="fas fa-user" style={{ width: '24px', textAlign: 'center' }}></i>
+                    <span>Profile</span>
+                </div>
+            </li>
         </ul>
         <div className="sidebar-footer"><button onClick={handleLogout} className="logout-btn"><i className="fas fa-sign-out-alt"></i> <span>Logout</span></button></div>
       </aside>
@@ -438,17 +581,26 @@ export default function StudentDashboard() {
         
         {renderContent()}
 
-        {/* ✅ SCANNER MODAL */}
-        {showScanner && (
-            <div className="card scanner-card" style={{
-                position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', 
-                background: 'rgba(0,0,0,0.9)', zIndex: 10000, 
+        {/* ✅ FULL SCREEN SCANNER MODAL (PORTAL) */}
+        {showScanner && ReactDOM.createPortal(
+            <div style={{
+                position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
+                backgroundColor: 'rgba(0,0,0,0.95)', zIndex: 999999, // Super high z-index
                 display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center'
             }}>
-                <div id="reader" style={{width: '300px', height: '300px', background: 'black'}}></div>
-                <p style={{color:'white', marginTop:'20px'}}>Scanning...</p>
-                <button className="btn-secondary" onClick={() => setShowScanner(false)} style={{marginTop:'20px', zIndex:10001}}>Cancel</button>
-            </div>
+                <div id="reader" style={{width: '300px', height: '300px', background: 'black', borderRadius: '12px', overflow:'hidden', border:'2px solid #2563eb'}}></div>
+                <p style={{color:'white', marginTop:'20px', fontWeight: '500', fontSize:'16px'}}>Align QR Code within the frame</p>
+                <button 
+                    onClick={() => setShowScanner(false)} 
+                    style={{
+                        marginTop:'30px', background:'transparent', border:'1px solid white', 
+                        color:'white', padding:'10px 30px', borderRadius:'30px', cursor:'pointer', fontSize:'14px'
+                    }}
+                >
+                    Cancel Scan
+                </button>
+            </div>,
+            document.body
         )}
 
         <MobileFooter 
@@ -461,7 +613,7 @@ export default function StudentDashboard() {
         />
       </main>
 
-      {/* 🚀 FIXED: Chatbot is now OUTSIDE <main> so it floats on TOP of everything */}
+      {/* 🚀 Render Chatbot */}
       {user && (
           <AiChatbot user={user} isOpenProp={isChatOpen} onClose={() => setIsChatOpen(false)} />
       )}

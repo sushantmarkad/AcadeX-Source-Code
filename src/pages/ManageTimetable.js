@@ -72,7 +72,8 @@ export default function ManageTimetable({ hodInfo }) {
         <div className="content-section">
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'20px'}}>
                 <h2 className="content-title">Manage Timetable</h2>
-                <button onClick={handleSave} className="btn-primary" style={{width:'auto', padding:'10px 20px'}} disabled={loading}>
+                {/* ✅ ADDED btn-mobile-auto to prevent stretching on mobile */}
+                <button onClick={handleSave} className="btn-primary btn-mobile-auto" style={{width:'auto', padding:'10px 20px'}} disabled={loading}>
                     {loading ? "Saving..." : "Save Changes"}
                 </button>
             </div>

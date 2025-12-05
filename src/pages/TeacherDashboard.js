@@ -22,10 +22,9 @@ const getGreeting = () => {
 };
 
 // ------------------------------------
-//  COMPONENT: ANNOUNCEMENTS (FIXED)
+//  COMPONENT: ANNOUNCEMENTS
 // ------------------------------------
 const TeacherAnnouncements = ({ teacherInfo }) => {
-    // ✅ Added targetYear to state
     const [form, setForm] = useState({ title: '', message: '', targetYear: 'All' });
     const [announcements, setAnnouncements] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -60,7 +59,6 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                 createdAt: serverTimestamp()
             });
             toast.success("Announcement Posted!");
-            // Reset form
             setForm({ title: '', message: '', targetYear: 'All' });
         } catch (err) {
             toast.error("Failed to post.");
@@ -86,7 +84,6 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                 <div className="card">
                     <h3>Create New</h3>
                     <form onSubmit={handlePost} style={{marginTop:'15px'}}>
-                        {/* ✅ Added Target Audience Selection */}
                         <div className="input-group">
                             <label>Target Audience</label>
                             <select 
@@ -113,7 +110,6 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                         {announcements.length > 0 ? (
                             announcements.map(ann => (
                                 <div key={ann.id} style={{padding:'12px', background:'#f8fafc', borderRadius:'10px', border:'1px solid #e2e8f0', position:'relative'}}>
-                                    {/* ✅ Show Target Year in History */}
                                     <span className="status-badge-pill" style={{fontSize:'10px', marginBottom:'5px'}}>{ann.targetYear || 'All'}</span>
                                     <h4 style={{margin:'0 0 5px 0'}}>{ann.title}</h4>
                                     <p style={{fontSize:'13px', color:'#64748b', margin:0}}>{ann.message}</p>
@@ -299,6 +295,34 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
     );
 };
 
+// --- 📱 MOBILE FOOTER COMPONENT ---
+const MobileFooter = ({ activePage, setActivePage }) => {
+    return (
+        <div className="mobile-footer">
+            <button className={`nav-item ${activePage === 'dashboard' ? 'active' : ''}`} onClick={() => setActivePage('dashboard')}>
+                <i className="fas fa-home"></i>
+                <span>Home</span>
+            </button>
+            <button className={`nav-item ${activePage === 'analytics' ? 'active' : ''}`} onClick={() => setActivePage('analytics')}>
+                <i className="fas fa-chart-bar"></i>
+                <span>Stats</span>
+            </button>
+            <button className={`nav-item ${activePage === 'announcements' ? 'active' : ''}`} onClick={() => setActivePage('announcements')}>
+                <i className="fas fa-bullhorn"></i>
+                <span>Notice</span>
+            </button>
+            <button className={`nav-item ${activePage === 'addTasks' ? 'active' : ''}`} onClick={() => setActivePage('addTasks')}>
+                <i className="fas fa-tasks"></i>
+                <span>Tasks</span>
+            </button>
+            <button className={`nav-item ${activePage === 'profile' ? 'active' : ''}`} onClick={() => setActivePage('profile')}>
+                <i className="fas fa-user"></i>
+                <span>Profile</span>
+            </button>
+        </div>
+    );
+};
+
 // ------------------------------------
 //  MAIN TEACHER DASHBOARD WRAPPER
 // ------------------------------------
@@ -424,7 +448,10 @@ export default function TeacherDashboard() {
   
   return (
     <div className="dashboard-container">
-      <Toaster position="top-center" />
+      <Toaster 
+          position="bottom-center" 
+          toastOptions={{ duration: 4000, style: { background: '#1e293b', color: '#fff', marginBottom: '20px' } }}
+      />
       {isMobileNavOpen && <div className="nav-overlay" onClick={() => setIsMobileNavOpen(false)}></div>}
       <aside className={`sidebar ${isMobileNavOpen ? 'open' : ''}`}>
         <div className="logo-container"><img src={logo} alt="Logo" className="sidebar-logo"/><span className="logo-text">Acadex</span></div>
@@ -443,6 +470,9 @@ export default function TeacherDashboard() {
       <main className="main-content">
         <header className="mobile-header"><button className="hamburger-btn" onClick={() => setIsMobileNavOpen(true)}><i className="fas fa-bars"></i></button><div className="mobile-brand"><img src={logo} alt="Logo" className="mobile-logo-img" /><span className="mobile-logo-text">AcadeX</span></div><div style={{width:'40px'}}></div></header>
         {renderContent()}
+        
+        {/* ✅ ADDED MOBILE FOOTER FOR TEACHER */}
+        <MobileFooter activePage={activePage} setActivePage={setActivePage} />
       </main>
     </div>
   );

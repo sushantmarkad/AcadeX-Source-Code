@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import ReactDOM from 'react-dom'; // ✅ Import ReactDOM for Portal
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { doc, updateDoc, increment } from 'firebase/firestore';
@@ -88,49 +89,17 @@ export default function FreePeriodQuiz({ user, isFree }) {
         toast.success(`Quiz Done! +${xpEarned} XP`, { icon: '🏆' });
     };
 
-    return (
-        <>
-            {/* ✅ TRIGGER CARD (ON DASHBOARD) */}
-            <motion.div 
-                className="card"
-                whileHover={{ y: -5, boxShadow: "0 20px 30px -10px rgba(124, 58, 237, 0.3)" }}
-                style={{ 
-                    background: 'linear-gradient(135deg, #f5f3ff 0%, #ddd6fe 100%)', 
-                    border: '1px solid rgba(139, 92, 246, 0.2)',
-                    display: 'flex', flexDirection: 'column',
-                    position: 'relative', overflow: 'hidden', cursor: 'pointer',
-                    zIndex: 0 // ✅ LOW Z-INDEX TO PREVENT OVERLAP
-                }}
-                onClick={startQuiz}
-            >
-                <div style={{ position: 'absolute', top: '-50px', right: '-50px', width: '150px', height: '150px', background: 'radial-gradient(circle, rgba(167, 139, 250, 0.4) 0%, rgba(255,255,255,0) 70%)', borderRadius: '50%', zIndex: 0 }} />
-                
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '15px', zIndex: 1 }}>
-                    <div className="icon-box-modern" style={{ background: '#fff', color: '#7c3aed' }}><i className="fas fa-brain"></i></div>
-                    <div>
-                        <h3 style={{ margin: 0, color: '#5b21b6', fontWeight: '800', fontSize: '16px' }}>KNOWLEDGE BLITZ</h3>
-                        <span style={{ fontSize: '10px', color: '#7c3aed', fontWeight: '600' }}>FOCUS MODE</span>
-                    </div>
-                </div>
-
-                <p style={{ fontSize: '13px', color: '#4c1d95', marginBottom: '15px', lineHeight: '1.6', flex: 1, zIndex: 1 }}>
-                    Free period detected! Master <strong>{user.careerGoal || "Engineering"}</strong> concepts now.
-                </p>
-
-                <button style={{ background: '#7c3aed', color: 'white', border: 'none', width: '100%', padding: '10px', borderRadius: '10px', fontWeight: '700', fontSize: '13px', zIndex: 1 }}>
-                    <i className="fas fa-play"></i> Start Quiz
-                </button>
-            </motion.div>
-
-
-            {/* ✅ FULL SCREEN MODAL */}
+    // ✅ Render Modal using Portal (This fixes the "Sidebar overlap" issue)
+    const renderModal = () => {
+        return ReactDOM.createPortal(
             <AnimatePresence>
                 {isOpen && (
                     <motion.div
                         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                         style={{
-                            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99999,
-                            background: 'rgba(15, 23, 42, 0.85)', backdropFilter: 'blur(12px)',
+                            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
+                            zIndex: 2147483647, // ✅ MAX Z-INDEX to be on TOP of everything (sidebar/header)
+                            background: 'rgba(15, 23, 42, 0.95)', backdropFilter: 'blur(12px)',
                             display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '15px'
                         }}
                         onClick={(e) => e.stopPropagation()}
@@ -214,7 +183,47 @@ export default function FreePeriodQuiz({ user, isFree }) {
                         </div>
                     </motion.div>
                 )}
-            </AnimatePresence>
+            </AnimatePresence>,
+            document.body // ✅ Appends to <body>
+        );
+    };
+
+    return (
+        <>
+            {/* ✅ TRIGGER CARD (ON DASHBOARD) */}
+            <motion.div 
+                className="card"
+                whileHover={{ y: -5, boxShadow: "0 20px 30px -10px rgba(124, 58, 237, 0.3)" }}
+                style={{ 
+                    background: 'linear-gradient(135deg, #f5f3ff 0%, #ddd6fe 100%)', 
+                    border: '1px solid rgba(139, 92, 246, 0.2)',
+                    display: 'flex', flexDirection: 'column',
+                    position: 'relative', overflow: 'hidden', cursor: 'pointer',
+                    zIndex: 0 // ✅ LOW Z-INDEX TO PREVENT OVERLAP
+                }}
+                onClick={startQuiz}
+            >
+                <div style={{ position: 'absolute', top: '-50px', right: '-50px', width: '150px', height: '150px', background: 'radial-gradient(circle, rgba(167, 139, 250, 0.4) 0%, rgba(255,255,255,0) 70%)', borderRadius: '50%', zIndex: 0 }} />
+                
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '15px', zIndex: 1 }}>
+                    <div className="icon-box-modern" style={{ background: '#fff', color: '#7c3aed' }}><i className="fas fa-brain"></i></div>
+                    <div>
+                        <h3 style={{ margin: 0, color: '#5b21b6', fontWeight: '800', fontSize: '16px' }}>KNOWLEDGE BLITZ</h3>
+                        <span style={{ fontSize: '10px', color: '#7c3aed', fontWeight: '600' }}>FOCUS MODE</span>
+                    </div>
+                </div>
+
+                <p style={{ fontSize: '13px', color: '#4c1d95', marginBottom: '15px', lineHeight: '1.6', flex: 1, zIndex: 1 }}>
+                    Free period detected! Master <strong>{user.careerGoal || "Engineering"}</strong> concepts now.
+                </p>
+
+                <button style={{ background: '#7c3aed', color: 'white', border: 'none', width: '100%', padding: '10px', borderRadius: '10px', fontWeight: '700', fontSize: '13px', zIndex: 1 }}>
+                    <i className="fas fa-play"></i> Start Quiz
+                </button>
+            </motion.div>
+
+            {/* ✅ FULL SCREEN MODAL */}
+            {renderModal()}
         </>
     );
 }

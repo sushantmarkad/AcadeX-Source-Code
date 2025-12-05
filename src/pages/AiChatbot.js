@@ -25,10 +25,12 @@ export default function AiChatbot({ user, isOpenProp, onClose }) {
 
     useEffect(() => {
         if (isOpenProp) setIsOpen(true);
+        // ✅ FIX: Safety check for user.firstName
+        const userName = user?.firstName || 'Student';
         if (messages.length === 0) {
             setMessages([{ 
                 sender: 'bot', 
-                text: `Hey ${user?.firstName || 'Student'}! 👋\nI'm your AcadeX Coach.\n\nType a topic (e.g. "Photosynthesis") to start!` 
+                text: `Hey ${userName}! 👋\nI'm your AcadeX Coach.\n\nType a topic (e.g. "Photosynthesis") to start!` 
             }]);
         }
     }, [isOpenProp, user]);
@@ -49,24 +51,35 @@ export default function AiChatbot({ user, isOpenProp, onClose }) {
 
     const addMessage = (sender, text) => setMessages(prev => [...prev, { sender, text }]);
 
+    // ✅ FIX: Robust Topic Setting
     const handleSetTopic = async (topic) => {
         setLoading(true);
         try {
-            await fetch(`${BASE_URL}/storeTopic`, {
+            const userId = user?.uid;
+            if (!userId) throw new Error("User ID missing. Please re-login.");
+
+            const res = await fetch(`${BASE_URL}/storeTopic`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: user?.uid || 'guest', topic })
+                body: JSON.stringify({ userId, topic })
             });
+
+            if (!res.ok) {
+                const errData = await res.json();
+                throw new Error(errData.error || "Failed to save topic");
+            }
+
             setActiveTopic(topic);
             addMessage('bot', `✅ **Topic Set: ${topic}**\nUse the buttons above for Quiz or Notes!`);
         } catch (err) {
-            setActiveTopic(topic);
-            addMessage('bot', `Topic set to "${topic}".`);
+            console.error(err);
+            addMessage('bot', `⚠️ Issue: ${err.message}. Try again.`);
         } finally {
             setLoading(false);
         }
     };
 
+    // ✅ FIX: Robust Action Handling (Notes/Quiz)
     const handleActionClick = async (type) => {
         if (!activeTopic) {
             addMessage('bot', "⚠️ **Please enter a topic first** below.");
@@ -74,13 +87,28 @@ export default function AiChatbot({ user, isOpenProp, onClose }) {
         }
         setLoading(true);
         try {
+            const userId = user?.uid;
+            if (!userId) throw new Error("User ID missing.");
+
             const endpoint = type === 'notes' ? '/notes' : '/quiz';
-            const res = await fetch(`${BASE_URL}${endpoint}?userId=${user?.uid || 'guest'}`);
+            const res = await fetch(`${BASE_URL}${endpoint}?userId=${userId}`);
             const data = await res.json();
-            if (type === 'notes') addMessage('bot', data.note.content);
-            else { setActiveQuiz(data.quiz); startQuizMode(data.quiz); }
+
+            // Check for backend error
+            if (!res.ok) throw new Error(data.error || "Failed to generate content");
+
+            if (type === 'notes') {
+                if (data.note?.content) addMessage('bot', data.note.content);
+                else throw new Error("Notes content is empty.");
+            } else { 
+                if (data.quiz) {
+                    setActiveQuiz(data.quiz); 
+                    startQuizMode(data.quiz); 
+                } else throw new Error("Quiz data is empty.");
+            }
         } catch (err) {
-            addMessage('bot', "⚠️ Error generating content. Please try again.");
+            console.error(err);
+            addMessage('bot', `⚠️ Error: ${err.message}. \nTip: Try setting the topic again.`);
         } finally {
             setLoading(false);
         }
@@ -95,9 +123,10 @@ export default function AiChatbot({ user, isOpenProp, onClose }) {
                 body: JSON.stringify({ message: text, userContext: user })
             });
             const data = await res.json();
+            if (!res.ok) throw new Error(data.reply || "Chat error");
             addMessage('bot', data.reply);
         } catch (error) {
-            addMessage('bot', "⚠️ Error connecting.");
+            addMessage('bot', "⚠️ Error connecting to AI.");
         } finally {
             setLoading(false);
         }
