@@ -16,6 +16,9 @@ import { buttonTap } from "../animations/interactionVariants";
 // ✅ Import the New Modal
 import TwoFactorVerifyModal from "../components/TwoFactorVerifyModal";
 
+// ✅ Import Biometric Hook
+import { useBiometricAuth } from '../components/BiometricAuth';
+
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
 export default function Login() {
@@ -28,6 +31,10 @@ export default function Login() {
   const [tempUser, setTempUser] = useState(null); // Stores user while verifying
   const [verifying2FA, setVerifying2FA] = useState(false);
 
+  // 👆 Biometric State
+  const [showBioLogin, setShowBioLogin] = useState(false);
+  const { loginWithPasskey, bioLoading } = useBiometricAuth();
+
   const navigate = useNavigate();
   const playSound = useIOSSound(); 
 
@@ -35,6 +42,14 @@ export default function Login() {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCheckingAuth(false);
     });
+
+    // 👆 Check if this device has Biometrics enabled
+    const hasBiometric = localStorage.getItem('biometric_enabled');
+    const lastUser = localStorage.getItem('last_userId');
+    if (hasBiometric === 'true' && lastUser) {
+      setShowBioLogin(true);
+    }
+
     return () => unsubscribe();
   }, [navigate]);
 
@@ -54,6 +69,9 @@ export default function Login() {
       // Login with Firebase
       const userCredential = await signInWithEmailAndPassword(auth, form.email, form.password);
       const user = userCredential.user;
+
+      // Save ID for next time (Enables the biometric button for future visits)
+      localStorage.setItem('last_userId', user.uid);
 
       // 🚨 Super Admin Bypass
       if (user.email === "scheduplan1@gmail.com") {
@@ -81,6 +99,28 @@ export default function Login() {
     } catch (error) {
       handleLoginError(error);
     }
+  };
+
+  // --- 👆 HANDLE BIOMETRIC LOGIN ---
+  const triggerBiometricLogin = () => {
+    playSound('tap');
+    loginWithPasskey(async (userId) => {
+        // Success Callback
+        playSound('success');
+        toast.success("Biometric Verified!");
+        
+        // Fetch user role to route them correctly
+        try {
+            const userDoc = await getDoc(doc(db, "users", userId));
+            if (userDoc.exists()) {
+                proceedToDashboard(userDoc.data());
+            } else {
+                setError("❌ User data not found.");
+            }
+        } catch (err) {
+            setError("❌ Error fetching user profile.");
+        }
+    });
   };
 
   // --- 2. HANDLE 2FA VERIFICATION (Step 2) ---
@@ -141,13 +181,15 @@ export default function Login() {
       setError(errorMessage);
   };
 
-  // Handle Google Login (Optional: Add 2FA logic here if needed too)
+  // Handle Google Login
   const handleGoogleSignIn = async () => {
     playSound('tap');
     try {
       const provider = new GoogleAuthProvider();
       const res = await signInWithPopup(auth, provider);
       
+      localStorage.setItem('last_userId', res.user.uid); // Save for bio
+
       const userDoc = await getDoc(doc(db, "users", res.user.uid));
       if (userDoc.exists()) proceedToDashboard(userDoc.data());
       else navigate("/dashboard"); 
@@ -176,6 +218,40 @@ export default function Login() {
             <img className="login-logo" src={logo} alt="App Logo" />
             <h1>Sign in to <span className="highlight">AcadeX</span></h1>
           </div>
+
+          {/* 👆 BIOMETRIC LOGIN BUTTON (Only shows if enabled) */}
+          {showBioLogin && (
+              <motion.button 
+                  className="btn-primary"
+                  style={{ 
+                    background: 'linear-gradient(135deg, #10b981, #059669)', 
+                    marginBottom: '20px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px'
+                  }}
+                  onClick={triggerBiometricLogin}
+                  disabled={bioLoading}
+                  variants={buttonTap}
+                  whileTap="tap"
+                  type="button"
+              >
+                  {bioLoading ? (
+                      <span>Scanning...</span>
+                  ) : (
+                      <>
+                          <i className="fas fa-fingerprint" style={{fontSize: '18px'}}></i> 
+                          Login with TouchID
+                      </>
+                  )}
+              </motion.button>
+          )}
+
+          {showBioLogin && (
+             <div style={{ display: 'flex', alignItems: 'center', margin: '20px 0', color: '#94a3b8' }}>
+                <div style={{ flex: 1, borderBottom: '1px solid #e2e8f0' }}></div>
+                <span style={{ padding: '0 10px', fontSize: '12px', fontWeight: '500' }}>OR USE PASSWORD</span>
+                <div style={{ flex: 1, borderBottom: '1px solid #e2e8f0' }}></div>
+             </div>
+          )}
 
           <form className="login-form" onSubmit={handleSubmit}>
             <div className="input-group">

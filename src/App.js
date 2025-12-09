@@ -16,14 +16,7 @@ const InstituteApplication = lazy(() => import("./pages/InstituteApplication"));
 const CheckStatus = lazy(() => import("./pages/CheckStatus"));
 // At the top of your server file (app.js)
 // NOTE: Use a long, complex string for the key.
-const KEY = process.env.CRYPTOJS_SECRET_KEY;
 
-if (!KEY) {
-    console.error("FATAL: CRYPTOJS_SECRET_KEY is not set.");
-    // process.exit(1); // Consider halting startup if the key is missing
-}
-
-const CryptoJS = require('crypto-js');
 // ✅ NEW DASHBOARDS (These were missing!)
 const StudentDashboard = lazy(() => import("./pages/StudentDashboard"));
 const TeacherDashboard = lazy(() => import("./pages/TeacherDashboard"));

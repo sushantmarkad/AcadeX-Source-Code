@@ -5,6 +5,9 @@ import toast from 'react-hot-toast';
 import './Dashboard.css';
 import TwoFactorSetup from '../components/TwoFactorSetup';
 
+// ✅ Import Biometric Hook
+import { useBiometricAuth } from '../components/BiometricAuth';
+
 // ✅ Predefined Interest Categories for Deep Data (Judge's Requirement)
 const INTEREST_DOMAINS = {
     "Coding & Tech": ["Frontend Dev", "Backend Dev", "Full Stack", "AI/ML", "App Dev", "Cybersecurity", "Blockchain"],
@@ -17,6 +20,9 @@ const INTEREST_DOMAINS = {
 export default function Profile({ user }) {
     const [isEditing, setIsEditing] = useState(false);
     const [profileData, setProfileData] = useState(user || null);
+
+    // 👆 Biometric State
+    const { registerPasskey, bioLoading } = useBiometricAuth();
 
     // Form State including new Deep Data fields
     const [formData, setFormData] = useState({
@@ -88,6 +94,13 @@ export default function Profile({ user }) {
             setIsEditing(false);
         } catch (err) {
             toast.error("Error: " + err.message, { id: toastId });
+        }
+    };
+
+    // 👆 Handle Biometric Setup
+    const handleEnableBiometric = async () => {
+        if (auth.currentUser) {
+            await registerPasskey(auth.currentUser.uid);
         }
     };
 
@@ -243,7 +256,7 @@ export default function Profile({ user }) {
                     </div>
                 )}
 
-                {/* Portfolio Section (Kept as is for students) */}
+                {/* Portfolio Section */}
                 {user.role === 'student' && (
                     <div className="card" style={{ border: 'none', boxShadow: 'none', padding: 0, background: 'transparent' }}>
                         <h3 style={{ fontSize: '18px', marginBottom: '15px', color: '#334155' }}>Professional Portfolio</h3>
@@ -280,7 +293,46 @@ export default function Profile({ user }) {
                         </div>
                     </div>
                 )}
-                <TwoFactorSetup user={user} />
+
+                {/* ✅ SECURITY & LOGIN SECTION */}
+                <div className="card">
+                     <h3>Security & Login</h3>
+                     
+                     <div style={{ marginBottom: '20px' }}>
+                         <button 
+                             onClick={handleEnableBiometric}
+                             disabled={bioLoading}
+                             style={{
+                                width: '100%',
+                                padding: '12px',
+                                background: 'linear-gradient(135deg, #4f46e5, #4338ca)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '10px',
+                                cursor: 'pointer',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
+                                fontWeight: '600'
+                             }}
+                         >
+                            {bioLoading ? (
+                                <span>Starting setup...</span>
+                            ) : (
+                                <>
+                                    <i className="fas fa-fingerprint" style={{fontSize: '18px'}}></i>
+                                    Enable Fingerprint / FaceID
+                                </>
+                            )}
+                         </button>
+                         <p style={{ fontSize: '12px', color: '#64748b', marginTop: '8px', textAlign: 'center' }}>
+                             Setup TouchID or FaceID for faster login on this device.
+                         </p>
+                     </div>
+
+                     <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '20px' }}>
+                         <TwoFactorSetup user={user} />
+                     </div>
+                </div>
+
             </div>
         </div>
     );
