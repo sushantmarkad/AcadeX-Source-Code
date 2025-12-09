@@ -95,10 +95,15 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
 
     useEffect(() => {
         if (!auth.currentUser) return;
+        // Listen to submissions collection for the current user's submissions
         const q = query(collection(db, 'submissions'), where('studentId', '==', auth.currentUser.uid));
         const unsub = onSnapshot(q, (snap) => {
             const subMap = {};
-            snap.docs.forEach(doc => { const data = doc.data(); subMap[data.assignmentId] = data; });
+            // Map the submissions by assignmentId for easy lookup
+            snap.docs.forEach(doc => { 
+                const data = doc.data(); 
+                subMap[data.assignmentId] = data; 
+            });
             setSubmissions(subMap);
         });
         return () => unsub();
@@ -208,6 +213,7 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
             formData.append('rollNo', user.rollNo || 'N/A'); // Fallback if rollNo is missing
 
             // 3. Send to the CORRECT backend route
+            // This route handles both file upload (e.g., to Firebase Storage) and saving metadata to Firestore 'submissions'
             const res = await fetch(`${BACKEND_URL}/submitAssignment`, {
                 method: 'POST',
                 body: formData
@@ -226,7 +232,8 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
             // Update local state to show "Submitted" immediately without refresh
             setSubmissions(prev => ({
                 ...prev,
-                [submitModal.taskId]: { status: 'Pending', submittedAt: new Date() }
+                // The status must be 'Pending' for teacher review
+                [submitModal.taskId]: { status: 'Pending', submittedAt: new Date() } 
             }));
 
             setSubmitModal({ open: false, taskId: null });
@@ -267,13 +274,35 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
                 <div className="tasks-grid">
                     {assignments.length > 0 ? assignments.map((task, index) => {
                          const sub = submissions[task.id]; 
+                         const isSubmitted = !!sub; // Check if submission object exists
                          const isGraded = sub?.status === 'Graded';
+                         
+                         // Determine the display status for the pill
+                         let statusText = 'Pending';
+                         let statusClass = 'pending'; // Default style
+                         
+                         if (isGraded) {
+                            statusText = `${sub.marks}/100`;
+                            statusClass = 'graded';
+                         } else if (isSubmitted) {
+                            statusText = 'Submitted';
+                            statusClass = 'submitted';
+                         }
+
                          return (
-                            <motion.div key={task.id} className="task-card modern-card" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05 }}>
+                            <motion.div 
+                                key={task.id} 
+                                className={`task-card modern-card ${isSubmitted ? 'submitted-card' : ''}`} 
+                                initial={{ opacity: 0, y: 10 }} 
+                                animate={{ opacity: 1, y: 0 }} 
+                                transition={{ delay: index * 0.05 }}
+                                // Highlight submitted card with a subtle shadow/border change
+                                style={{ border: isSubmitted ? '2px solid #10b981' : '1px solid #ddd' }}
+                            >
                                 <div className="card-top">
                                     <div className="icon-square" style={{ background: '#e0f2fe', color: '#0284c7' }}><i className="fas fa-book-open"></i></div>
-                                    <span className={`status-pill ${sub ? (isGraded ? 'graded' : 'submitted') : 'pending'}`}>
-                                        {sub ? (isGraded ? `${sub.marks}/100` : 'Submitted') : 'Pending'}
+                                    <span className={`status-pill ${statusClass}`}>
+                                        {statusText}
                                     </span>
                                 </div>
                                 <div className="card-body">
@@ -281,7 +310,15 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
                                     <p>{task.description}</p>
                                     <small><i className="far fa-clock"></i> Due: {new Date(task.dueDate).toLocaleDateString()}</small>
                                 </div>
-                                {!sub && <button className="btn-modern-primary" onClick={() => setSubmitModal({ open: true, taskId: task.id })}>Upload PDF</button>}
+                                
+                                {/* Action Button Logic */}
+                                {isGraded && <div className="btn-modern-secondary">View Grade & Feedback</div>}
+                                {!isSubmitted && <button className="btn-modern-primary" onClick={() => setSubmitModal({ open: true, taskId: task.id })}>Upload PDF</button>}
+                                {isSubmitted && !isGraded && (
+                                    <div className="submitted-msg">
+                                        <i className="fas fa-check-circle"></i> Submission recorded. Waiting for teacher evaluation.
+                                    </div>
+                                )}
                             </motion.div>
                         );
                     }) : (

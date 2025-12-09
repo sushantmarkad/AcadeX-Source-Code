@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import ReactDOM from 'react-dom'; // ✅ Import ReactDOM
 import { motion, AnimatePresence } from 'framer-motion';
 import { auth } from '../firebase';
 import './ActivityModals.css';
@@ -46,7 +47,8 @@ export default function CodingChallengeModal({ isOpen, onClose, task, onComplete
         }
     };
 
-    return (
+    // ✅ Use Portal to force full screen over sidebar
+    return ReactDOM.createPortal(
         <AnimatePresence>
             <div className="activity-modal-overlay">
                 <motion.div 
@@ -92,6 +94,7 @@ export default function CodingChallengeModal({ isOpen, onClose, task, onComplete
                     </div>
                 </motion.div>
             </div>
-        </AnimatePresence>
+        </AnimatePresence>,
+        document.body // 🚀 Renders at the end of Body, covering Sidebar
     );
 }

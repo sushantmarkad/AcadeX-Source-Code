@@ -44,7 +44,7 @@ function App() {
   return (
     // 2. After Splash, show the Skeleton while the actual page loads
     <Suspense fallback={<DashboardSkeleton />}>
-      <Toaster position="top-center" reverseOrder={false} />
+      
       
       <AnimatePresence mode="wait">
         <Routes location={location} key={location.pathname}>

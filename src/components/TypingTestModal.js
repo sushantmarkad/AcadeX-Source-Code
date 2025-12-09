@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import ReactDOM from 'react-dom'; // ✅ Import ReactDOM
 import { motion, AnimatePresence } from 'framer-motion';
 import { auth } from '../firebase';
 import './ActivityModals.css';
@@ -39,7 +40,7 @@ export default function TypingTestModal({ isOpen, onClose, task, onComplete }) {
         const words = input.trim().split(/\s+/).length;
         const wpm = Math.round(words * (60 / 30)); // Scaled to 60s
         
-        // Simple Accuracy: Levenshtein distance is better, but simple substring check is faster for hackathon
+        // Simple Accuracy
         const target = task.content.targetText;
         let hits = 0;
         for (let i = 0; i < Math.min(input.length, target.length); i++) {
@@ -79,7 +80,8 @@ export default function TypingTestModal({ isOpen, onClose, task, onComplete }) {
         }
     };
 
-    return (
+    // ✅ Use Portal
+    return ReactDOM.createPortal(
         <AnimatePresence>
             <div className="activity-modal-overlay">
                 <motion.div 
@@ -127,6 +129,7 @@ export default function TypingTestModal({ isOpen, onClose, task, onComplete }) {
                     </div>
                 </motion.div>
             </div>
-        </AnimatePresence>
+        </AnimatePresence>,
+        document.body // 🚀 Renders at the end of Body
     );
 }

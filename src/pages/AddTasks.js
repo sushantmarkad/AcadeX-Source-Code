@@ -39,22 +39,54 @@ export default function AddTasks() {
 
     const handleCreate = async (e) => {
         e.preventDefault();
+        
+        // --- FIX 1: Add a check for essential data before proceeding ---
+        if (!teacher || !auth.currentUser) {
+            toast.error("Profile data not fully loaded. Please wait a moment and try again.");
+            return;
+        }
+        
         setLoading(true);
         const toastId = toast.loading("Assigning Task...");
         try {
-            await fetch(`${BACKEND_URL}/createAssignment`, {
+            // Basic validation check
+            if (!form.dueDate) {
+                 toast.error("Please set a due date.");
+                 setLoading(false);
+                 return;
+            }
+            if (new Date(form.dueDate) < new Date(new Date().setHours(0,0,0,0))) {
+                toast.error("Due date must be in the future.");
+                setLoading(false);
+                return;
+            }
+
+            const response = await fetch(`${BACKEND_URL}/createAssignment`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     ...form,
                     teacherId: auth.currentUser.uid,
-                    teacherName: teacher.firstName,
-                    department: teacher.department
+                    // Safely access properties, using fallbacks
+                    teacherName: teacher.firstName || 'Staff Teacher',
+                    department: teacher.department || 'General', 
                 })
             });
+            
+            // --- FIX 2: Check for non-200 status and read error message from backend ---
+            if (!response.ok) {
+                // Attempt to parse the error message from the response body
+                const errorData = await response.json();
+                throw new Error(errorData.error || `Backend responded with status: ${response.status}`);
+            }
+
             toast.success("Task Assigned!", { id: toastId });
             setForm({ title: '', description: '', targetYear: 'All', dueDate: '' });
-        } catch (err) { toast.error("Failed.", { id: toastId }); }
+        } catch (err) { 
+            // Display the detailed error message from the backend or the custom message
+            console.error("Task creation failed:", err);
+            toast.error(`Failed: ${err.message}`, { id: toastId }); 
+        }
         finally { setLoading(false); }
     };
 
@@ -87,6 +119,7 @@ export default function AddTasks() {
             setGradingId(null);
             setMarks('');
             setFeedback('');
+            // Update local state to reflect the grading immediately
             setSubmissions(prev => prev.map(s => s.id === submissionId ? { ...s, status: 'Graded', marks, feedback } : s));
         } catch (e) { toast.error("Failed to save grade"); }
     };
@@ -118,7 +151,7 @@ export default function AddTasks() {
                         <div className="input-group"><label>Title</label><input required value={form.title} onChange={e => setForm({...form, title: e.target.value})} placeholder="e.g. Write a Report on AI" /></div>
                         <div className="input-group"><label>Description</label><textarea className="modern-input" rows="4" required value={form.description} onChange={e => setForm({...form, description: e.target.value})} style={{lineHeight:'1.6'}} /></div>
                         <div className="input-group"><label>Due Date</label><input type="date" required value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} /></div>
-                        <button className="btn-primary" disabled={loading}>{loading ? 'Assigning...' : 'Assign Task'}</button>
+                        <button className="btn-primary" disabled={loading || !teacher}>{loading ? 'Assigning...' : 'Assign Task'}</button>
                     </form>
                 </div>
             )}
