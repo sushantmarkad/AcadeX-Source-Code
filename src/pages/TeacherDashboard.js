@@ -130,10 +130,12 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
 // ------------------------------------
 const TeacherAnalytics = ({ teacherInfo }) => {
     const [chartData, setChartData] = useState([]);
+    const [taskStats, setTaskStats] = useState([]);
     const [loading, setLoading] = useState(true);
 
+    // 1. Fetch Attendance Analytics
     useEffect(() => {
-        const fetchAnalytics = async () => {
+        const fetchAttendance = async () => {
             if (!teacherInfo?.instituteId) return;
             try {
                 const res = await fetch(`${BACKEND_URL}/getAttendanceAnalytics`, {
@@ -153,12 +155,31 @@ const TeacherAnalytics = ({ teacherInfo }) => {
                 ];
                 setChartData(processedData);
             } catch (e) { 
-                console.error(e); 
+                console.error("Attendance Stats Error:", e); 
+            }
+        };
+        fetchAttendance();
+    }, [teacherInfo]);
+
+    // 2. Fetch Task Engagement Stats
+    useEffect(() => {
+        const fetchTaskStats = async () => {
+            if(!teacherInfo?.instituteId) return;
+            try {
+                const res = await fetch(`${BACKEND_URL}/getTaskAnalytics`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ instituteId: teacherInfo.instituteId })
+                });
+                const data = await res.json();
+                setTaskStats(data.chartData || []);
+            } catch (e) {
+                console.error("Task Stats Error:", e);
             } finally {
                 setLoading(false);
             }
         };
-        fetchAnalytics();
+        fetchTaskStats();
     }, [teacherInfo]);
 
     if (loading) return <div className="content-section"><p>Loading Charts...</p></div>;
@@ -166,10 +187,15 @@ const TeacherAnalytics = ({ teacherInfo }) => {
     return (
         <div className="content-section">
             <h2 className="content-title">Class Analytics</h2>
+            
             <div className="cards-grid">
+                
+                {/* CHART 1: ATTENDANCE TREND */}
                 <div className="card" style={{height: '400px', padding:'25px', gridColumn: '1 / -1', overflow:'hidden'}}>
                      <div style={{display:'flex', alignItems:'center', gap:'12px', marginBottom:'20px'}}>
-                        <div className="icon-box-modern" style={{background:'#e0f2fe', color:'#0284c7'}}><i className="fas fa-chart-bar"></i></div>
+                        <div className="icon-box-modern" style={{background:'#e0f2fe', color:'#0284c7'}}>
+                            <i className="fas fa-chart-bar"></i>
+                        </div>
                         <h3 style={{margin:0, fontSize: '18px', color:'#0c4a6e'}}>Weekly Attendance Trend</h3>
                     </div>
                     <ResponsiveContainer width="100%" height="85%">
@@ -177,16 +203,42 @@ const TeacherAnalytics = ({ teacherInfo }) => {
                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                             <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill:'#64748b', fontSize:12}} dy={10} />
                             <YAxis axisLine={false} tickLine={false} tick={{fill:'#64748b', fontSize:12}} />
-                            <Tooltip cursor={{fill: '#f8fafc'}} />
+                            <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius:'8px', border:'none', boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}} />
                             <Bar dataKey="present" fill="#3b82f6" radius={[6, 6, 0, 0]} barSize={40} />
                         </BarChart>
                     </ResponsiveContainer>
                 </div>
+
+                {/* CHART 2: STUDENT ENGAGEMENT (NEW) */}
+                <div className="card" style={{height: '400px', padding:'25px', gridColumn: '1 / -1', overflow:'hidden'}}>
+                    <div style={{display:'flex', alignItems:'center', gap:'12px', marginBottom:'20px'}}>
+                        <div className="icon-box-modern" style={{background:'#f3e8ff', color:'#7c3aed'}}>
+                            <i className="fas fa-gamepad"></i>
+                        </div>
+                        <h3 style={{margin:0, fontSize: '18px', color:'#4c1d95'}}>Student Engagement (Free Period Tasks)</h3>
+                    </div>
+                    
+                    {taskStats.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="85%">
+                            <BarChart data={taskStats} layout="vertical" margin={{top: 5, right: 30, left: 20, bottom: 5}}>
+                                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f1f5f9" />
+                                <XAxis type="number" hide />
+                                <YAxis dataKey="name" type="category" width={100} axisLine={false} tickLine={false} tick={{fill:'#64748b', fontSize:13, fontWeight:500}} />
+                                <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius:'8px', border:'none', boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}} />
+                                <Bar dataKey="value" fill="#8b5cf6" radius={[0, 6, 6, 0]} barSize={25} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    ) : (
+                        <div style={{height:'100%', display:'flex', alignItems:'center', justifyContent:'center', color:'#94a3b8', fontStyle:'italic'}}>
+                            No gamified task data yet.
+                        </div>
+                    )}
+                </div>
+
             </div>
         </div>
     );
 };
-
 // ------------------------------------
 //  DASHBOARD HOME
 // ------------------------------------

@@ -34,19 +34,31 @@ const DashboardHome = ({ instituteName, instituteId }) => {
     }, [instituteId]);
 
     const generateCode = async () => {
+        // ✅ SAFETY CHECK
+        if (!instituteId) {
+            toast.error("Error: Institute ID is missing. Try logging out and back in.");
+            console.error("Generate Code Failed: instituteId is undefined.");
+            return;
+        }
+
         setLoading(true);
         const prefix = instituteName ? instituteName.substring(0, 3).toUpperCase() : "INS";
         const randomNum = Math.floor(1000 + Math.random() * 9000);
         const newCode = `${prefix}-${randomNum}`;
 
         try {
+            // Using setDoc with merge:true handles both Create and Update
             await setDoc(doc(db, "institutes", instituteId), {
-                code: newCode, instituteName, instituteId
+                code: newCode, 
+                instituteName: instituteName || 'Unknown Institute', 
+                instituteId
             }, { merge: true });
+            
             setCode(newCode);
             toast.success(`New Code Generated: ${newCode}`);
         } catch (err) {
-            toast.error("Failed to generate code.");
+            console.error("Firebase Write Error:", err);
+            toast.error("Failed to generate code. Check console.");
         } finally {
             setLoading(false);
         }
@@ -88,7 +100,7 @@ export default function InstituteAdminDashboard() {
     const [activePage, setActivePage] = useState('dashboard');
     const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
-    // ✅ MODAL STATE (Required for Delete Confirmation)
+    // ✅ MODAL STATE
     const [modal, setModal] = useState({ isOpen: false, title: '', message: '', type: 'info', onConfirm: null });
 
     const navigate = useNavigate();
@@ -96,16 +108,29 @@ export default function InstituteAdminDashboard() {
     useEffect(() => {
         const fetchAdminData = async () => {
             if (auth.currentUser) {
-                const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
-                if (userDoc.exists()) setAdminInfo(userDoc.data());
+                try {
+                    const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
+                    if (userDoc.exists()) {
+                        const data = userDoc.data();
+                        setAdminInfo(data);
+                        // Optional: Force a redirect if critical data is missing
+                        if (!data.instituteId) {
+                            console.warn("Admin has no instituteId!");
+                        }
+                    }
+                } catch (e) {
+                    console.error("Error fetching admin data:", e);
+                }
+            } else {
+                navigate('/'); // Redirect to login if not authenticated
             }
         };
         fetchAdminData();
-    }, []);
+    }, [navigate]);
 
     const handleLogout = async () => { await signOut(auth); navigate('/'); };
 
-    // ✅ HELPER FUNCTIONS (Passed to children)
+    // ✅ HELPER FUNCTIONS
     const showModal = (title, message, type = 'info', onConfirm = null) => {
         setModal({ isOpen: true, title, message, type, onConfirm });
     };
@@ -123,8 +148,6 @@ export default function InstituteAdminDashboard() {
 
         switch (activePage) {
             case 'dashboard': return <DashboardHome instituteName={instituteName} instituteId={instituteId} />;
-
-            // ✅ FIXED: PASSING showModal TO ALL COMPONENTS
             case 'addDepartment': return <AddDepartment instituteId={instituteId} instituteName={instituteName} showModal={showModal} />;
             case 'addHOD': return <AddHOD instituteId={instituteId} instituteName={instituteName} showModal={showModal} />;
             case 'addTeacher': return <AddTeacher instituteId={instituteId} instituteName={instituteName} showModal={showModal} />;
@@ -151,10 +174,10 @@ export default function InstituteAdminDashboard() {
 
     return (
         <div className="dashboard-container">
-            {/* ✅ TOAST (For Success/Info) */}
+            {/* ✅ TOAST */}
             <Toaster position="center" reverseOrder={false} />
 
-            {/* ✅ MODAL (For Delete Confirmation) */}
+            {/* ✅ MODAL */}
             {modal.isOpen && (
                 <div className="custom-modal-overlay">
                     <div className="custom-modal-box">

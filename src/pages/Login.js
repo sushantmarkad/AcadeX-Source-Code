@@ -2,7 +2,13 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import "./Login.css";
 import logo from "../assets/logo.png";
-import { signInWithEmailAndPassword, onAuthStateChanged, GoogleAuthProvider, signInWithPopup } from "firebase/auth";
+import { 
+  signInWithEmailAndPassword, 
+  onAuthStateChanged, 
+  GoogleAuthProvider, 
+  signInWithPopup, 
+  sendPasswordResetEmail 
+} from "firebase/auth";
 import { auth, db } from "../firebase"; 
 import { doc, getDoc } from "firebase/firestore";
 import toast from "react-hot-toast"; 
@@ -121,6 +127,31 @@ export default function Login() {
             setError("❌ Error fetching user profile.");
         }
     });
+  };
+
+  // --- 🔑 HANDLE FORGOT PASSWORD (Fixes your issue) ---
+  const handleForgotPassword = async () => {
+    playSound('tap');
+    if (!form.email) {
+      playSound('error');
+      setError("❌ Please enter your email address first.");
+      return;
+    }
+
+    try {
+      await sendPasswordResetEmail(auth, form.email);
+      playSound('success');
+      toast.success("Reset link sent! Check your email.");
+      setError(""); // Clear previous errors
+    } catch (err) {
+      console.error(err);
+      playSound('error');
+      if (err.code === 'auth/user-not-found') {
+          setError("❌ No account found with this email.");
+      } else {
+          setError("❌ Failed to send link. Try again.");
+      }
+    }
   };
 
   // --- 2. HANDLE 2FA VERIFICATION (Step 2) ---
@@ -254,6 +285,8 @@ export default function Login() {
           )}
 
           <form className="login-form" onSubmit={handleSubmit}>
+            
+            {/* 1. Email Input */}
             <div className="input-group">
               <label>Email address</label>
               <input
@@ -265,6 +298,7 @@ export default function Login() {
               />
             </div>
 
+            {/* 2. Password Input (This is what you asked for!) */}
             <div className="input-group">
               <label>Password</label>
               <input
@@ -274,6 +308,21 @@ export default function Login() {
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
                 required
               />
+            </div>
+
+            {/* 3. Forgot Password Link (Added below password) */}
+            <div style={{ textAlign: 'right', marginTop: '-10px', marginBottom: '15px' }}>
+              <span 
+                onClick={handleForgotPassword}
+                style={{ 
+                  color: '#6366f1', 
+                  fontSize: '13px', 
+                  cursor: 'pointer', 
+                  fontWeight: '600' 
+                }}
+              >
+                Forgot Password?
+              </span>
             </div>
 
             {error && <p className="error-message">{error}</p>}
