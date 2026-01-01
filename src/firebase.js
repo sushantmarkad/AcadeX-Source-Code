@@ -21,5 +21,5 @@ export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const provider = new GoogleAuthProvider();
 
-// Export the functions to be used in other files
+
 export { httpsCallable, functions, signInWithPopup, sendPasswordResetEmail };

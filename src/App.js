@@ -5,7 +5,7 @@ import { Toaster } from 'react-hot-toast';
 import IOSSplashScreen from "./components/IOSSplashScreen";
 import logo from "./assets/logo.png"; 
 
-// ✅ Import the Skeleton Component
+// Import the Skeleton Component
 import DashboardSkeleton from "./components/DashboardSkeleton";
 
 // Lazy load components
@@ -14,20 +14,21 @@ const Signup = lazy(() => import("./pages/Signup"));
 const StudentRegister = lazy(() => import("./pages/StudentRegister"));
 const InstituteApplication = lazy(() => import("./pages/InstituteApplication"));
 const CheckStatus = lazy(() => import("./pages/CheckStatus"));
-// At the top of your server file (app.js)
-// NOTE: Use a long, complex string for the key.
 
-// ✅ NEW DASHBOARDS (These were missing!)
+// ROLE-BASED DASHBOARDS
 const StudentDashboard = lazy(() => import("./pages/StudentDashboard"));
 const TeacherDashboard = lazy(() => import("./pages/TeacherDashboard"));
 const InstituteAdminDashboard = lazy(() => import("./pages/InstituteAdminDashboard"));
 const SuperAdminDashboard = lazy(() => import("./pages/SuperAdminDashboard"));
 
+// ✅ NEW: Bulk Student Upload Page
+const BulkAddStudents = lazy(() => import("./pages/BulkAddStudents"));
+
 // Legacy/Shared Pages
 const Attendance = lazy(() => import("./pages/Attendance"));
 const FreeTime = lazy(() => import("./pages/FreeTime"));
 const Goals = lazy(() => import("./pages/Goals"));
-const Dashboard = lazy(() => import("./pages/Dashboard")); // Fallback
+const Dashboard = lazy(() => import("./pages/Dashboard")); 
 
 function App() {
   const location = useLocation();
@@ -46,7 +47,8 @@ function App() {
   return (
     // 2. After Splash, show the Skeleton while the actual page loads
     <Suspense fallback={<DashboardSkeleton />}>
-      
+      {/* Toast notifications handler */}
+      <Toaster position="top-center" reverseOrder={false} />
       
       <AnimatePresence mode="wait">
         <Routes location={location} key={location.pathname}>
@@ -58,11 +60,14 @@ function App() {
           <Route path="/check-status" element={<CheckStatus />} />
           <Route path="/student-register" element={<StudentRegister />} />
           
-          {/* ✅ ROLE-BASED DASHBOARDS (The Fix) */}
+          {/* ROLE-BASED DASHBOARDS */}
           <Route path="/student-dashboard" element={<StudentDashboard />} />
           <Route path="/teacher-dashboard" element={<TeacherDashboard />} />
           <Route path="/admin-dashboard" element={<InstituteAdminDashboard />} />
           <Route path="/super-admin" element={<SuperAdminDashboard />} />
+
+          {/* ✅ NEW: Route for Bulk Uploading Students */}
+          <Route path="/bulk-add-students" element={<BulkAddStudents />} />
 
           {/* Fallback / Legacy Routes */}
           <Route path="/dashboard" element={<Dashboard />} />

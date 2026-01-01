@@ -15,6 +15,9 @@ import AddHOD from './AddHOD';
 import AddDepartment from './AddDepartment';
 import ManageInstituteUsers from './ManageInstituteUsers';
 
+// ✅ IMPORT THE NEW BULK UPLOAD COMPONENT
+import BulkAddStudents from './BulkAddStudents'; 
+
 const DashboardHome = ({ instituteName, instituteId }) => {
     const [code, setCode] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -34,10 +37,8 @@ const DashboardHome = ({ instituteName, instituteId }) => {
     }, [instituteId]);
 
     const generateCode = async () => {
-        // ✅ SAFETY CHECK
         if (!instituteId) {
             toast.error("Error: Institute ID is missing. Try logging out and back in.");
-            console.error("Generate Code Failed: instituteId is undefined.");
             return;
         }
 
@@ -47,7 +48,6 @@ const DashboardHome = ({ instituteName, instituteId }) => {
         const newCode = `${prefix}-${randomNum}`;
 
         try {
-            // Using setDoc with merge:true handles both Create and Update
             await setDoc(doc(db, "institutes", instituteId), {
                 code: newCode, 
                 instituteName: instituteName || 'Unknown Institute', 
@@ -58,7 +58,7 @@ const DashboardHome = ({ instituteName, instituteId }) => {
             toast.success(`New Code Generated: ${newCode}`);
         } catch (err) {
             console.error("Firebase Write Error:", err);
-            toast.error("Failed to generate code. Check console.");
+            toast.error("Failed to generate code.");
         } finally {
             setLoading(false);
         }
@@ -99,8 +99,6 @@ export default function InstituteAdminDashboard() {
     const [adminInfo, setAdminInfo] = useState(null);
     const [activePage, setActivePage] = useState('dashboard');
     const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
-
-    // ✅ MODAL STATE
     const [modal, setModal] = useState({ isOpen: false, title: '', message: '', type: 'info', onConfirm: null });
 
     const navigate = useNavigate();
@@ -111,18 +109,13 @@ export default function InstituteAdminDashboard() {
                 try {
                     const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
                     if (userDoc.exists()) {
-                        const data = userDoc.data();
-                        setAdminInfo(data);
-                        // Optional: Force a redirect if critical data is missing
-                        if (!data.instituteId) {
-                            console.warn("Admin has no instituteId!");
-                        }
+                        setAdminInfo(userDoc.data());
                     }
                 } catch (e) {
                     console.error("Error fetching admin data:", e);
                 }
             } else {
-                navigate('/'); // Redirect to login if not authenticated
+                navigate('/'); 
             }
         };
         fetchAdminData();
@@ -130,7 +123,6 @@ export default function InstituteAdminDashboard() {
 
     const handleLogout = async () => { await signOut(auth); navigate('/'); };
 
-    // ✅ HELPER FUNCTIONS
     const showModal = (title, message, type = 'info', onConfirm = null) => {
         setModal({ isOpen: true, title, message, type, onConfirm });
     };
@@ -152,6 +144,10 @@ export default function InstituteAdminDashboard() {
             case 'addHOD': return <AddHOD instituteId={instituteId} instituteName={instituteName} showModal={showModal} />;
             case 'addTeacher': return <AddTeacher instituteId={instituteId} instituteName={instituteName} showModal={showModal} />;
             case 'addStudent': return <AddStudent instituteId={instituteId} instituteName={instituteName} showModal={showModal} />;
+            
+            // ✅ ADDED: Route for Bulk Upload
+            case 'bulkStudents': return <BulkAddStudents instituteId={instituteId} instituteName={instituteName} />;
+            
             case 'manageUsers': return <ManageInstituteUsers instituteId={instituteId} showModal={showModal} />;
             case 'security': return (
                 <div className="content-section">
@@ -162,7 +158,6 @@ export default function InstituteAdminDashboard() {
                             <p><strong>Name:</strong> {adminInfo.firstName} {adminInfo.lastName}</p>
                             <p><strong>Institute:</strong> {adminInfo.instituteName}</p>
                         </div>
-                        {/* ✅ 2FA COMPONENT */}
                         <TwoFactorSetup user={adminInfo} />
                     </div>
                 </div>
@@ -174,10 +169,8 @@ export default function InstituteAdminDashboard() {
 
     return (
         <div className="dashboard-container">
-            {/* ✅ TOAST */}
             <Toaster position="center" reverseOrder={false} />
 
-            {/* ✅ MODAL */}
             {modal.isOpen && (
                 <div className="custom-modal-overlay">
                     <div className="custom-modal-box">
@@ -201,24 +194,50 @@ export default function InstituteAdminDashboard() {
             )}
 
             {isMobileNavOpen && <div className="nav-overlay" onClick={() => setIsMobileNavOpen(false)}></div>}
+            
             <aside className={`sidebar ${isMobileNavOpen ? 'open' : ''}`}>
-                <div className="logo-container"><img src={logo} alt="Logo" className="sidebar-logo" /><span className="logo-text">Acadex</span></div>
-                {adminInfo && <div className="teacher-info"><h4>{adminInfo.firstName} {adminInfo.lastName}</h4><p>Institute Admin</p></div>}
+                <div className="logo-container">
+                    <img src={logo} alt="Logo" className="sidebar-logo" />
+                    <span className="logo-text">Acadex</span>
+                </div>
+                
+                {adminInfo && (
+                    <div className="teacher-info">
+                        <h4>{adminInfo.firstName} {adminInfo.lastName}</h4>
+                        <p>Institute Admin</p>
+                    </div>
+                )}
+                
                 <ul className="menu">
                     <NavLink page="dashboard" iconClass="fa-tachometer-alt" label="Dashboard" />
                     <NavLink page="addDepartment" iconClass="fa-building" label="Departments" />
                     <NavLink page="addHOD" iconClass="fa-user-tie" label="Add HOD" />
                     <NavLink page="addTeacher" iconClass="fa-chalkboard-teacher" label="Add Teacher" />
                     <NavLink page="addStudent" iconClass="fa-user-graduate" label="Add Student" />
+                    
+                    {/* ✅ ADDED: Sidebar Link for Bulk Upload */}
+                    <NavLink page="bulkStudents" iconClass="fa-file-upload" label="Bulk Upload" />
+                    
                     <NavLink page="manageUsers" iconClass="fa-users" label="Manage Users" />
                     <NavLink page="security" iconClass="fa-lock" label="Security" />
                 </ul>
-                <div className="sidebar-footer"><button onClick={handleLogout} className="logout-btn"><i className="fas fa-sign-out-alt"></i><span>Logout</span></button></div>
+                
+                <div className="sidebar-footer">
+                    <button onClick={handleLogout} className="logout-btn">
+                        <i className="fas fa-sign-out-alt"></i><span>Logout</span>
+                    </button>
+                </div>
             </aside>
+            
             <main className="main-content">
                 <header className="mobile-header">
-                    <button className="hamburger-btn" onClick={() => setIsMobileNavOpen(true)}><i className="fas fa-bars"></i></button>
-                    <div className="mobile-brand"><img src={logo} alt="Logo" className="mobile-logo-img" /><span className="mobile-logo-text">AcadeX</span></div>
+                    <button className="hamburger-btn" onClick={() => setIsMobileNavOpen(true)}>
+                        <i className="fas fa-bars"></i>
+                    </button>
+                    <div className="mobile-brand">
+                        <img src={logo} alt="Logo" className="mobile-logo-img" />
+                        <span className="mobile-logo-text">AcadeX</span>
+                    </div>
                     <div style={{ width: '40px' }}></div>
                 </header>
                 {renderContent()}
