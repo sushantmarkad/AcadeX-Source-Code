@@ -24,12 +24,27 @@ export default function Signup() {
     const [error, setError] = useState("");
     const navigate = useNavigate();
 
+    // ✅ Helper function for password validation
+    const validatePassword = (password) => {
+        if (password.length < 6) return "Password must be at least 6 characters long.";
+        if (!/[A-Z]/.test(password)) return "Password must contain at least one uppercase letter.";
+        if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) return "Password must contain at least one special character.";
+        return null;
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError("");
 
-        if (!form.email || !form.password) {
-            setError("❌ Please provide a valid email and password.");
+        // ✅ Validate Password first
+        const passwordError = validatePassword(form.password);
+        if (passwordError) {
+            setError("❌ " + passwordError);
+            return;
+        }
+
+        if (!form.email) {
+            setError("❌ Please provide a valid email.");
             return;
         }
 
@@ -70,8 +85,15 @@ export default function Signup() {
             navigate("/dashboard");
 
         } catch (error) {
-            setError(`❌ Error: ${error.message}`);
             console.error("Signup error:", error);
+            // ✅ Improved Error Handling
+            if (error.code === 'auth/email-already-in-use') {
+                setError("❌ This email is already registered. Please login instead.");
+            } else if (error.code === 'auth/weak-password') {
+                setError("❌ Password is too weak.");
+            } else {
+                setError(`❌ Error: ${error.message}`);
+            }
         }
     };
 
@@ -160,4 +182,3 @@ export default function Signup() {
         </AnimatedPage>
     );
 }
-

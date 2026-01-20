@@ -32,7 +32,8 @@ export default function HODDashboard() {
     const [activeTab, setActiveTab] = useState('dashboard');
     const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
-    const [teacherForm, setTeacherForm] = useState({ firstName: '', lastName: '', email: '', password: '', subject: '' });
+    // ✅ Updated Teacher Form State (Includes assignedClasses for subject mapping)
+    const [teacherForm, setTeacherForm] = useState({ firstName: '', lastName: '', email: '', password: '', assignedClasses: [] });
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
 
@@ -117,9 +118,30 @@ export default function HODDashboard() {
         else setSelectedRequestIds(studentRequests.map(r => r.id));
     };
 
+    // ✅ Handle Class/Year Selection for New Teacher
+    const handleClassToggle = (year) => {
+        setTeacherForm(prev => {
+            const exists = prev.assignedClasses.find(c => c.year === year);
+            if (exists) {
+                // Remove
+                return { ...prev, assignedClasses: prev.assignedClasses.filter(c => c.year !== year) };
+            } else {
+                // Add with empty subject
+                return { ...prev, assignedClasses: [...prev.assignedClasses, { year, subject: '' }] };
+            }
+        });
+    };
+
+    // ✅ Handle Subject Input for Specific Year
+    const handleSubjectChange = (year, subject) => {
+        setTeacherForm(prev => ({
+            ...prev,
+            assignedClasses: prev.assignedClasses.map(c => c.year === year ? { ...c, subject } : c)
+        }));
+    };
+
     // --- ACTIONS ---
 
-    // ✅ Handle Post Announcement
     const handlePostAnnouncement = async (e) => {
         e.preventDefault();
         const toastId = toast.loading("Posting...");
@@ -139,7 +161,6 @@ export default function HODDashboard() {
         }
     };
 
-    // ✅ Handle Delete Announcement
     const handleDeleteAnnouncement = async (id) => {
         if (!window.confirm("Delete this announcement?")) return;
         try {
@@ -148,13 +169,11 @@ export default function HODDashboard() {
         } catch (e) { toast.error("Failed."); }
     };
 
-    // 2. Send Notice Action
     const handleSendNotice = (student) => {
         toast.success(`Notice sent to ${student.firstName} (${student.email})`, {
             icon: '📨',
             style: { border: '1px solid #3b82f6', color: '#1e3a8a', background: '#eff6ff' }
         });
-        // In a real app, call backend API to send email here
     };
 
     const handleDeleteUsers = () => {
@@ -242,17 +261,40 @@ export default function HODDashboard() {
         } catch (e) { toast.error("Error rejecting", { id: toastId }); }
     };
 
+    // ✅ Updated Add Teacher Handler (Sends assignedClasses)
     const handleAddTeacher = async (e) => {
-        e.preventDefault(); setLoading(true);
+        e.preventDefault();
+
+        if (teacherForm.assignedClasses.length === 0) {
+            toast.error("Please assign at least one class.");
+            return;
+        }
+        // Check if subjects are filled
+        const incomplete = teacherForm.assignedClasses.find(c => !c.subject || c.subject.trim() === "");
+        if (incomplete) {
+            toast.error(`Please enter a subject for ${incomplete.year} year.`);
+            return;
+        }
+
+        setLoading(true);
         const toastId = toast.loading("Adding Teacher...");
         try {
             await fetch(`${BACKEND_URL}/createUser`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...teacherForm, role: 'teacher', instituteId: hodInfo.instituteId, instituteName: hodInfo.instituteName, department: hodInfo.department, subject: teacherForm.subject, extras: { qualification: 'Added by HOD' } })
+                body: JSON.stringify({
+                    ...teacherForm,
+                    role: 'teacher',
+                    instituteId: hodInfo.instituteId,
+                    instituteName: hodInfo.instituteName,
+                    department: hodInfo.department,
+                    // Backend now expects assignedClasses
+                    assignedClasses: teacherForm.assignedClasses,
+                    extras: { qualification: 'Added by HOD' }
+                })
             });
             await sendPasswordResetEmail(auth, teacherForm.email);
             toast.success(`Teacher Added!`, { id: toastId });
-            setTeacherForm({ firstName: '', lastName: '', email: '', password: '', subject: '' });
+            setTeacherForm({ firstName: '', lastName: '', email: '', password: '', assignedClasses: [] });
         } catch (error) { toast.error("Error: " + error.message, { id: toastId }); } finally { setLoading(false); }
     };
 
@@ -266,10 +308,10 @@ export default function HODDashboard() {
 
     return (
         <div className="dashboard-container">
-           <Toaster 
-            position="bottom-center" 
-            toastOptions={{ duration: 4000, style: { background: '#1e293b', color: '#fff', marginBottom: '20px' } }} 
-        />
+            <Toaster
+                position="bottom-center"
+                toastOptions={{ duration: 4000, style: { background: '#1e293b', color: '#fff', marginBottom: '20px' } }}
+            />
 
             {modal.isOpen && (
                 <div className="custom-modal-overlay">
@@ -291,7 +333,6 @@ export default function HODDashboard() {
                 <ul className="menu">
                     <NavLink page="dashboard" iconClass="fa-th-large" label="Dashboard" />
                     <NavLink page="analytics" iconClass="fa-chart-pie" label="Analytics" />
-                    {/* ✅ Added Announcements Tab */}
                     <NavLink page="announcements" iconClass="fa-bullhorn" label="Announcements" />
                     <NavLink page="leaves" iconClass="fa-calendar-check" label="Leave Requests" count={leaves.length} />
                     <NavLink page="requests" iconClass="fa-user-clock" label="Applications" count={studentRequests.length} />
@@ -300,7 +341,6 @@ export default function HODDashboard() {
                     <NavLink page="addTeacher" iconClass="fa-chalkboard-teacher" label="Add Teacher" />
                 </ul>
                 <div className="sidebar-footer">
-                    {/* 1. Fixed Logout Button */}
                     <button className="logout-btn" onClick={() => signOut(auth).then(() => navigate('/'))}>
                         <i className="fas fa-sign-out-alt" style={{ marginRight: '10px' }}></i> Logout
                     </button>
@@ -337,7 +377,6 @@ export default function HODDashboard() {
                 {activeTab === 'analytics' && (
                     <div className="content-section">
                         <h2 className="content-title">Attendance Analytics</h2>
-                        {/* MODERN SEARCH BAR */}
                         <div className="search-box-wrapper">
                             <i className="fas fa-search search-icon"></i>
                             <input
@@ -350,7 +389,6 @@ export default function HODDashboard() {
                         </div>
 
                         <div className="cards-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-                            {/* 3. Modern Donut Chart with Fixed Legend */}
                             <div className="card" style={{ height: '400px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                                 <h3 style={{ alignSelf: 'flex-start', marginBottom: '10px' }}>Overview</h3>
                                 <ResponsiveContainer width="100%" height="100%">
@@ -373,7 +411,6 @@ export default function HODDashboard() {
                                 </ResponsiveContainer>
                             </div>
 
-                            {/* Defaulters List */}
                             <div className="card" style={{ borderLeft: '4px solid #ef4444' }}>
                                 <h3 style={{ color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px' }}>
                                     ⚠️ Defaulters List <span className="nav-badge" style={{ background: '#ef4444' }}>{filteredDefaulters.length}</span>
@@ -386,25 +423,18 @@ export default function HODDashboard() {
                                                 <tr key={s.id}>
                                                     <td>
                                                         <div style={{ fontWeight: '600' }}>{s.firstName} {s.lastName}</div>
-                                                        {/* SHOW YEAR */}
                                                         <div style={{ fontSize: '11px', color: '#64748b' }}>
                                                             {s.rollNo} • <span style={{ color: '#2563eb', fontWeight: 'bold' }}>{s.year || 'N/A'}</span>
                                                         </div>
                                                     </td>
                                                     <td><span className="status-badge-pill" style={{ background: '#fef2f2', color: '#dc2626' }}>{s.percentage.toFixed(0)}%</span></td>
                                                     <td>
-                                                        {/* 2. Send Notice Button */}
-                                                        <button
-                                                            onClick={() => handleSendNotice(s)}
-                                                            className="btn-action"
-                                                            style={{ background: '#e0f2fe', color: '#0369a1', border: 'none', fontSize: '12px', padding: '4px 10px' }}
-                                                        >
+                                                        <button onClick={() => handleSendNotice(s)} className="btn-action" style={{ background: '#e0f2fe', color: '#0369a1', border: 'none', fontSize: '12px', padding: '4px 10px' }}>
                                                             Send Notice
                                                         </button>
                                                     </td>
                                                 </tr>
                                             ))}
-                                            {filteredDefaulters.length === 0 && <tr><td colSpan="3" style={{ textAlign: 'center', padding: '20px', color: 'green' }}>All students are safe!</td></tr>}
                                         </tbody>
                                     </table>
                                 </div>
@@ -413,13 +443,10 @@ export default function HODDashboard() {
                     </div>
                 )}
 
-                {/* ✅ ADDED ANNOUNCEMENTS SECTION */}
                 {activeTab === 'announcements' && (
                     <div className="content-section">
                         <h2 className="content-title">📢 Announcements</h2>
-                        <p className="content-subtitle">Broadcast messages to specific years or the whole department.</p>
                         <div className="cards-grid">
-                            {/* Form */}
                             <div className="card">
                                 <h3>Create Announcement</h3>
                                 <form onSubmit={handlePostAnnouncement} style={{ marginTop: '15px' }}>
@@ -427,10 +454,7 @@ export default function HODDashboard() {
                                         <label>Target Audience</label>
                                         <select value={announcementForm.targetYear} onChange={e => setAnnouncementForm({ ...announcementForm, targetYear: e.target.value })} required>
                                             <option value="All">All Students</option>
-                                            <option value="FE">FE (First Year)</option>
-                                            <option value="SE">SE (Second Year)</option>
-                                            <option value="TE">TE (Third Year)</option>
-                                            <option value="BE">BE (Final Year)</option>
+                                            <option value="FE">FE</option><option value="SE">SE</option><option value="TE">TE</option><option value="BE">BE</option>
                                         </select>
                                     </div>
                                     <div className="input-group"><label>Title</label><input type="text" required value={announcementForm.title} onChange={e => setAnnouncementForm({ ...announcementForm, title: e.target.value })} /></div>
@@ -438,8 +462,6 @@ export default function HODDashboard() {
                                     <button className="btn-primary">Post</button>
                                 </form>
                             </div>
-
-                            {/* History */}
                             <div className="card">
                                 <h3>History</h3>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '400px', overflowY: 'auto', marginTop: '10px' }}>
@@ -451,7 +473,6 @@ export default function HODDashboard() {
                                             <button onClick={() => handleDeleteAnnouncement(a.id)} style={{ position: 'absolute', top: '10px', right: '10px', background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}><i className="fas fa-trash"></i></button>
                                         </div>
                                     ))}
-                                    {announcements.length === 0 && <p style={{ color: '#94a3b8', fontStyle: 'italic' }}>No announcements.</p>}
                                 </div>
                             </div>
                         </div>
@@ -464,48 +485,19 @@ export default function HODDashboard() {
                         <div className="card card-full-width">
                             <div className="table-wrapper">
                                 <table className="attendance-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Name</th>
-                                            <th>Reason & Proof</th> {/* Updated Header */}
-                                            <th>Dates</th>
-                                            <th>Action</th>
-                                        </tr>
-                                    </thead>
+                                    <thead><tr><th>Name</th><th>Reason & Proof</th><th>Dates</th><th>Action</th></tr></thead>
                                     <tbody>
                                         {leaves.map(l => (
                                             <tr key={l.id}>
-                                                <td>
-                                                    <div style={{ fontWeight: '600' }}>{l.studentName}</div>
-                                                    <div style={{ fontSize: '12px', color: '#64748b' }}>{l.rollNo}</div>
-                                                </td>
+                                                <td><div style={{ fontWeight: '600' }}>{l.studentName}</div><div style={{ fontSize: '12px', color: '#64748b' }}>{l.rollNo}</div></td>
                                                 <td>
                                                     <div>{l.reason}</div>
-                                                    {/* ✅ View Document Link */}
-                                                    {l.documentUrl && (
-                                                        <a
-                                                            href={l.documentUrl}
-                                                            target="_blank"
-                                                            rel="noreferrer"
-                                                            style={{
-                                                                display: 'inline-block', marginTop: '5px', fontSize: '11px',
-                                                                color: '#2563eb', fontWeight: '600', textDecoration: 'none'
-                                                            }}
-                                                        >
-                                                            <i className="fas fa-external-link-alt"></i> View Document
-                                                        </a>
-                                                    )}
+                                                    {l.documentUrl && (<a href={l.documentUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: '5px', fontSize: '11px', color: '#2563eb', fontWeight: '600', textDecoration: 'none' }}><i className="fas fa-external-link-alt"></i> View Document</a>)}
                                                 </td>
                                                 <td>{l.fromDate} <br /><span style={{ fontSize: '12px', color: '#94a3b8' }}>to</span><br /> {l.toDate}</td>
-                                                <td>
-                                                    <div style={{ display: 'flex', gap: '8px' }}>
-                                                        <button onClick={() => handleLeaveAction(l.id, 'approved')} className="status-badge status-approved" style={{ border: 'none', cursor: 'pointer' }}>Approve</button>
-                                                        <button onClick={() => handleLeaveAction(l.id, 'rejected')} className="status-badge status-denied" style={{ border: 'none', cursor: 'pointer' }}>Reject</button>
-                                                    </div>
-                                                </td>
+                                                <td><div style={{ display: 'flex', gap: '8px' }}><button onClick={() => handleLeaveAction(l.id, 'approved')} className="status-badge status-approved" style={{ border: 'none', cursor: 'pointer' }}>Approve</button><button onClick={() => handleLeaveAction(l.id, 'rejected')} className="status-badge status-denied" style={{ border: 'none', cursor: 'pointer' }}>Reject</button></div></td>
                                             </tr>
                                         ))}
-                                        {leaves.length === 0 && <tr><td colSpan="4" style={{ textAlign: 'center', padding: '20px', color: 'gray' }}>No pending leaves.</td></tr>}
                                     </tbody>
                                 </table>
                             </div>
@@ -517,15 +509,7 @@ export default function HODDashboard() {
                     <div className="content-section">
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
                             <h2 className="content-title">Student Applications</h2>
-                            {selectedRequestIds.length > 0 && (
-                                <button
-                                    onClick={() => confirmAction('Approve Selected?', `Approve ${selectedRequestIds.length} students?`, executeBulkApprove)}
-                                    className="btn-primary"
-                                    style={{ width: 'auto', padding: '8px 16px' }}
-                                >
-                                    {loading ? 'Processing...' : `Approve (${selectedRequestIds.length})`}
-                                </button>
-                            )}
+                            {selectedRequestIds.length > 0 && <button onClick={() => confirmAction('Approve Selected?', `Approve ${selectedRequestIds.length} students?`, executeBulkApprove)} className="btn-primary" style={{ width: 'auto', padding: '8px 16px' }}>{loading ? 'Processing...' : `Approve (${selectedRequestIds.length})`}</button>}
                         </div>
                         <div className="card card-full-width">
                             <div className="table-wrapper">
@@ -540,15 +524,9 @@ export default function HODDashboard() {
                                                 <td style={{ fontWeight: 'bold' }}>{req.collegeId}</td>
                                                 <td>{req.rollNo}</td>
                                                 <td>{req.email}</td>
-                                                <td>
-                                                    <div style={{ display: 'flex', gap: '8px' }}>
-                                                        <button onClick={() => confirmAction('Approve?', `Approve ${req.firstName}?`, () => executeSingleApprove(req))} className="status-badge status-approved" style={{ border: 'none', cursor: 'pointer' }}>Approve</button>
-                                                        <button onClick={() => confirmAction('Reject?', `Reject?`, () => executeReject(req.id), 'danger')} className="status-badge status-denied" style={{ border: 'none', cursor: 'pointer' }}>Reject</button>
-                                                    </div>
-                                                </td>
+                                                <td><div style={{ display: 'flex', gap: '8px' }}><button onClick={() => confirmAction('Approve?', `Approve ${req.firstName}?`, () => executeSingleApprove(req))} className="status-badge status-approved" style={{ border: 'none', cursor: 'pointer' }}>Approve</button><button onClick={() => confirmAction('Reject?', `Reject?`, () => executeReject(req.id), 'danger')} className="status-badge status-denied" style={{ border: 'none', cursor: 'pointer' }}>Reject</button></div></td>
                                             </tr>
                                         ))}
-                                        {studentRequests.length === 0 && <tr><td colSpan="7" style={{ textAlign: 'center', padding: '30px', color: '#64748b' }}>No pending requests.</td></tr>}
                                     </tbody>
                                 </table>
                             </div>
@@ -556,37 +534,106 @@ export default function HODDashboard() {
                     </div>
                 )}
 
-                {activeTab === 'manage' && (
-                    <div className="content-section">
-                        <h2 className="content-title">Department Users</h2>
-                        <div className="card card-full-width" style={{ marginBottom: '24px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
-                                <div className="icon-box-modern" style={{ background: '#ecfdf5', color: '#059669', width: '32px', height: '32px', fontSize: '14px' }}><i className="fas fa-chalkboard-teacher"></i></div>
-                                <h3 style={{ margin: 0 }}>Teachers ({teachersList.length})</h3>
-                            </div>
-                            <div className="table-wrapper">
-                                <table className="attendance-table"><thead><tr><th style={{ width: '40px' }}></th><th>Name</th><th>Email</th><th>Subject</th></tr></thead><tbody>{teachersList.map(t => (<tr key={t.id}><td><input type="checkbox" checked={selectedUserIds.includes(t.id)} onChange={() => toggleSelectUser(t.id)} className="custom-checkbox" /></td><td>{t.firstName} {t.lastName}</td><td>{t.email}</td><td><span className="status-badge-pill">{t.subject}</span></td></tr>))}</tbody></table>
-                            </div>
-                        </div>
-                        <div className="card card-full-width">
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
-                                <div className="icon-box-modern" style={{ background: '#eff6ff', color: '#2563eb', width: '32px', height: '32px', fontSize: '14px' }}><i className="fas fa-user-graduate"></i></div>
-                                <h3 style={{ margin: 0 }}>Students ({studentsList.length})</h3>
-                            </div>
-                            <div className="table-wrapper">
-                                <table className="attendance-table"><thead><tr><th style={{ width: '40px' }}></th><th>Roll No</th><th>Name</th><th>Class</th><th>Email</th></tr></thead><tbody>{studentsList.sort((a, b) => (a.rollNo || "").localeCompare(b.rollNo, undefined, { numeric: true })).map(s => (<tr key={s.id}><td><input type="checkbox" checked={selectedUserIds.includes(s.id)} onChange={() => toggleSelectUser(s.id)} className="custom-checkbox" /></td><td style={{ fontWeight: 'bold' }}>{s.rollNo}</td><td>{s.firstName} {s.lastName}</td><td><span className="status-badge-pill">{s.year || '-'}</span></td><td>{s.email}</td></tr>))}</tbody></table>
-                            </div>
-                        </div>
-                        {selectedUserIds.length > 0 && (
-                            <button className="floating-delete-btn" onClick={handleDeleteUsers}>
-                                <i className="fas fa-trash-alt"></i> Delete ({selectedUserIds.length})
-                            </button>
-                        )}
-                    </div>
-                )}
+               {activeTab === 'manage' && (
+    <div className="content-section">
+        <h2 className="content-title">Department Users</h2>
+        
+        {/* Teachers Table */}
+        <div className="card card-full-width" style={{ marginBottom: '24px' }}>
+            <h3 style={{ margin: '0 0 10px 0' }}>Teachers ({teachersList.length})</h3>
+            <div className="table-wrapper">
+                <table className="attendance-table">
+                    <thead>
+                        <tr>
+                            <th style={{ width: '40px' }}></th>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Subject</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {teachersList.map(t => (
+                            <tr key={t.id}>
+                                <td>
+                                    <input 
+                                        type="checkbox" 
+                                        checked={selectedUserIds.includes(t.id)} 
+                                        onChange={() => toggleSelectUser(t.id)} 
+                                        className="custom-checkbox" 
+                                    />
+                                </td>
+                                <td>{t.firstName} {t.lastName}</td>
+                                <td>{t.email}</td>
+                                <td>
+                                    {/* ✅ UPDATED: Display multiple subjects/classes */}
+                                    <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                                        {t.assignedClasses && t.assignedClasses.length > 0 ? (
+                                            t.assignedClasses.map((cls, idx) => (
+                                                <span key={idx} className="status-badge-pill" style={{ fontSize: '11px', padding: '2px 8px' }}>
+                                                    {cls.year} - {cls.subject}
+                                                </span>
+                                            ))
+                                        ) : (
+                                            <span className="status-badge-pill" style={{ background: '#f1f5f9', color: '#64748b' }}>
+                                                {t.subject || 'N/A'}
+                                            </span>
+                                        )}
+                                    </div>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
 
+        {/* Students Table */}
+        <div className="card card-full-width">
+            <h3 style={{ margin: '0 0 10px 0' }}>Students ({studentsList.length})</h3>
+            <div className="table-wrapper">
+                <table className="attendance-table">
+                    <thead>
+                        <tr>
+                            <th style={{ width: '40px' }}></th>
+                            <th>Roll No</th>
+                            <th>Name</th>
+                            <th>Class</th>
+                            <th>Email</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {studentsList.sort((a, b) => (a.rollNo || "").localeCompare(b.rollNo, undefined, { numeric: true })).map(s => (
+                            <tr key={s.id}>
+                                <td>
+                                    <input 
+                                        type="checkbox" 
+                                        checked={selectedUserIds.includes(s.id)} 
+                                        onChange={() => toggleSelectUser(s.id)} 
+                                        className="custom-checkbox" 
+                                    />
+                                </td>
+                                <td style={{ fontWeight: 'bold' }}>{s.rollNo}</td>
+                                <td>{s.firstName} {s.lastName}</td>
+                                <td><span className="status-badge-pill">{s.year || '-'}</span></td>
+                                <td>{s.email}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        {/* Delete Button */}
+        {selectedUserIds.length > 0 && (
+            <button className="floating-delete-btn" onClick={handleDeleteUsers}>
+                <i className="fas fa-trash-alt"></i> Delete ({selectedUserIds.length})
+            </button>
+        )}
+    </div>
+)}
                 {activeTab === 'timetable' && <ManageTimetable hodInfo={hodInfo} />}
 
+                {/* ✅ UPDATED ADD TEACHER SECTION */}
                 {activeTab === 'addTeacher' && (
                     <div className="content-section">
                         <h2 className="content-title">Add New Teacher</h2>
@@ -594,7 +641,45 @@ export default function HODDashboard() {
                             <form onSubmit={handleAddTeacher}>
                                 <div className="input-group"><label>First Name</label><input type="text" required value={teacherForm.firstName} onChange={e => setTeacherForm({ ...teacherForm, firstName: e.target.value })} /></div>
                                 <div className="input-group"><label>Last Name</label><input type="text" required value={teacherForm.lastName} onChange={e => setTeacherForm({ ...teacherForm, lastName: e.target.value })} /></div>
-                                <div className="input-group"><label>Subject</label><input type="text" placeholder="e.g. Data Structures" required value={teacherForm.subject} onChange={e => setTeacherForm({ ...teacherForm, subject: e.target.value })} /></div>
+
+                                <div className="input-group">
+                                    <label>Department</label>
+                                    <input type="text" value={hodInfo?.department || ''} disabled style={{ background: '#f1f5f9', cursor: 'not-allowed' }} />
+                                </div>
+
+                                {/* ✅ YEAR & SUBJECT SELECTION */}
+                                <div className="input-group">
+                                    <label>Assign Classes & Subjects</label>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
+                                        {['FE', 'SE', 'TE', 'BE'].map(year => {
+                                            const assigned = teacherForm.assignedClasses.find(c => c.year === year);
+                                            return (
+                                                <div key={year} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: assigned ? '#eff6ff' : '#f8fafc', padding: '10px', borderRadius: '8px', border: assigned ? '1px solid #bfdbfe' : '1px solid #e2e8f0' }}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={!!assigned}
+                                                        onChange={() => handleClassToggle(year)}
+                                                        style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                                                    />
+                                                    <span style={{ fontWeight: 'bold', width: '40px' }}>{year}</span>
+
+                                                    {assigned && (
+                                                        <input
+                                                            type="text"
+                                                            placeholder={`Subject for ${year} (e.g. Maths)`}
+                                                            value={assigned.subject}
+                                                            onChange={(e) => handleSubjectChange(year, e.target.value)}
+                                                            style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
+                                                            required
+                                                        />
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    <small style={{ color: '#64748b', display: 'block', marginTop: '5px' }}>Check the year box to assign a subject.</small>
+                                </div>
+
                                 <div className="input-group"><label>Email</label><input type="email" required value={teacherForm.email} onChange={e => setTeacherForm({ ...teacherForm, email: e.target.value })} /></div>
                                 <div className="input-group"><label>Password</label><input type="password" required value={teacherForm.password} onChange={e => setTeacherForm({ ...teacherForm, password: e.target.value })} /></div>
                                 <button className="btn-primary" disabled={loading}>{loading ? 'Adding...' : 'Add Teacher'}</button>

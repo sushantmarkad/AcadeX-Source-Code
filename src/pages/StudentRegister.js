@@ -73,14 +73,32 @@ export default function StudentRegister() {
         }
     };
 
+    // ✅ Helper function for password validation
+    const validatePassword = (password) => {
+        if (password.length < 6) return "Password must be at least 6 characters long.";
+        if (!/[A-Z]/.test(password)) return "Password must contain at least one uppercase letter.";
+        if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) return "Password must contain at least one special character.";
+        return null;
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault(); 
+        
+        // 1. Validate Password
+        const passwordMsg = validatePassword(form.password);
+        if (passwordMsg) {
+            playSound('error');
+            toast.error(passwordMsg);
+            return;
+        }
+
         setLoading(true);
         playSound('tap');
         const toastId = toast.loading("Submitting Application...");
         
         try {
-            // ✅ CALL BACKEND (It handles Duplicate Checks)
+            // ✅ CALL BACKEND (It handles Duplicate Checks safely)
+            // If Roll No exists, backend sends 400 error, caught below.
             const response = await fetch(`${BACKEND_URL}/submitStudentRequest`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -94,7 +112,7 @@ export default function StudentRegister() {
             const data = await response.json();
 
             if (!response.ok) {
-                // If backend finds duplicate, it returns error message here
+                // Throw the error message sent by backend (e.g. "Roll No already exists")
                 throw new Error(data.error || "Submission failed");
             }
             
@@ -104,7 +122,7 @@ export default function StudentRegister() {
 
         } catch (err) { 
             playSound('error');
-            // Show the backend error (e.g., "Roll No already exists")
+            // Show the backend error in the Toast
             toast.error(err.message, { id: toastId }); 
         } finally { 
             setLoading(false); 

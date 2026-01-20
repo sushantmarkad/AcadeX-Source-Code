@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom'; 
-import { signOut, onAuthStateChanged } from 'firebase/auth'; // ✅ Added onAuthStateChanged
+import { signOut, onAuthStateChanged } from 'firebase/auth'; 
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
 import { collection, query, where, onSnapshot, doc, getDoc, orderBy, limit } from 'firebase/firestore';
 import { Html5Qrcode } from 'html5-qrcode';
-import toast, { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import logo from "../assets/logo.png";
 import './Dashboard.css';
 
@@ -257,12 +257,9 @@ const AttendanceOverview = ({ user }) => {
 
 // --- DASHBOARD HOME ---
 const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession, recentAttendance, setShowScanner, currentSlot }) => {
-    useEffect(() => {
-        if (!user?.instituteId) return;
-        const q = query(collection(db, "live_sessions"), where("isActive", "==", true), where("instituteId", "==", user.instituteId));
-        const unsubscribe = onSnapshot(q, (snapshot) => setLiveSession(!snapshot.empty ? { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } : null));
-        return () => unsubscribe();
-    }, [user, setLiveSession]);
+    
+    // ✅ REMOVED the old useEffect that fetched live_sessions here.
+    // It is now handled in the main StudentDashboard component to ensure global access.
 
     useEffect(() => {
         if (!auth.currentUser) return;
@@ -275,7 +272,6 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
         <div className="content-section">
             <h2 className="content-title">Welcome, {user.firstName}!</h2>
             <div className="cards-grid">
-                {/* ✅ Pass currentSlot to display */}
                 <SmartScheduleCard user={user} currentSlot={currentSlot} loading={!currentSlot} />
                 
                 <AttendanceOverview user={user} />
@@ -364,7 +360,7 @@ export default function StudentDashboard() {
   const scannerRef = useRef(null); 
   const navigate = useNavigate();
 
-  // ✅ FIX 1: Robust User Loading with onAuthStateChanged
+  // 1. User Loading
   useEffect(() => {
     const authUnsub = onAuthStateChanged(auth, (authUser) => {
         if (authUser) {
@@ -383,7 +379,40 @@ export default function StudentDashboard() {
     return () => authUnsub();
   }, [navigate]);
 
-  // ✅ GLOBAL SCHEDULE LOGIC (Runs every minute)
+  // ✅ 2. Listen for Active Session (Filtered by Year) - GLOBAL LISTENER
+  useEffect(() => {
+    if (!auth.currentUser || !user) return;
+
+    // Fetch ANY active session for this institute
+    const q = query(
+        collection(db, 'live_sessions'), 
+        where('isActive', '==', true), 
+        where('instituteId', '==', user.instituteId)
+    );
+
+    const unsub = onSnapshot(q, (snap) => {
+        if (!snap.empty) {
+            // ✅ CLIENT-SIDE FILTERING
+            // Find a session that matches the student's year OR is for 'All'
+            const relevantSession = snap.docs.find(doc => {
+                const data = doc.data();
+                return data.targetYear === 'All' || data.targetYear === user.year;
+            });
+
+            if (relevantSession) {
+                setLiveSession({ id: relevantSession.id, ...relevantSession.data() });
+            } else {
+                setLiveSession(null); // Hide if session exists but not for this student
+            }
+        } else {
+            setLiveSession(null);
+        }
+    });
+
+    return () => unsub();
+  }, [user]); // Dependency on user is crucial
+
+  // 3. GLOBAL SCHEDULE LOGIC (Runs every minute)
   useEffect(() => {
       const fetchSchedule = async () => {
           if (!user?.department || !user?.year) return;
@@ -392,12 +421,8 @@ export default function StudentDashboard() {
           const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
           const today = days[new Date().getDay()];
           
-          // Weekend Check
           if (today === 'Sunday') { 
               setCurrentSlot({ type: 'Holiday', subject: 'Weekend! Relax.' }); 
-              if (!isFreePeriod) {
-                  // setIsFreePeriod(true); // Optional
-              }
               return; 
           }
 
@@ -415,7 +440,6 @@ export default function StudentDashboard() {
                   const slotData = activeSlot || { type: 'Free', subject: 'No active class.', startTime: '00:00', endTime: '00:00' };
                   setCurrentSlot(slotData);
                   
-                  // ✅ DETECT FREE PERIOD TYPE
                   const isNowFree = slotData.type === 'Free' || slotData.type === 'Break' || slotData.type === 'Holiday';
                   
                   if (isNowFree && !isFreePeriod) {
@@ -425,7 +449,6 @@ export default function StudentDashboard() {
                       setIsFreePeriod(false);
                   }
               } else { 
-                  // ✅ FIX 2: Default Slot when NO TIMETABLE exists (Prevent Infinite Load)
                   setCurrentSlot({ type: 'Free', subject: 'No Schedule Found', startTime: '00:00', endTime: '00:00' });
               }
           } catch (error) { 
@@ -435,11 +458,11 @@ export default function StudentDashboard() {
       };
       
       fetchSchedule();
-      const interval = setInterval(fetchSchedule, 60000); // Check every minute
+      const interval = setInterval(fetchSchedule, 60000); 
       return () => clearInterval(interval);
   }, [user, isFreePeriod]);
 
-  // Notice Fetching Logic
+  // 4. Notice Fetching Logic
   useEffect(() => {
       if (!user?.instituteId) return;
       const q = query(collection(db, 'announcements'), where('instituteId', '==', user.instituteId));
@@ -482,7 +505,6 @@ export default function StudentDashboard() {
   const badgeCount = Math.max(0, notices.length - readCount);
   const handleLogout = async () => { await signOut(auth); navigate('/'); };
 
-  // ✅ FUNCTION TO OPEN AI WITH PROMPT
   const handleOpenAiWithPrompt = (prompt) => {
       setChatInitialMessage(prompt);
       setIsChatOpen(true);
@@ -542,10 +564,7 @@ export default function StudentDashboard() {
     if (!user) return <div style={{ textAlign: 'center', paddingTop: 50 }}>Loading...</div>;
     switch (activePage) {
       case 'dashboard': return <DashboardHome user={user} currentSlot={currentSlot} onOpenAI={() => setIsChatOpen(true)} liveSession={liveSession} setLiveSession={setLiveSession} recentAttendance={recentAttendance} setRecentAttendance={setRecentAttendance} setShowScanner={setShowScanner} />;
-      
-      // ✅ PASS isFreePeriod and onOpenAIWithPrompt
       case 'tasks': return <FreePeriodTasks user={user} isFreePeriod={isFreePeriod} onOpenAIWithPrompt={handleOpenAiWithPrompt} />;
-      
       case 'profile': return <Profile user={user} />;
       case 'plans': return <CareerRoadmap user={user} />; 
       case 'leaderboard': return <Leaderboard user={user} />;
@@ -557,14 +576,7 @@ export default function StudentDashboard() {
 
   return (
     <div className="dashboard-container">
-      {/* ✅ UPDATED TOASTER CONFIGURATION */}
-      <Toaster 
-          position="bottom-center" 
-          toastOptions={{ 
-              duration: 4000, 
-              style: { background: '#1e293b', color: '#fff', marginBottom: '20px', zIndex: 99999 } 
-          }} 
-      />
+      
       
       {isMobileNavOpen && <div className="nav-overlay" onClick={() => setIsMobileNavOpen(false)} />}
       
@@ -591,8 +603,6 @@ export default function StudentDashboard() {
                     {badgeCount > 0 && <span className="nav-badge" style={{ background: '#ef4444', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '12px', marginLeft: 'auto', fontWeight: 'bold' }}>{badgeCount}</span>}
                 </div>
             </li>
-            
-            {/* ✅ UPDATED FREE TASKS ITEM */}
             <li className={activePage === 'tasks' ? 'active' : ''} onClick={() => {setActivePage('tasks'); setIsMobileNavOpen(false);}}>
                 <div style={{display:'flex', alignItems:'center', width:'100%', gap: '15px'}}>
                     <i className="fas fa-check-circle" style={{ width: '24px', textAlign: 'center' }}></i>
@@ -600,7 +610,6 @@ export default function StudentDashboard() {
                     {isFreePeriod && <span className="nav-badge pulsate" style={{ background: '#10b981', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '12px', marginLeft: 'auto', fontWeight: 'bold' }}>LIVE</span>}
                 </div>
             </li>
-            
             <li className={activePage === 'leaderboard' ? 'active' : ''} onClick={() => {setActivePage('leaderboard'); setIsMobileNavOpen(false);}}>
                 <div style={{display:'flex', alignItems:'center', width:'100%', gap: '15px'}}>
                     <i className="fas fa-trophy" style={{ width: '24px', textAlign: 'center' }}></i>
@@ -638,11 +647,10 @@ export default function StudentDashboard() {
         
         {renderContent()}
 
-        {/* ✅ FULL SCREEN SCANNER MODAL (PORTAL) */}
         {showScanner && ReactDOM.createPortal(
             <div style={{
                 position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
-                backgroundColor: 'rgba(0,0,0,0.95)', zIndex: 999999, // Super high z-index
+                backgroundColor: 'rgba(0,0,0,0.95)', zIndex: 999999, 
                 display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center'
             }}>
                 <div id="reader" style={{width: '300px', height: '300px', background: 'black', borderRadius: '12px', overflow:'hidden', border:'2px solid #2563eb'}}></div>
@@ -670,13 +678,12 @@ export default function StudentDashboard() {
         />
       </main>
 
-      {/* 🚀 Render Chatbot with PROMPT PASSING */}
       {user && (
           <AiChatbot 
             user={user} 
             isOpenProp={isChatOpen} 
             onClose={() => setIsChatOpen(false)} 
-            initialMessage={chatInitialMessage} // ✅ Pass the magic prompt
+            initialMessage={chatInitialMessage} 
           />
       )}
     </div>

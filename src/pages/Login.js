@@ -59,6 +59,30 @@ export default function Login() {
     return () => unsubscribe();
   }, [navigate]);
 
+  // ✅ HELPER: Centralized Auth Handler (Fixes 2FA Bypass)
+  const handleUserAuth = async (user) => {
+      try {
+          const userDoc = await getDoc(doc(db, "users", user.uid));
+          if (!userDoc.exists()) throw new Error("User profile not found.");
+          
+          const userData = userDoc.data();
+          
+          console.log("Checking 2FA for:", userData.firstName, "Enabled:", userData.is2FAEnabled);
+
+          if (userData.is2FAEnabled) {
+              // 🛑 STOP! Show Custom 2FA Modal
+              setTempUser(user); 
+              setShow2FAModal(true); 
+              return;
+          }
+
+          // No 2FA? Proceed to Dashboard
+          proceedToDashboard(userData);
+      } catch (err) {
+          setError("❌ Login Error: " + err.message);
+      }
+  };
+
   // --- 1. HANDLE LOGIN (Initial Step) ---
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -76,7 +100,7 @@ export default function Login() {
       const userCredential = await signInWithEmailAndPassword(auth, form.email, form.password);
       const user = userCredential.user;
 
-      // Save ID for next time (Enables the biometric button for future visits)
+      // Save ID for next time
       localStorage.setItem('last_userId', user.uid);
 
       // 🚨 Super Admin Bypass
@@ -86,21 +110,8 @@ export default function Login() {
           return;
       }
 
-      // Check Database for 2FA
-      const userDoc = await getDoc(doc(db, "users", user.uid));
-      if (!userDoc.exists()) throw new Error("User profile not found.");
-      
-      const userData = userDoc.data();
-
-      if (userData.is2FAEnabled) {
-          // 🛑 STOP! Show Custom 2FA Modal
-          setTempUser(user); // Save user for step 2
-          setShow2FAModal(true); // Open Modal
-          return;
-      }
-
-      // No 2FA? Proceed to Dashboard
-      proceedToDashboard(userData);
+      // ✅ Use Helper to Check 2FA
+      await handleUserAuth(user);
 
     } catch (error) {
       handleLoginError(error);
@@ -115,21 +126,24 @@ export default function Login() {
         playSound('success');
         toast.success("Biometric Verified!");
         
-        // Fetch user role to route them correctly
-        try {
+        // Mock a user object since bio doesn't return full firebase user immediately
+        // If triggered from 2FA modal, we might already have tempUser, but this handles primary login too.
+        const mockUser = { uid: userId, getIdToken: async () => "BIO_TOKEN" };
+        
+        // ✅ Check 2FA (or if already in 2FA modal, this acts as the verification)
+        if (show2FAModal) {
+            // If we are INSIDE the modal, biometric success = 2FA success
+            setShow2FAModal(false);
             const userDoc = await getDoc(doc(db, "users", userId));
-            if (userDoc.exists()) {
-                proceedToDashboard(userDoc.data());
-            } else {
-                setError("❌ User data not found.");
-            }
-        } catch (err) {
-            setError("❌ Error fetching user profile.");
+            proceedToDashboard(userDoc.data());
+        } else {
+            // If primary login, proceed to check checks
+            await handleUserAuth(mockUser);
         }
     });
   };
 
-  // --- 🔑 HANDLE FORGOT PASSWORD (Fixes your issue) ---
+  // --- 🔑 HANDLE FORGOT PASSWORD ---
   const handleForgotPassword = async () => {
     playSound('tap');
     if (!form.email) {
@@ -142,7 +156,7 @@ export default function Login() {
       await sendPasswordResetEmail(auth, form.email);
       playSound('success');
       toast.success("Reset link sent! Check your email.");
-      setError(""); // Clear previous errors
+      setError(""); 
     } catch (err) {
       console.error(err);
       playSound('error');
@@ -154,11 +168,11 @@ export default function Login() {
     }
   };
 
-  // --- 2. HANDLE 2FA VERIFICATION (Step 2) ---
+  // --- 2. HANDLE 2FA VERIFICATION (Code) ---
   const onVerify2FA = async (code) => {
       setVerifying2FA(true);
       try {
-          const token = await tempUser.getIdToken();
+          const token = tempUser.getIdToken ? await tempUser.getIdToken() : "BIO_TOKEN";
           
           const verifyRes = await fetch(`${BACKEND_URL}/verify2FA`, {
               method: 'POST',
@@ -221,9 +235,8 @@ export default function Login() {
       
       localStorage.setItem('last_userId', res.user.uid); // Save for bio
 
-      const userDoc = await getDoc(doc(db, "users", res.user.uid));
-      if (userDoc.exists()) proceedToDashboard(userDoc.data());
-      else navigate("/dashboard"); 
+      // ✅ FIX: Use Helper to Check 2FA for Google Users too
+      await handleUserAuth(res.user);
       
     } catch (error) {
       playSound('error');
@@ -235,12 +248,14 @@ export default function Login() {
 
   return (
     <IOSPage>
-      {/* ✅ RENDER 2FA MODAL */}
+      {/* ✅ RENDER 2FA MODAL WITH BIOMETRIC OPTION */}
       <TwoFactorVerifyModal 
           isOpen={show2FAModal} 
           isLoading={verifying2FA}
-          onClose={() => { setShow2FAModal(false); auth.signOut(); }} // Logout if they cancel
+          onClose={() => { setShow2FAModal(false); auth.signOut(); }} 
           onVerify={onVerify2FA}
+          // ✅ THIS LINE ADDS THE BIOMETRIC BUTTON TO THE MODAL
+          onBiometricAuth={showBioLogin ? triggerBiometricLogin : null}
       />
 
       <div className="login-wrapper">
@@ -286,7 +301,6 @@ export default function Login() {
 
           <form className="login-form" onSubmit={handleSubmit}>
             
-            {/* 1. Email Input */}
             <div className="input-group">
               <label>Email address</label>
               <input
@@ -298,7 +312,6 @@ export default function Login() {
               />
             </div>
 
-            {/* 2. Password Input (This is what you asked for!) */}
             <div className="input-group">
               <label>Password</label>
               <input
@@ -310,7 +323,6 @@ export default function Login() {
               />
             </div>
 
-            {/* 3. Forgot Password Link (Added below password) */}
             <div style={{ textAlign: 'right', marginTop: '-10px', marginBottom: '15px' }}>
               <span 
                 onClick={handleForgotPassword}

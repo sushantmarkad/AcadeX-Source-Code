@@ -6,7 +6,8 @@ import { collection, doc, setDoc, serverTimestamp, onSnapshot, query, where, get
 import { QRCodeSVG } from 'qrcode.react';
 import { CSVLink } from 'react-csv';
 import toast, { Toaster } from 'react-hot-toast'; 
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'; 
+// Updated Recharts imports
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts'; 
 import './Dashboard.css'; 
 import AddTasks from './AddTasks';
 import Profile from './Profile';
@@ -15,14 +16,12 @@ import logo from "../assets/logo.png";
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
 const getGreeting = () => {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Good morning";
-  if (hour < 18) return "Good afternoon";
-  return "Good evening";
+    const hour = new Date().getHours();
+    return hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 };
 
 // ------------------------------------
-//  COMPONENT: ANNOUNCEMENTS
+//  COMPONENT: ANNOUNCEMENTS (Preserved)
 // ------------------------------------
 const TeacherAnnouncements = ({ teacherInfo }) => {
     const [form, setForm] = useState({ title: '', message: '', targetYear: 'All' });
@@ -126,123 +125,124 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
 };
 
 // ------------------------------------
-//  COMPONENT: TEACHER ANALYTICS
+//  COMPONENT: TEACHER ANALYTICS (Updated)
 // ------------------------------------
-const TeacherAnalytics = ({ teacherInfo }) => {
-    const [chartData, setChartData] = useState([]);
-    const [taskStats, setTaskStats] = useState([]);
+const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
+    const [weeklyData, setWeeklyData] = useState([]);
     const [loading, setLoading] = useState(true);
 
-    // 1. Fetch Attendance Analytics
     useEffect(() => {
-        const fetchAttendance = async () => {
-            if (!teacherInfo?.instituteId) return;
-            try {
-                const res = await fetch(`${BACKEND_URL}/getAttendanceAnalytics`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        instituteId: teacherInfo.instituteId, 
-                        subject: teacherInfo.subject 
-                    })
-                });
-                const data = await res.json();
-                const processedData = data.chartData || [
-                    { name: 'Sun', present: 0 }, { name: 'Mon', present: 0 }, 
-                    { name: 'Tue', present: 0 }, { name: 'Wed', present: 0 }, 
-                    { name: 'Thu', present: 0 }, { name: 'Fri', present: 0 }, 
-                    { name: 'Sat', present: 0 }
-                ];
-                setChartData(processedData);
-            } catch (e) { 
-                console.error("Attendance Stats Error:", e); 
-            }
-        };
-        fetchAttendance();
-    }, [teacherInfo]);
+        const fetchAnalytics = async () => {
+            if (!teacherInfo || !selectedYear) return;
+            setLoading(true);
 
-    // 2. Fetch Task Engagement Stats
-    useEffect(() => {
-        const fetchTaskStats = async () => {
-            if(!teacherInfo?.instituteId) return;
+            // 1. Determine Subject for this Year
+            let currentSubject = teacherInfo.subject;
+            if (teacherInfo.assignedClasses) {
+                const classData = teacherInfo.assignedClasses.find(c => c.year === selectedYear);
+                if (classData) currentSubject = classData.subject;
+            }
+
+            // 2. Define Time Range (Last 7 Days)
+            const endDate = new Date();
+            const startDate = new Date();
+            startDate.setDate(endDate.getDate() - 6);
+            startDate.setHours(0,0,0,0);
+
             try {
-                const res = await fetch(`${BACKEND_URL}/getTaskAnalytics`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ instituteId: teacherInfo.instituteId })
+                // 3. Query Attendance
+                const q = query(
+                    collection(db, 'attendance'),
+                    where('instituteId', '==', teacherInfo.instituteId),
+                    where('subject', '==', currentSubject), // Filter by specific subject
+                    where('timestamp', '>=', Timestamp.fromDate(startDate))
+                );
+
+                const snap = await getDocs(q);
+                
+                // 4. Process Data (Group by Day)
+                const dayMap = {};
+                // Initialize map with 0 for last 7 days
+                for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+                    const dayStr = d.toLocaleDateString('en-GB', { weekday: 'short' }); // Mon, Tue
+                    dayMap[dayStr] = 0;
+                }
+
+                snap.docs.forEach(doc => {
+                    const data = doc.data();
+                    // Filter by year if backend saves it, else client filter
+                    if (data.targetYear === selectedYear || data.targetYear === 'All') {
+                        const date = data.timestamp.toDate();
+                        const dayStr = date.toLocaleDateString('en-GB', { weekday: 'short' });
+                        if (dayMap[dayStr] !== undefined) {
+                            dayMap[dayStr]++;
+                        }
+                    }
                 });
-                const data = await res.json();
-                setTaskStats(data.chartData || []);
-            } catch (e) {
-                console.error("Task Stats Error:", e);
+
+                // Convert to Array for Recharts
+                const chartData = Object.keys(dayMap).map(key => ({
+                    name: key,
+                    students: dayMap[key]
+                }));
+
+                setWeeklyData(chartData);
+            } catch (err) {
+                console.error("Analytics Error:", err);
             } finally {
                 setLoading(false);
             }
         };
-        fetchTaskStats();
-    }, [teacherInfo]);
 
-    if (loading) return <div className="content-section"><p>Loading Charts...</p></div>;
+        fetchAnalytics();
+    }, [teacherInfo, selectedYear]);
+
+    // Subject Label
+    let subjectName = teacherInfo.subject;
+    if(teacherInfo.assignedClasses) {
+        const cls = teacherInfo.assignedClasses.find(c => c.year === selectedYear);
+        if(cls) subjectName = cls.subject;
+    }
 
     return (
         <div className="content-section">
-            <h2 className="content-title">Class Analytics</h2>
-            
-            <div className="cards-grid">
+            <h2 className="content-title">Weekly Analytics</h2>
+            <div className="card">
+                <div style={{display:'flex', justifyContent:'space-between', marginBottom:'20px'}}>
+                    <h3 style={{margin:0}}>Attendance Trend ({selectedYear} - {subjectName})</h3>
+                </div>
                 
-                {/* CHART 1: ATTENDANCE TREND */}
-                <div className="card" style={{height: '400px', padding:'25px', gridColumn: '1 / -1', overflow:'hidden'}}>
-                     <div style={{display:'flex', alignItems:'center', gap:'12px', marginBottom:'20px'}}>
-                        <div className="icon-box-modern" style={{background:'#e0f2fe', color:'#0284c7'}}>
-                            <i className="fas fa-chart-bar"></i>
-                        </div>
-                        <h3 style={{margin:0, fontSize: '18px', color:'#0c4a6e'}}>Weekly Attendance Trend</h3>
+                {loading ? <p>Loading chart data...</p> : (
+                    <div style={{ width: '100%', height: 300 }}>
+                        {weeklyData.reduce((a,b) => a + b.students, 0) === 0 ? (
+                            <div style={{height:'100%', display:'flex', alignItems:'center', justifyContent:'center', color:'#94a3b8'}}>
+                                No attendance data for the last 7 days.
+                            </div>
+                        ) : (
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={weeklyData}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                    <XAxis dataKey="name" tick={{fontSize: 12}} axisLine={false} tickLine={false} />
+                                    <YAxis tick={{fontSize: 12}} axisLine={false} tickLine={false} />
+                                    <Tooltip 
+                                        cursor={{fill: '#f1f5f9'}}
+                                        contentStyle={{borderRadius:'8px', border:'none', boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}}
+                                    />
+                                    <Bar dataKey="students" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={40} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        )}
                     </div>
-                    <ResponsiveContainer width="100%" height="85%">
-                        <BarChart data={chartData}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill:'#64748b', fontSize:12}} dy={10} />
-                            <YAxis axisLine={false} tickLine={false} tick={{fill:'#64748b', fontSize:12}} />
-                            <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius:'8px', border:'none', boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}} />
-                            <Bar dataKey="present" fill="#3b82f6" radius={[6, 6, 0, 0]} barSize={40} />
-                        </BarChart>
-                    </ResponsiveContainer>
-                </div>
-
-                {/* CHART 2: STUDENT ENGAGEMENT (NEW) */}
-                <div className="card" style={{height: '400px', padding:'25px', gridColumn: '1 / -1', overflow:'hidden'}}>
-                    <div style={{display:'flex', alignItems:'center', gap:'12px', marginBottom:'20px'}}>
-                        <div className="icon-box-modern" style={{background:'#f3e8ff', color:'#7c3aed'}}>
-                            <i className="fas fa-gamepad"></i>
-                        </div>
-                        <h3 style={{margin:0, fontSize: '18px', color:'#4c1d95'}}>Student Engagement (Free Period Tasks)</h3>
-                    </div>
-                    
-                    {taskStats.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="85%">
-                            <BarChart data={taskStats} layout="vertical" margin={{top: 5, right: 30, left: 20, bottom: 5}}>
-                                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f1f5f9" />
-                                <XAxis type="number" hide />
-                                <YAxis dataKey="name" type="category" width={100} axisLine={false} tickLine={false} tick={{fill:'#64748b', fontSize:13, fontWeight:500}} />
-                                <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius:'8px', border:'none', boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}} />
-                                <Bar dataKey="value" fill="#8b5cf6" radius={[0, 6, 6, 0]} barSize={25} />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    ) : (
-                        <div style={{height:'100%', display:'flex', alignItems:'center', justifyContent:'center', color:'#94a3b8', fontStyle:'italic'}}>
-                            No gamified task data yet.
-                        </div>
-                    )}
-                </div>
-
+                )}
             </div>
         </div>
     );
 };
+
 // ------------------------------------
-//  DASHBOARD HOME
+//  DASHBOARD HOME (Updated with Subject Logic)
 // ------------------------------------
-const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionToggle, viewMode, setViewMode, selectedDate, setSelectedDate, historyList, historyStats }) => {
+const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionToggle, viewMode, setViewMode, selectedDate, setSelectedDate, historyList, historyStats, selectedYear }) => {
     const [qrCodeValue, setQrCodeValue] = useState('');
     const [timer, setTimer] = useState(10);
     
@@ -259,6 +259,14 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
         return () => { clearInterval(interval); clearInterval(countdown); };
     }, [activeSession]);
 
+    // ✅ Determine current subject
+    let currentSubject = teacherInfo.subject;
+    if (teacherInfo.assignedClasses) {
+        const cls = teacherInfo.assignedClasses.find(c => c.year === selectedYear);
+        if (cls) currentSubject = cls.subject;
+    }
+
+    const isSessionRelevant = activeSession && (activeSession.targetYear === selectedYear || activeSession.targetYear === 'All');
     const dateObj = new Date(selectedDate);
     const formattedDate = dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
@@ -266,8 +274,13 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
         <div className="content-section">
             <div style={{ marginBottom: '25px', display: 'flex', justifyContent: 'space-between', alignItems: 'end', flexWrap:'wrap', gap:'15px' }}>
                 <div>
-                    <h2 className="content-title">{getGreeting()}, {teacherInfo ? teacherInfo.firstName : 'Teacher'}!</h2>
-                    <p className="content-subtitle">Manage your classroom activities.</p>
+                    <h2 className="content-title">{getGreeting()}, {teacherInfo.firstName}!</h2>
+                    <div style={{display:'flex', alignItems:'center', gap:'10px', marginTop:'5px'}}>
+                        <p className="content-subtitle" style={{margin:0}}>Classroom:</p>
+                        <span style={{background:'#2563eb', color:'white', padding:'4px 12px', borderRadius:'12px', fontSize:'12px', fontWeight:'bold'}}>
+                            {selectedYear} Year • {currentSubject}
+                        </span>
+                    </div>
                 </div>
                 
                 <div style={{display:'flex', gap:'5px', background:'#fff', padding:'5px', borderRadius:'12px', border: '1px solid #e2e8f0', boxShadow: '0 2px 5px rgba(0,0,0,0.02)'}}>
@@ -278,26 +291,33 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
             
             {viewMode === 'live' && (
                 <div className="cards-grid">
-                    <div className="card" style={{ background: activeSession ? 'linear-gradient(135deg, #d1fae5 0%, #ecfdf5 100%)' : 'linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%)', border: activeSession ? '1px solid #a7f3d0' : '1px solid #bfdbfe', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                    <div className="card" style={{ background: isSessionRelevant ? 'linear-gradient(135deg, #d1fae5 0%, #ecfdf5 100%)' : 'linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%)', border: isSessionRelevant ? '1px solid #a7f3d0' : '1px solid #bfdbfe', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                         <div>
                             <div style={{display:'flex', alignItems:'center', gap:'12px', marginBottom:'12px'}}>
-                                <div className="icon-box-modern" style={{background: 'white', color: activeSession ? '#15803d' : '#1e40af'}}><i className={`fas ${activeSession ? 'fa-broadcast-tower' : 'fa-play'}`}></i></div>
-                                <div><h3 style={{margin:0, color: activeSession ? '#14532d' : '#1e3a8a', fontSize: '18px', fontWeight: '700'}}>{activeSession ? 'Session Live' : 'Start Class'}</h3>{activeSession && <span className="status-badge-pill" style={{background:'white', color:'#15803d', fontSize:'10px', padding:'2px 8px', marginTop:'4px'}}>ACTIVE</span>}</div>
+                                <div className="icon-box-modern" style={{background: 'white', color: isSessionRelevant ? '#15803d' : '#1e40af'}}><i className={`fas ${isSessionRelevant ? 'fa-broadcast-tower' : 'fa-play'}`}></i></div>
+                                <div>
+                                    <h3 style={{margin:0, color: isSessionRelevant ? '#14532d' : '#1e3a8a', fontSize: '18px', fontWeight: '700'}}>{isSessionRelevant ? 'Session Live' : 'Start Class'}</h3>
+                                    {isSessionRelevant && <span className="status-badge-pill" style={{background:'white', color:'#15803d', fontSize:'10px', padding:'2px 8px', marginTop:'4px'}}>ACTIVE</span>}
+                                </div>
                             </div>
-                            <p style={{ color: activeSession ? '#166534' : '#1e40af', marginBottom: '20px', fontSize:'13px', opacity: 0.9 }}>{activeSession ? `QR Code refreshes automatically in ${timer}s.` : "Start a secure QR session for today."}</p>
+                            <p style={{ color: isSessionRelevant ? '#166534' : '#1e40af', marginBottom: '20px', fontSize:'13px', opacity: 0.9 }}>
+                                {isSessionRelevant ? `Subject: ${currentSubject} | Refresh: ${timer}s` : `Start ${currentSubject} class for ${selectedYear} Year.`}
+                            </p>
                         </div>
-                        <button onClick={onSessionToggle} className={activeSession ? "btn-modern-danger" : "btn-modern-primary"} disabled={!teacherInfo} style={{ marginTop: 'auto', boxShadow: 'none' }}>{activeSession ? 'End Session' : 'Start New Session'}</button>
+                        <button onClick={onSessionToggle} className={isSessionRelevant ? "btn-modern-danger" : "btn-modern-primary"} disabled={!teacherInfo || (activeSession && !isSessionRelevant)} style={{ marginTop: 'auto', boxShadow: 'none' }}>
+                             {activeSession && !isSessionRelevant ? 'Other Class Active' : isSessionRelevant ? 'End Session' : 'Start New Session'}
+                        </button>
                     </div>
                     <div className="card">
                         <div style={{display:'flex', alignItems:'center', gap:'12px', marginBottom:'20px'}}><div className="icon-box-modern" style={{background:'#fff7ed', color:'#ea580c'}}><i className="fas fa-users"></i></div><h3 style={{margin:0, fontSize: '18px'}}>Total Present</h3></div>
-                        <div style={{marginTop: 'auto'}}><div style={{display:'flex', alignItems:'baseline', gap:'8px'}}><span style={{fontSize:'56px', fontWeight:'800', color:'var(--text-primary)', lineHeight: '1'}}>{activeSession ? attendanceList.length : 0}</span><span style={{color:'var(--text-secondary)', fontSize:'16px', fontWeight:500}}>Students</span></div></div>
+                        <div style={{marginTop: 'auto'}}><div style={{display:'flex', alignItems:'baseline', gap:'8px'}}><span style={{fontSize:'56px', fontWeight:'800', color:'var(--text-primary)', lineHeight: '1'}}>{isSessionRelevant ? attendanceList.length : 0}</span><span style={{color:'var(--text-secondary)', fontSize:'16px', fontWeight:500}}>Students</span></div></div>
                     </div>
-                    {activeSession && (
+                    {isSessionRelevant && (
                         <div className="card card-full-width" style={{textAlign:'center', border: 'none', boxShadow: '0 8px 30px rgba(0,0,0,0.06)'}}>
                             <div className="qr-code-wrapper" style={{background: 'white', padding:'20px', borderRadius: '16px', boxShadow: '0 10px 25px rgba(37,99,235,0.1)', display: 'inline-block'}}><QRCodeSVG value={qrCodeValue} size={220} /></div>
                         </div>
                     )}
-                     {activeSession && (
+                     {isSessionRelevant && (
                          <div className="card card-full-width" style={{marginTop: '20px', padding:'0', overflow:'hidden'}}>
                             <div style={{padding:'20px', borderBottom:'1px solid #f1f5f9', display:'flex', justifyContent:'space-between', alignItems:'center', background:'#f8fafc'}}><h3 style={{margin:0, fontSize:'16px', fontWeight:'700', color:'#1e293b'}}>Live Student List</h3><span className="status-badge-pill" style={{background:'#dcfce7', color:'#15803d'}}>Live</span></div>
                             <div className="table-wrapper" style={{border:'none', borderRadius:0}}>
@@ -320,7 +340,7 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                         </div>
                         <div style={{flex:2, paddingLeft:'20px', borderLeft:'2px solid #e2e8f0'}}>
                             <p style={{fontSize:'12px', color:'#64748b', margin:0, textTransform:'uppercase', letterSpacing:'0.5px'}}>Viewing Report for:</p>
-                            <h3 style={{margin:'4px 0 0 0', fontSize:'22px', color:'#1e293b'}}>{formattedDate}</h3>
+                            <h3 style={{margin:'4px 0 0 0', fontSize:'22px', color:'#1e293b'}}>{formattedDate} ({selectedYear})</h3>
                         </div>
                     </div>
                     <div className="card" style={{background:'#f0fdf4', borderLeft:'5px solid #10b981', padding:'20px'}}>
@@ -385,6 +405,10 @@ export default function TeacherDashboard() {
   const [activeSession, setActiveSession] = useState(null);
   const [attendanceList, setAttendanceList] = useState([]);
   
+  // Year & Subject Logic
+  const [selectedYear, setSelectedYear] = useState(null); 
+  const [showYearModal, setShowYearModal] = useState(false);
+
   // History State
   const [viewMode, setViewMode] = useState('live'); 
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -394,13 +418,36 @@ export default function TeacherDashboard() {
 
   const playSessionStartSound = () => { const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2578/2578-preview.mp3'); audio.play().catch(error => console.log("Audio play failed:", error)); };
 
-  // 1. Data Fetching
+  // 1. Fetch Teacher Info & Auto-Select Class
   useEffect(() => {
     if (!auth.currentUser) return;
-    const unsub = onSnapshot(doc(db, "users", auth.currentUser.uid), (doc) => { if (doc.exists()) setTeacherInfo(doc.data()); });
+    const unsub = onSnapshot(doc(db, "users", auth.currentUser.uid), (doc) => { 
+        if (doc.exists()) {
+            const data = doc.data();
+            setTeacherInfo(data);
+            
+            // Auto Select if only 1 class exists in new structure
+            if (data.assignedClasses && data.assignedClasses.length === 1) {
+                setSelectedYear(data.assignedClasses[0].year);
+            } 
+            // Fallback for old structure
+            else if (data.assignedYears && data.assignedYears.length === 1 && !data.assignedClasses) {
+                setSelectedYear(data.assignedYears[0]);
+            }
+            // Show modal if multiple
+            else if ((data.assignedClasses?.length > 1 || data.assignedYears?.length > 1) && !selectedYear) {
+                setShowYearModal(true);
+            }
+            // Fallback for very old data
+            else if (!selectedYear) {
+                setSelectedYear('All');
+            }
+        }
+    });
     return () => unsub();
-  }, []);
+  }, [auth.currentUser, selectedYear]);
 
+  // 2. Active Session Listener
   useEffect(() => {
     if (!auth.currentUser) return;
     const q = query(collection(db, 'live_sessions'), where('teacherId', '==', auth.currentUser.uid), where('isActive', '==', true));
@@ -408,42 +455,63 @@ export default function TeacherDashboard() {
     return () => unsub();
   }, []);
 
- useEffect(() => {
+  // 3. Attendance Listener (Live)
+  useEffect(() => {
     let unsubscribe;
-    if (activeSession && teacherInfo?.instituteId) { // Ensure teacherInfo is available
+    if (activeSession && teacherInfo?.instituteId) { 
         const q = query(
             collection(db, 'attendance'), 
             where('sessionId', '==', activeSession.sessionId),
-            where('instituteId', '==', teacherInfo.instituteId) // <--- ADD THIS LINE
+            where('instituteId', '==', teacherInfo.instituteId)
         );
         unsubscribe = onSnapshot(q, (snap) => setAttendanceList(snap.docs.map(d => ({id: d.id, ...d.data()}))));
     } else {
         setAttendanceList([]);
     }
     return () => { if(unsubscribe) unsubscribe(); };
-}, [activeSession, teacherInfo]);
+  }, [activeSession, teacherInfo]);
 
-  // 2. History Data Fetching
+  // 4. History Data Fetching (Updated for Dynamic Subject)
   useEffect(() => {
       const fetchHistory = async () => {
-          if (!teacherInfo?.instituteId) return;
+          if (!teacherInfo?.instituteId || !selectedYear) return;
+
+          // Determine Subject
+          let currentSubject = teacherInfo.subject;
+          if (teacherInfo.assignedClasses) {
+              const cls = teacherInfo.assignedClasses.find(c => c.year === selectedYear);
+              if (cls) currentSubject = cls.subject;
+          }
+
           const start = new Date(selectedDate); start.setHours(0,0,0,0);
           const end = new Date(selectedDate); end.setHours(23,59,59,999);
 
-          const qStudents = query(collection(db, 'users'), where('instituteId', '==', teacherInfo.instituteId), where('role', '==', 'student'));
+          // Get Total Students
+          const qStudents = query(collection(db, 'users'), where('instituteId', '==', teacherInfo.instituteId), where('role', '==', 'student'), where('year', '==', selectedYear));
           const studentsSnap = await getDocs(qStudents);
           const total = studentsSnap.size;
 
-          const q = query(collection(db, 'attendance'), where('instituteId', '==', teacherInfo.instituteId), where('subject', '==', teacherInfo.subject), where('timestamp', '>=', Timestamp.fromDate(start)), where('timestamp', '<=', Timestamp.fromDate(end)));
+          // Get Attendance
+          const q = query(
+              collection(db, 'attendance'), 
+              where('instituteId', '==', teacherInfo.instituteId), 
+              where('subject', '==', currentSubject), // ✅ Filter by Dynamic Subject
+              where('timestamp', '>=', Timestamp.fromDate(start)), 
+              where('timestamp', '<=', Timestamp.fromDate(end))
+          );
+          
           const snap = await getDocs(q);
           const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+          // Optional: filter by targetYear if stored in attendance
+          const filtered = list.filter(l => l.targetYear === selectedYear || l.targetYear === 'All');
 
-          setHistoryList(list);
-          setHistoryStats({ total, present: list.length, absent: Math.max(0, total - list.length) });
+          setHistoryList(filtered);
+          setHistoryStats({ total, present: filtered.length, absent: Math.max(0, total - filtered.length) });
       };
       if (viewMode === 'history') fetchHistory();
-  }, [viewMode, selectedDate, teacherInfo]);
+  }, [viewMode, selectedDate, teacherInfo, selectedYear]);
 
+  // 5. Start Session Handler
   const handleSession = async () => {
     if (activeSession) {
         const toastId = toast.loading("Ending Session...");
@@ -453,6 +521,14 @@ export default function TeacherDashboard() {
         } catch (e) { toast.error("Error: " + e.message, { id: toastId }); }
     } else {
         if (!teacherInfo?.instituteId) return toast.error("Institute ID missing.");
+        
+        // Determine Subject
+        let currentSubject = teacherInfo.subject;
+        if (teacherInfo.assignedClasses) {
+            const cls = teacherInfo.assignedClasses.find(c => c.year === selectedYear);
+            if (cls) currentSubject = cls.subject;
+        }
+
         if ("geolocation" in navigator) {
             navigator.geolocation.getCurrentPosition(async (pos) => {
                 const q = query(collection(db, "live_sessions"), where("isActive", "==", true), where("instituteId", "==", teacherInfo.instituteId));
@@ -462,9 +538,20 @@ export default function TeacherDashboard() {
                 await batch.commit();
                 
                 const newRef = doc(collection(db, 'live_sessions'));
-                await setDoc(newRef, { sessionId: newRef.id, teacherId: auth.currentUser.uid, teacherName: teacherInfo.firstName, subject: teacherInfo.subject, createdAt: serverTimestamp(), isActive: true, location: { latitude: pos.coords.latitude, longitude: pos.coords.longitude }, instituteId: teacherInfo.instituteId, department: teacherInfo.department });
+                await setDoc(newRef, { 
+                    sessionId: newRef.id, 
+                    teacherId: auth.currentUser.uid, 
+                    teacherName: teacherInfo.firstName, 
+                    subject: currentSubject, // ✅ Use Dynamic Subject
+                    targetYear: selectedYear,
+                    createdAt: serverTimestamp(), 
+                    isActive: true, 
+                    location: { latitude: pos.coords.latitude, longitude: pos.coords.longitude }, 
+                    instituteId: teacherInfo.instituteId, 
+                    department: teacherInfo.department 
+                });
                 playSessionStartSound();
-                toast.success("Session Started Successfully!", { duration: 3000 });
+                toast.success(`Session Started: ${currentSubject} (${selectedYear})`);
             }, (err) => { toast.error("Location required."); });
         } else { toast.error("Geolocation not supported."); }
     }
@@ -474,6 +561,8 @@ export default function TeacherDashboard() {
   
   const renderContent = () => {
     if(!teacherInfo) return <div style={{textAlign: 'center', marginTop: '50px'}}>Loading...</div>;
+    if (showYearModal) return null;
+
     switch (activePage) {
         case 'dashboard': return <DashboardHome 
             teacherInfo={teacherInfo} 
@@ -483,8 +572,9 @@ export default function TeacherDashboard() {
             viewMode={viewMode} setViewMode={setViewMode}
             selectedDate={selectedDate} setSelectedDate={setSelectedDate}
             historyList={historyList} historyStats={historyStats}
+            selectedYear={selectedYear} // Passed selectedYear
         />;
-        case 'analytics': return <TeacherAnalytics teacherInfo={teacherInfo} />;
+        case 'analytics': return <TeacherAnalytics teacherInfo={teacherInfo} selectedYear={selectedYear} />;
         case 'announcements': return <TeacherAnnouncements teacherInfo={teacherInfo} />;
         case 'addTasks': return <AddTasks />;
         case 'profile': return <Profile user={teacherInfo} />;
@@ -504,14 +594,49 @@ export default function TeacherDashboard() {
   
   return (
     <div className="dashboard-container">
-      <Toaster 
-          position="bottom-center" 
-          toastOptions={{ duration: 4000, style: { background: '#1e293b', color: '#fff', marginBottom: '20px' } }}
-      />
+      
+      
+      {/* Year Selection Modal */}
+      {showYearModal && (
+        <div style={{position:'fixed', top:0, left:0, right:0, bottom:0, background:'rgba(0,0,0,0.85)', zIndex:99999, display:'flex', alignItems:'center', justifyContent:'center'}}>
+            <div className="card" style={{width:'90%', maxWidth:'350px', textAlign:'center', padding:'30px'}}>
+                <h2 style={{color:'#1e293b', marginBottom:'10px'}}>Select Classroom</h2>
+                <div style={{display:'flex', flexDirection:'column', gap:'10px'}}>
+                    {/* Handle New Structure */}
+                    {teacherInfo?.assignedClasses?.map(cls => (
+                        <button key={cls.year} onClick={() => { setSelectedYear(cls.year); setShowYearModal(false); toast.success(`Entered ${cls.year} (${cls.subject})`); }} style={{padding:'15px', background:'#fff', border:'1px solid #e2e8f0', borderRadius:'10px', fontSize:'16px', fontWeight:'bold', cursor:'pointer', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                            <span>{cls.year} - {cls.subject}</span><i className="fas fa-arrow-right" style={{color:'#3b82f6'}}></i>
+                        </button>
+                    ))}
+                    {/* Handle Legacy Structure */}
+                    {!teacherInfo?.assignedClasses && teacherInfo?.assignedYears?.map(y => (
+                          <button key={y} onClick={() => { setSelectedYear(y); setShowYearModal(false); }} style={{padding:'15px', background:'#fff', border:'1px solid #e2e8f0', borderRadius:'10px', fontSize:'16px', fontWeight:'bold', cursor:'pointer'}}><span>{y} Year</span></button>
+                    ))}
+                </div>
+            </div>
+        </div>
+      )}
+
       {isMobileNavOpen && <div className="nav-overlay" onClick={() => setIsMobileNavOpen(false)}></div>}
       <aside className={`sidebar ${isMobileNavOpen ? 'open' : ''}`}>
         <div className="logo-container"><img src={logo} alt="Logo" className="sidebar-logo"/><span className="logo-text">Acadex</span></div>
-        {teacherInfo && ( <div className="teacher-info" onClick={() => { setActivePage('profile'); setIsMobileNavOpen(false); }} style={{cursor:'pointer'}}><h4>{teacherInfo.firstName} {teacherInfo.lastName}</h4><p>{teacherInfo.subject}</p><div className="edit-profile-pill"><i className="fas fa-pen" style={{fontSize:'10px'}}></i><span>Edit Profile</span></div></div> )}
+        {teacherInfo && ( 
+    <div className="teacher-info" onClick={() => { setActivePage('profile'); setIsMobileNavOpen(false); }} style={{cursor:'pointer'}}>
+        <h4>{teacherInfo.firstName} {teacherInfo.lastName}</h4>
+        
+        {/* ✅ FIXED: Display subject based on the selected year */}
+        <p style={{ opacity: 0.8, fontSize: '13px' }}>
+            {teacherInfo.assignedClasses?.find(c => c.year === selectedYear)?.subject || "Select a Class"}
+        </p>
+
+        {/* Switch Class Button */}
+        {(teacherInfo.assignedClasses?.length > 1 || teacherInfo.assignedYears?.length > 1) && (
+            <div onClick={(e) => { e.stopPropagation(); setShowYearModal(true); }} className="edit-profile-pill" style={{marginTop:'8px', background:'#eff6ff', color:'#2563eb', border:'1px solid #bfdbfe', justifyContent:'center'}}>
+                <i className="fas fa-exchange-alt" style={{fontSize:'10px'}}></i><span>Switch Class ({selectedYear})</span>
+            </div>
+        )}
+    </div> 
+)}
         <ul className="menu">
             <NavLink page="dashboard" iconClass="fa-th-large" label="Dashboard" />
             <NavLink page="analytics" iconClass="fa-chart-bar" label="Analytics" />
@@ -527,7 +652,7 @@ export default function TeacherDashboard() {
         <header className="mobile-header"><button className="hamburger-btn" onClick={() => setIsMobileNavOpen(true)}><i className="fas fa-bars"></i></button><div className="mobile-brand"><img src={logo} alt="Logo" className="mobile-logo-img" /><span className="mobile-logo-text">AcadeX</span></div><div style={{width:'40px'}}></div></header>
         {renderContent()}
         
-        {/* ✅ ADDED MOBILE FOOTER FOR TEACHER */}
+        {/* ✅ MOBILE FOOTER */}
         <MobileFooter activePage={activePage} setActivePage={setActivePage} />
       </main>
     </div>

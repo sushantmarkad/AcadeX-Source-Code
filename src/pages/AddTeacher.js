@@ -7,7 +7,8 @@ import './Dashboard.css';
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
 export default function AddTeacher({ instituteId, instituteName }) {
-    const [form, setForm] = useState({ firstName: "", lastName: "", email: "", subject: "", department: "", password: "" });
+    // ✅ Added assignedYears to state
+    const [form, setForm] = useState({ firstName: "", lastName: "", email: "", subject: "", department: "", password: "", assignedYears: [] });
     const [loading, setLoading] = useState(false);
     const [departments, setDepartments] = useState([]);
 
@@ -23,8 +24,24 @@ export default function AddTeacher({ instituteId, instituteName }) {
         fetchDepartments();
     }, [instituteId]);
 
+    // ✅ Handle Checkbox Change
+    const handleYearChange = (year) => {
+        setForm(prev => {
+            const years = prev.assignedYears.includes(year) 
+                ? prev.assignedYears.filter(y => y !== year)
+                : [...prev.assignedYears, year];
+            return { ...prev, assignedYears: years };
+        });
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
+        
+        if (form.assignedYears.length === 0) {
+            toast.error("Please assign at least one class year.");
+            return;
+        }
+
         setLoading(true);
         const toastId = toast.loading("Adding Teacher...");
 
@@ -36,10 +53,7 @@ export default function AddTeacher({ instituteId, instituteName }) {
                     ...form, 
                     role: 'teacher', 
                     instituteId, 
-                    instituteName,
-                    // ✅ Passing Subject explicitly
-                    subject: form.subject,
-                    department: form.department
+                    instituteName
                 })
             });
 
@@ -49,7 +63,7 @@ export default function AddTeacher({ instituteId, instituteName }) {
             }
 
             toast.success('Teacher Added Successfully!', { id: toastId });
-            setForm({ firstName: "", lastName: "", email: "", subject: "", department: "", password: "" });
+            setForm({ firstName: "", lastName: "", email: "", subject: "", department: "", password: "", assignedYears: [] });
 
         } catch (err) {
             toast.error("Error: " + err.message, { id: toastId });
@@ -72,6 +86,23 @@ export default function AddTeacher({ instituteId, instituteName }) {
                             <option value="">Select Department</option>
                             {departments.map((dept, index) => <option key={index} value={dept}>{dept}</option>)}
                         </select>
+                    </div>
+
+                    {/* ✅ New Multi-Select for Years */}
+                    <div className="input-group">
+                        <label>Assign Classes (Years)</label>
+                        <div style={{display:'flex', gap:'15px', marginTop:'5px'}}>
+                            {['FE', 'SE', 'TE', 'BE'].map(year => (
+                                <label key={year} style={{display:'flex', alignItems:'center', gap:'8px', cursor:'pointer', background:'#f1f5f9', padding:'8px 15px', borderRadius:'6px', border: form.assignedYears.includes(year) ? '1px solid #2563eb' : '1px solid transparent'}}>
+                                    <input 
+                                        type="checkbox" 
+                                        checked={form.assignedYears.includes(year)}
+                                        onChange={() => handleYearChange(year)}
+                                    />
+                                    {year}
+                                </label>
+                            ))}
+                        </div>
                     </div>
 
                     <div className="input-group"><label>Subject</label><input type="text" value={form.subject} onChange={e => setForm({...form, subject: e.target.value})} required /></div>

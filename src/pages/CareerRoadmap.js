@@ -75,8 +75,8 @@ export default function CareerRoadmap({ user }) {
         // Toast Confirmation for Regeneration
         toast((t) => (
             <div style={{ textAlign: 'center' }}>
-                <p style={{ margin: '0 0 10px 0', fontWeight: '600', color: '#1f2937' }}>Regenerate Roadmap?</p>
-                <p style={{ margin: '0 0 15px 0', fontSize: '13px', color: '#64748b' }}>This will reset your progress.</p>
+                <p style={{ margin: '0 0 10px 0', fontWeight: '600', color: '#fcfdfe' }}>Regenerate Roadmap?</p>
+                <p style={{ margin: '0 0 15px 0', fontSize: '13px', color: '#f8f3f3' }}>This will reset your progress.</p>
                 <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
                     <button
                         onClick={() => toast.dismiss(t.id)}
@@ -213,7 +213,7 @@ export default function CareerRoadmap({ user }) {
             {verifyModal.isOpen && ReactDOM.createPortal(
                 <div className="custom-modal-overlay" style={{
                     position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-                    zIndex: 99999, // Ensure this is higher than sidebar (usually 10000)
+                    zIndex: 10000, // Ensure this is higher than sidebar (usually 10000)
                     background: 'rgba(0, 0, 0, 0.6)', backdropFilter: 'blur(5px)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center'
                 }}>

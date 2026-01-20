@@ -202,7 +202,7 @@ export default function Profile({ user }) {
                             <i className="fas fa-bullseye"></i> Career Focus Area
                         </h3>
                         <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>
-                            Select your exact interests so <strong>Grow AI</strong> can generate relevant curriculum tasks for you.
+                            Select your exact interests so <strong>AcadeX</strong> can generate relevant curriculum tasks for you.
                         </p>
 
                         {/* 1. Domain Selection */}

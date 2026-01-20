@@ -42,9 +42,25 @@ export default function AddStudent({ instituteId, instituteName }) {
         setForm(prev => ({ ...prev, semester: '' }));
     }, [form.year]);
 
+    // ✅ Helper function for password validation
+    const validatePassword = (password) => {
+        if (password.length < 6) return "Password must be at least 6 characters long.";
+        if (!/[A-Z]/.test(password)) return "Password must contain at least one uppercase letter.";
+        if (!/[!@#$%^&*(),.?":{}|<>]/.test(password)) return "Password must contain at least one special character.";
+        return null;
+    };
+
     // 3. Handle Submit
     const handleSubmit = async (e) => {
         e.preventDefault();
+
+        // ✅ Validate Password
+        const passwordMsg = validatePassword(form.password);
+        if (passwordMsg) {
+            toast.error(passwordMsg);
+            return;
+        }
+
         setLoading(true);
         const toastId = toast.loading("Verifying Details...");
 
@@ -87,7 +103,11 @@ export default function AddStudent({ instituteId, instituteName }) {
             setForm({ firstName: "", lastName: "", email: "", rollNo: "", collegeId: "", department: "", year: "", semester: "", password: "" });
 
         } catch (err) {
-            toast.error("Error: " + err.message, { id: toastId });
+            // ✅ Handle Email Duplicates specifically
+            let msg = err.message;
+            if (msg.includes("email-already-in-use")) msg = "Email is already registered!";
+            
+            toast.error("Error: " + msg, { id: toastId });
         } finally {
             setLoading(false);
         }

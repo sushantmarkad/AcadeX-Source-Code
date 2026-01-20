@@ -1,40 +1,51 @@
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { doc, updateDoc, increment } from 'firebase/firestore';
-import { db, auth } from '../firebase';
+import './ActivityModals.css'; 
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
 export default function FlashCardModal({ isOpen, onClose, user, onComplete }) {
+    const [step, setStep] = useState('input'); // 'input', 'loading', 'playing', 'finished'
+    const [topic, setTopic] = useState('');
     const [cards, setCards] = useState([]);
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isFlipped, setIsFlipped] = useState(false);
-    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        if (isOpen && user) {
-            fetchFlashcards();
+        if (isOpen) {
+            setStep('input');
+            setTopic('');
+            setCards([]);
+            setCurrentIndex(0);
+            setIsFlipped(false);
         }
-    }, [isOpen, user]);
+    }, [isOpen]);
 
-    const fetchFlashcards = async () => {
-        setLoading(true);
+    const handleGenerate = async () => {
+        if (!topic.trim()) return;
+        setStep('loading');
         try {
             const res = await fetch(`${BACKEND_URL}/startInteractiveTask`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     taskType: 'FlashCard', 
-                    userInterest: user.careerGoal || user.domain || 'Technology' 
+                    userInterest: topic.trim() 
                 })
             });
             const data = await res.json();
-            if (data.cards) setCards(data.cards);
+            if (data.cards && data.cards.length > 0) {
+                setCards(data.cards);
+                setStep('playing');
+            } else {
+                alert("Could not generate cards. Try a different topic.");
+                setStep('input');
+            }
         } catch (e) {
             console.error(e);
-        } finally {
-            setLoading(false);
+            alert("Error connecting to AI.");
+            setStep('input');
         }
     };
 
@@ -44,7 +55,8 @@ export default function FlashCardModal({ isOpen, onClose, user, onComplete }) {
             if (currentIndex < cards.length - 1) {
                 setCurrentIndex(prev => prev + 1);
             } else {
-                onComplete(30); // Award 30 XP on completion
+                onComplete(30); 
+                onClose();
             }
         }, 200);
     };
@@ -52,57 +64,82 @@ export default function FlashCardModal({ isOpen, onClose, user, onComplete }) {
     if (!isOpen) return null;
 
     return ReactDOM.createPortal(
-        <div className="custom-modal-overlay">
-            <div className="custom-modal-box" style={{ maxWidth: '500px', height: '600px', display: 'flex', flexDirection: 'column' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
+        <div className="activity-modal-overlay">
+            <motion.div 
+                className="activity-modal-card flashcard-modal-size"
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+            >
+                <div className="modal-header">
                     <h3>📚 Rapid Revision</h3>
-                    <button onClick={onClose} style={{ border: 'none', background: 'none', fontSize: '20px' }}>×</button>
+                    <button onClick={onClose} className="close-btn">×</button>
                 </div>
 
-                {loading ? (
-                    <div style={{ margin: 'auto' }}>
-                        <div className="spinner"></div>
-                        <p>Generating Cards...</p>
-                    </div>
-                ) : (
-                    <div style={{ flex: 1, perspective: '1000px', cursor: 'pointer' }} onClick={() => setIsFlipped(!isFlipped)}>
-                        <motion.div
-                            initial={false}
-                            animate={{ rotateY: isFlipped ? 180 : 0 }}
-                            transition={{ duration: 0.6, animationDirection: 'normal' }}
-                            style={{ width: '100%', height: '100%', position: 'relative', transformStyle: 'preserve-3d' }}
-                        >
-                            {/* FRONT */}
-                            <div className="card" style={{
-                                position: 'absolute', width: '100%', height: '100%', backfaceVisibility: 'hidden',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                background: 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)', color: 'white',
-                                borderRadius: '20px', padding: '30px', textAlign: 'center', fontSize: '24px', fontWeight: 'bold'
-                            }}>
-                                {cards[currentIndex]?.front}
-                                <div style={{ position: 'absolute', bottom: 20, fontSize: '12px', opacity: 0.8 }}>Tap to Flip</div>
+                <div className="flashcard-body">
+                    {step === 'input' && (
+                        <div className="topic-input-container">
+                            <h4>What do you want to revise?</h4>
+                            <p>Enter a topic, and AI will generate flashcards instantly.</p>
+                            <input 
+                                type="text" 
+                                placeholder="e.g. React Hooks, Thermodynamics, History of India..." 
+                                value={topic}
+                                onChange={(e) => setTopic(e.target.value)}
+                                className="topic-input"
+                                autoFocus
+                            />
+                            <button 
+                                className="btn-submit" 
+                                onClick={handleGenerate}
+                                disabled={!topic.trim()}
+                            >
+                                Generate Cards
+                            </button>
+                        </div>
+                    )}
+
+                    {step === 'loading' && (
+                        <div className="loading-container">
+                            <div className="spinner"></div>
+                            <p>Generating smart flashcards for <b>"{topic}"</b>...</p>
+                        </div>
+                    )}
+
+                    {step === 'playing' && (
+                        <div className="flashcard-game-container">
+                            <div className="card-perspective" onClick={() => setIsFlipped(!isFlipped)}>
+                                <motion.div
+                                    className="flashcard-inner"
+                                    initial={false}
+                                    animate={{ rotateY: isFlipped ? 180 : 0 }}
+                                    transition={{ duration: 0.6, type: "spring", stiffness: 260, damping: 20 }}
+                                >
+                                    {/* FRONT */}
+                                    <div className="flashcard-face flashcard-front">
+                                        <span className="card-label">QUESTION</span>
+                                        <p>{cards[currentIndex]?.front}</p>
+                                        <div className="tap-hint">Tap to Flip 👆</div>
+                                    </div>
+
+                                    {/* BACK */}
+                                    <div className="flashcard-face flashcard-back">
+                                        <span className="card-label">ANSWER</span>
+                                        <p>{cards[currentIndex]?.back}</p>
+                                    </div>
+                                </motion.div>
                             </div>
 
-                            {/* BACK */}
-                            <div className="card" style={{
-                                position: 'absolute', width: '100%', height: '100%', backfaceVisibility: 'hidden', transform: 'rotateY(180deg)',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                background: '#fff', border: '2px solid #e2e8f0',
-                                borderRadius: '20px', padding: '30px', textAlign: 'center', fontSize: '18px', color: '#1e293b'
-                            }}>
-                                {cards[currentIndex]?.back}
+                            <div className="flashcard-controls">
+                                <span className="progress-text">Card {currentIndex + 1} / {cards.length}</span>
+                                <button className="btn-submit" onClick={(e) => { e.stopPropagation(); handleNext(); }}>
+                                    {currentIndex === cards.length - 1 ? 'Finish Set' : 'Next Card'}
+                                </button>
                             </div>
-                        </motion.div>
-                    </div>
-                )}
-
-                <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span>Card {currentIndex + 1} / {cards.length}</span>
-                    <button className="btn-primary" onClick={(e) => { e.stopPropagation(); handleNext(); }}>
-                        {currentIndex === cards.length - 1 ? 'Finish' : 'Next Card'} <i className="fas fa-arrow-right"></i>
-                    </button>
+                        </div>
+                    )}
                 </div>
-            </div>
+            </motion.div>
         </div>,
         document.body
     );
