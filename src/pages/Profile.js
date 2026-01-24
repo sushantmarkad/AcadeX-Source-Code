@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { auth, db } from '../firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import './Dashboard.css';
 import TwoFactorSetup from '../components/TwoFactorSetup';
+import FingerprintJS from '@fingerprintjs/fingerprintjs';
 
 // ✅ Import Biometric Hook
 import { useBiometricAuth } from '../components/BiometricAuth';
 
-// ✅ Predefined Interest Categories for Deep Data (Judge's Requirement)
+// ✅ Predefined Interest Categories for Deep Data
 const INTEREST_DOMAINS = {
     "Coding & Tech": ["Frontend Dev", "Backend Dev", "Full Stack", "AI/ML", "App Dev", "Cybersecurity", "Blockchain"],
     "Core Engineering": ["Thermodynamics", "Circuit Design", "Mechanics", "Robotics", "Civil Structures", "IoT"],
@@ -20,28 +21,44 @@ const INTEREST_DOMAINS = {
 export default function Profile({ user }) {
     const [isEditing, setIsEditing] = useState(false);
     const [profileData, setProfileData] = useState(user || null);
+    const [isBioSet, setIsBioSet] = useState(false);
+    const [currentDeviceId, setCurrentDeviceId] = useState(''); // ✅ Track current hardware ID
 
     // 👆 Biometric State
     const { registerPasskey, bioLoading } = useBiometricAuth();
 
-    // Form State including new Deep Data fields
+    // Form State
     const [formData, setFormData] = useState({
         firstName: '', lastName: '', phone: '', subject: '', email: '',
         careerGoal: '', year: '', qualification: '',
-        // ✅ New Structured Fields
         domain: '',
         subDomain: '',
         specificSkills: ''
     });
 
+    // ✅ Detect Device ID on Load
     useEffect(() => {
-        const fetchProfile = async () => {
-            if (auth.currentUser) {
-                const docRef = doc(db, 'users', auth.currentUser.uid);
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    setProfileData(data);
+        const getDeviceId = async () => {
+            const fp = await FingerprintJS.load();
+            const result = await fp.get();
+            setCurrentDeviceId(result.visitorId);
+        };
+        getDeviceId();
+    }, []);
+
+    useEffect(() => {
+        if (!auth.currentUser) return;
+
+        // ✅ Real-time listener for profile and hardware binding updates
+        const unsub = onSnapshot(doc(db, 'users', auth.currentUser.uid), (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                setProfileData(data);
+                
+                // ✅ Check if biometric/hardware ID is linked in Firestore
+                setIsBioSet(!!(data.authenticators && data.authenticators.length > 0));
+
+                if (!isEditing) {
                     setFormData({
                         firstName: data.firstName || '',
                         lastName: data.lastName || '',
@@ -49,24 +66,22 @@ export default function Profile({ user }) {
                         subject: data.subject || '',
                         email: data.email || '',
                         careerGoal: data.careerGoal || '',
-                        year: data.extras?.year || '',
+                        year: data.year || data.extras?.year || '',
                         qualification: data.qualification || '',
-                        // ✅ Load existing deep data
                         domain: data.domain || '',
                         subDomain: data.subDomain || '',
                         specificSkills: data.specificSkills || ''
                     });
                 }
             }
-        };
-        fetchProfile();
-    }, [user, isEditing]);
+        });
+        return () => unsub();
+    }, [isEditing]);
 
     const handleSave = async () => {
         const toastId = toast.loading("Updating Profile...");
         try {
             const userRef = doc(db, 'users', auth.currentUser.uid);
-
             const updates = {
                 firstName: formData.firstName,
                 lastName: formData.lastName,
@@ -78,54 +93,51 @@ export default function Profile({ user }) {
 
             if (user.role === 'student') {
                 updates.careerGoal = formData.careerGoal;
-                updates['extras.year'] = formData.year;
-
-                // ✅ Save Deep Data for AI Context
+                updates.year = formData.year;
                 updates.domain = formData.domain;
                 updates.subDomain = formData.subDomain;
                 updates.specificSkills = formData.specificSkills;
-
-                // Save legacy interests string for backward compatibility with simple filters
                 updates.interests = `${formData.domain}, ${formData.subDomain}, ${formData.specificSkills}`;
             }
 
             await updateDoc(userRef, updates);
-            toast.success("Profile Updated! AI Recommendations refreshed.", { id: toastId });
+            toast.success("Profile Updated!", { id: toastId });
             setIsEditing(false);
         } catch (err) {
             toast.error("Error: " + err.message, { id: toastId });
         }
     };
 
-    // 👆 Handle Biometric Setup
     const handleEnableBiometric = async () => {
         if (auth.currentUser) {
-            await registerPasskey(auth.currentUser.uid);
+            const success = await registerPasskey(auth.currentUser.uid);
+            if (success) {
+                toast.success("Device Identity Bound Successfully!");
+            }
         }
     };
 
     if (!profileData) return <div>Loading...</div>;
-    const { skills = [], projects = [] } = profileData.resumeData || {};
 
     return (
         <div className="content-section">
             <h2 className="content-title">My Profile</h2>
 
-            {/* ✅ INCENTIVE BANNER (Why should I fill this?) */}
+            {/* ✅ Attendance Requirement Banner */}
             {user.role === 'student' && (
                 <div style={{ background: 'linear-gradient(90deg, #eff6ff 0%, #dbeafe 100%)', padding: '15px', borderRadius: '12px', marginBottom: '20px', border: '1px solid #bfdbfe', display: 'flex', alignItems: 'center', gap: '15px' }}>
-                    <div style={{ fontSize: '24px' }}>🎓</div>
+                    <div style={{ fontSize: '24px' }}>🛡️</div>
                     <div>
-                        <h4 style={{ margin: 0, color: '#1e40af' }}>Boost Your Internal Marks!</h4>
+                        <h4 style={{ margin: 0, color: '#1e40af' }}>Hardware Binding Required</h4>
                         <p style={{ margin: 0, fontSize: '13px', color: '#1e3a8a' }}>
-                            Complete your <strong>Career Interest Profile</strong> below. The AI uses this to assign tasks that count towards your <strong>Extra Curricular Academic Credits</strong>.
+                            To prevent proxy attendance, you must link your <strong>Fingerprint/Device ID</strong> below.
                         </p>
                     </div>
                 </div>
             )}
 
             {/* Header Card */}
-            <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '25px', background: 'linear-gradient(135deg, #fff 0%, #f8fafc 100%)' }}>
+            <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '20px', marginBottom: '25px', background: 'white' }}>
                 <div style={{
                     width: '80px', height: '80px', borderRadius: '50%',
                     background: '#eff6ff', color: '#2563eb', fontSize: '30px',
@@ -136,203 +148,123 @@ export default function Profile({ user }) {
                 <div>
                     <h2 style={{ margin: 0, fontSize: '22px' }}>{profileData.firstName} {profileData.lastName}</h2>
                     <p style={{ margin: '5px 0 0 0', color: '#64748b' }}>
-                        {profileData.role === 'hod' ? 'HOD' : profileData.role === 'teacher' ? 'Teacher' : 'Student'} • {profileData.department}
+                        {profileData.role?.toUpperCase()} • {profileData.department}
                     </p>
-
-                    <div style={{ marginTop: '10px', display: 'flex', gap: '10px' }}>
-                        {user.role === 'student' && (
-                            <>
-                                <span className="status-badge status-approved">Roll: {profileData.rollNo}</span>
-                                {/* ✅ Showing Credits instead of just "XP" */}
-                                <span className="status-badge" style={{ background: '#e0f2fe', color: '#0284c7' }}>{profileData.xp || 0} Credits Earned</span>
-                            </>
-                        )}
-                        {user.role === 'teacher' && (
-                            <span className="status-badge status-approved">{formData.qualification || 'Faculty'}</span>
-                        )}
-                    </div>
                 </div>
 
                 <button
                     className={isEditing ? "btn-primary" : "btn-secondary"}
-                    style={{ width: 'auto', padding: '8px 16px', marginLeft: 'auto' }}
+                    style={{ width: 'auto', padding: '8px 24px', marginLeft: 'auto' }}
                     onClick={() => isEditing ? handleSave() : setIsEditing(true)}
                 >
-                    {isEditing ? 'Save' : 'Edit'}
+                    {isEditing ? 'Save Changes' : 'Edit Profile'}
                 </button>
             </div>
 
             <div className="cards-grid" style={{ alignItems: 'start' }}>
 
-                {/* Personal Details Column */}
+                {/* Personal Details */}
                 <div className="card">
                     <h3>Personal Details</h3>
                     <div className="input-group"><label>First Name</label><input type="text" disabled={!isEditing} value={formData.firstName} onChange={e => setFormData({ ...formData, firstName: e.target.value })} /></div>
                     <div className="input-group"><label>Last Name</label><input type="text" disabled={!isEditing} value={formData.lastName} onChange={e => setFormData({ ...formData, lastName: e.target.value })} /></div>
                     <div className="input-group"><label>Email</label><input type="email" disabled={!isEditing} value={formData.email} onChange={e => setFormData({ ...formData, email: e.target.value })} /></div>
-                    <div className="input-group"><label>Phone Number</label><input type="tel" disabled={!isEditing} placeholder="+91..." value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} /></div>
-
-                    {user.role === 'teacher' && (
-                        <>
-                            <div className="input-group"><label>Subject Specification</label><input type="text" disabled={!isEditing} value={formData.subject} onChange={e => setFormData({ ...formData, subject: e.target.value })} /></div>
-                            <div className="input-group"><label>Qualification</label><input type="text" disabled={!isEditing} placeholder="e.g. M.Tech, PhD" value={formData.qualification} onChange={e => setFormData({ ...formData, qualification: e.target.value })} /></div>
-                        </>
-                    )}
-
+                    <div className="input-group"><label>Phone Number</label><input type="tel" disabled={!isEditing} value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} /></div>
+                    
                     {user.role === 'student' && (
-                        <>
-                            <div className="input-group"><label>Roll Number</label><input type="text" disabled value={user.rollNo} style={{ backgroundColor: '#f9fafb', color: '#6b7280' }} /></div>
-                            <div className="input-group">
-                                <label>Year</label>
-                                <select disabled={!isEditing} value={formData.year} onChange={e => setFormData({ ...formData, year: e.target.value })} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #e5e7eb', backgroundColor: isEditing ? 'white' : '#f9fafb' }}>
-                                    <option value="FE">FE (First Year)</option>
-                                    <option value="SE">SE (Second Year)</option>
-                                    <option value="TE">TE (Third Year)</option>
-                                    <option value="BE">BE (Final Year)</option>
-                                </select>
-                            </div>
-                        </>
+                        <div className="input-group">
+                            <label>Year</label>
+                            <select disabled={!isEditing} value={formData.year} onChange={e => setFormData({ ...formData, year: e.target.value })} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #e5e7eb' }}>
+                                <option value="FE">FE (First Year)</option>
+                                <option value="SE">SE (Second Year)</option>
+                                <option value="TE">TE (Third Year)</option>
+                                <option value="BE">BE (Final Year)</option>
+                            </select>
+                        </div>
                     )}
                 </div>
 
-                {/* ✅ NEW: CAREER INTEREST PROFILE (The Solution to Judge's Question) */}
-                {user.role === 'student' && (
-                    <div className="card" style={{ border: '2px solid #8b5cf6' }}>
-                        <h3 style={{ color: '#7c3aed', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <i className="fas fa-bullseye"></i> Career Focus Area
-                        </h3>
-                        <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>
-                            Select your exact interests so <strong>AcadeX</strong> can generate relevant curriculum tasks for you.
-                        </p>
+                {/* ✅ SECURITY SECTION: Device Info & Biometric Lock */}
+                <div className="card" style={{ border: isBioSet ? '2px solid #10b981' : '2px solid #ef4444' }}>
+                    <h3 style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+                        <i className="fas fa-fingerprint"></i> Device & Biometric Lock
+                    </h3>
 
-                        {/* 1. Domain Selection */}
-                        <div className="input-group">
-                            <label>Primary Interest Domain</label>
-                            <select
-                                disabled={!isEditing}
-                                value={formData.domain}
-                                onChange={e => setFormData({ ...formData, domain: e.target.value, subDomain: '' })} // Reset sub on change
-                                style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #e5e7eb', backgroundColor: isEditing ? 'white' : '#f9fafb' }}
-                            >
-                                <option value="">-- Select Domain --</option>
-                                {Object.keys(INTEREST_DOMAINS).map(d => <option key={d} value={d}>{d}</option>)}
-                            </select>
+                    <div style={{ marginBottom: '20px', padding: '12px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                            <span style={{ fontSize: '12px', color: '#64748b' }}>Registered ID:</span>
+                            <span style={{ fontSize: '12px', fontWeight: 'bold' }}>{profileData.registeredDeviceId ? profileData.registeredDeviceId.substring(0, 8) + '...' : 'Unbound'}</span>
                         </div>
-
-                        {/* 2. Sub-Domain Selection */}
-                        {formData.domain && (
-                            <div className="input-group">
-                                <label>Specialization</label>
-                                <select
-                                    disabled={!isEditing}
-                                    value={formData.subDomain}
-                                    onChange={e => setFormData({ ...formData, subDomain: e.target.value })}
-                                    style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #e5e7eb', backgroundColor: isEditing ? 'white' : '#f9fafb' }}
-                                >
-                                    <option value="">-- Select Specialization --</option>
-                                    {INTEREST_DOMAINS[formData.domain].map(sub => <option key={sub} value={sub}>{sub}</option>)}
-                                </select>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ fontSize: '12px', color: '#64748b' }}>Current ID:</span>
+                            <span style={{ fontSize: '12px', fontWeight: 'bold', color: (profileData.registeredDeviceId === currentDeviceId) ? '#10b981' : '#f59e0b' }}>{currentDeviceId.substring(0, 8)}...</span>
+                        </div>
+                        
+                        {profileData.registeredDeviceId && currentDeviceId !== profileData.registeredDeviceId && (
+                            <div style={{ marginTop: '10px', fontSize: '11px', color: '#ef4444', background: '#fee2e2', padding: '8px', borderRadius: '6px' }}>
+                                ⚠️ <strong>Device Mismatch:</strong> Attendance marking is locked to your original device.
                             </div>
                         )}
-
-                        {/* 3. Specific Skills */}
-                        <div className="input-group">
-                            <label>Specific Technologies / Topics</label>
-                            <input
-                                type="text"
-                                disabled={!isEditing}
-                                placeholder="e.g. React, Python, AutoCAD, Stock Market..."
-                                value={formData.specificSkills}
-                                onChange={e => setFormData({ ...formData, specificSkills: e.target.value })}
-                                style={{ backgroundColor: isEditing ? 'white' : '#f9fafb' }}
-                            />
-                            <small style={{ color: '#64748b' }}>Used by AI to customize your challenges.</small>
-                        </div>
-
-                        <div className="input-group" style={{ marginTop: '10px' }}>
-                            <label>Ultimate Career Goal</label>
-                            <input type="text" disabled={!isEditing} placeholder="e.g. Google Software Engineer" value={formData.careerGoal} onChange={e => setFormData({ ...formData, careerGoal: e.target.value })} />
-                        </div>
                     </div>
-                )}
-
-                {/* Portfolio Section */}
-                {user.role === 'student' && (
-                    <div className="card" style={{ border: 'none', boxShadow: 'none', padding: 0, background: 'transparent' }}>
-                        <h3 style={{ fontSize: '18px', marginBottom: '15px', color: '#334155' }}>Professional Portfolio</h3>
-
-                        <div className="card" style={{ marginBottom: '20px' }}>
-                            <h4 style={{ margin: '0 0 15px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <i className="fas fa-tools" style={{ color: '#3b82f6' }}></i> Skills
-                            </h4>
-                            {skills.length > 0 ? (
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                                    {skills.map((skill, index) => (
-                                        <span key={index} style={{ background: '#eff6ff', color: '#2563eb', padding: '6px 14px', borderRadius: '20px', fontSize: '13px', fontWeight: '600' }}>
-                                            {skill}
-                                        </span>
-                                    ))}
-                                </div>
-                            ) : <p style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '14px' }}>No skills added.</p>}
-                        </div>
-
-                        <div className="card">
-                            <h4 style={{ margin: '0 0 15px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <i className="fas fa-laptop-code" style={{ color: '#8b5cf6' }}></i> Key Projects
-                            </h4>
-                            {projects.length > 0 ? (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                                    {projects.map((p, i) => (
-                                        <div key={i} style={{ padding: '12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                                            <div style={{ fontWeight: '700', color: '#1e293b' }}>{p.title}</div>
-                                            <div style={{ fontSize: '13px', color: '#64748b' }}>{p.desc}</div>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : <p style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '14px' }}>No projects added.</p>}
-                        </div>
-                    </div>
-                )}
-
-                {/* ✅ SECURITY & LOGIN SECTION */}
-                <div className="card">
-                     <h3>Security & Login</h3>
                      
-                     <div style={{ marginBottom: '20px' }}>
+                    <div style={{ textAlign: 'center' }}>
+                         <div style={{ fontSize: '40px', color: isBioSet ? '#10b981' : '#ef4444', marginBottom: '10px' }}>
+                             <i className={`fas ${isBioSet ? 'fa-check-circle' : 'fa-exclamation-triangle'}`}></i>
+                         </div>
+                         <h4 style={{margin:0}}>{isBioSet ? "Hardware Bound" : "No Biometric Set"}</h4>
+                         <p style={{ fontSize: '12px', color: '#64748b', margin: '8px 0 15px 0' }}>
+                             {isBioSet 
+                                ? "Your identity is verified on this hardware." 
+                                : "Link your device to enable attendance fallback."}
+                         </p>
+
                          <button 
                              onClick={handleEnableBiometric}
                              disabled={bioLoading}
                              style={{
                                 width: '100%',
                                 padding: '12px',
-                                background: 'linear-gradient(135deg, #4f46e5, #4338ca)',
-                                color: 'white',
-                                border: 'none',
+                                background: isBioSet ? '#f0fdf4' : 'linear-gradient(135deg, #4f46e5, #4338ca)',
+                                color: isBioSet ? '#166534' : 'white',
+                                border: isBioSet ? '1px solid #bbf7d0' : 'none',
                                 borderRadius: '10px',
                                 cursor: 'pointer',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
                                 fontWeight: '600'
                              }}
                          >
-                            {bioLoading ? (
-                                <span>Starting setup...</span>
-                            ) : (
-                                <>
-                                    <i className="fas fa-fingerprint" style={{fontSize: '18px'}}></i>
-                                    Enable Fingerprint / FaceID
-                                </>
-                            )}
+                            {bioLoading ? "Verifying..." : isBioSet ? "Refresh Device Link" : "Link This Device"}
                          </button>
-                         <p style={{ fontSize: '12px', color: '#64748b', marginTop: '8px', textAlign: 'center' }}>
-                             Setup TouchID or FaceID for faster login on this device.
-                         </p>
-                     </div>
+                    </div>
 
-                     <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '20px' }}>
-                         <TwoFactorSetup user={user} />
-                     </div>
+                    <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '20px', marginTop: '20px' }}>
+                        <TwoFactorSetup user={user} />
+                    </div>
                 </div>
 
+                {/* Career Focus Area */}
+                {user.role === 'student' && (
+                    <div className="card">
+                        <h3 style={{ color: '#7c3aed' }}><i className="fas fa-bullseye"></i> Career Focus</h3>
+                        <div className="input-group">
+                            <label>Domain</label>
+                            <select disabled={!isEditing} value={formData.domain} onChange={e => setFormData({ ...formData, domain: e.target.value, subDomain: '' })} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #e5e7eb' }}>
+                                <option value="">-- Select Domain --</option>
+                                {Object.keys(INTEREST_DOMAINS).map(d => <option key={d} value={d}>{d}</option>)}
+                            </select>
+                        </div>
+                        {formData.domain && (
+                            <div className="input-group">
+                                <label>Specialization</label>
+                                <select disabled={!isEditing} value={formData.subDomain} onChange={e => setFormData({ ...formData, subDomain: e.target.value })} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #e5e7eb' }}>
+                                    <option value="">-- Select Specialization --</option>
+                                    {INTEREST_DOMAINS[formData.domain].map(sub => <option key={sub} value={sub}>{sub}</option>)}
+                                </select>
+                            </div>
+                        )}
+                        <div className="input-group"><label>Skills</label><input type="text" disabled={!isEditing} value={formData.specificSkills} onChange={e => setFormData({ ...formData, specificSkills: e.target.value })} /></div>
+                        <div className="input-group"><label>Goal</label><input type="text" disabled={!isEditing} value={formData.careerGoal} onChange={e => setFormData({ ...formData, careerGoal: e.target.value })} /></div>
+                    </div>
+                )}
             </div>
         </div>
     );

@@ -1,49 +1,66 @@
 import React, { useState } from 'react';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
+import toast from 'react-hot-toast';
+import FingerprintJS from '@fingerprintjs/fingerprintjs';
 
-// ⚠️ CHANGE THIS to your actual backend URL
+// ✅ Point this to your Render backend URL
 const API_BASE = 'https://acadex-backend-n2wh.onrender.com/auth/passkeys'; 
 
 export const useBiometricAuth = () => {
   const [bioLoading, setBioLoading] = useState(false);
 
-  // --- 1. REGISTER (Enable Fingerprint) ---
+  /**
+   * 1. REGISTER PASSKEY (The "Setup" phase)
+   * This links the student's fingerprint AND their specific device to their account.
+   */
   const registerPasskey = async (userId) => {
     setBioLoading(true);
     try {
-      // A. Get Challenge from Backend
+      // Step A: Request registration options from the server
       const resp = await fetch(`${API_BASE}/register-start?userId=${userId}`);
-      if (!resp.ok) throw new Error('Failed to start registration');
+      
+      if (!resp.ok) {
+        const errorData = await resp.json();
+        throw new Error(errorData.error || 'Failed to start registration');
+      }
+      
       const options = await resp.json();
 
-      // B. Trigger Browser/Phone Biometric Prompt
-      const attResp = await startRegistration(options);
+      // Step B: Trigger the browser's native biometric prompt (TouchID/FaceID)
+      // ✅ We wrap 'options' in 'optionsJSON' to comply with the latest library version
+      const attResp = await startRegistration({ optionsJSON: options });
 
-      // C. Verify with Backend
+      // Step C: Generate a unique Hardware Fingerprint for Device Binding
+      const fp = await FingerprintJS.load();
+      const fpResult = await fp.get();
+      const deviceId = fpResult.visitorId;
+
+      // Step D: Send biometric data + hardware ID to backend to finalize the lock
       const verifyResp = await fetch(`${API_BASE}/register-finish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, data: attResp }),
+        body: JSON.stringify({ 
+            userId, 
+            data: attResp, 
+            deviceId: deviceId // ✅ This prevents others from using this account on their phone
+        }),
       });
 
       const result = await verifyResp.json();
       
       if (result.verified) {
-        // Save flag locally so Login page knows to show the button
-        localStorage.setItem('biometric_enabled', 'true');
-        localStorage.setItem('last_userId', userId);
-        alert("✅ Fingerprint Setup Complete! You can use it to login next time.");
+        toast.success("✅ Device & Biometric identity linked!");
         return true;
       } else {
-        alert("❌ Setup Failed");
+        toast.error("❌ Verification failed: " + (result.error || "Unknown error"));
         return false;
       }
       
     } catch (error) {
-      console.error(error);
-      // Don't alert if user just cancelled the popup
+      console.error("Registration Error:", error);
+      // Don't show error toast if the user simply cancelled the fingerprint prompt
       if (error.name !== 'NotAllowedError') {
-        alert("Error: " + error.message);
+        toast.error(error.message);
       }
       return false;
     } finally {
@@ -51,29 +68,28 @@ export const useBiometricAuth = () => {
     }
   };
 
-  // --- 2. LOGIN (Use Fingerprint) ---
-  const loginWithPasskey = async (onSuccess) => {
-    // We need the User ID to ask the server for *their* specific key challenge.
-    const userId = localStorage.getItem('last_userId');
-    if (!userId) {
-      alert("⚠️ Please login with password once first.");
-      return;
-    }
-
+  /**
+   * 2. AUTHENTICATE (The "Attendance" phase)
+   * Verifies the student is who they say they are before marking them present.
+   */
+  const authenticate = async (userId) => {
     setBioLoading(true);
     try {
-      // A. Get Challenge
+      // Step A: Get login challenge from server
       const resp = await fetch(`${API_BASE}/login-start?userId=${userId}`);
       
-      if (resp.status === 404) {
-        throw new Error("User not found. Please login with password.");
+      if (!resp.ok) {
+        const errorData = await resp.json();
+        throw new Error(errorData.error || "Authentication start failed");
       }
+      
       const options = await resp.json();
 
-      // B. Trigger Browser/Phone Biometric Prompt
-      const asseResp = await startAuthentication(options);
+      // Step B: Trigger biometric scan
+      // ✅ Using 'optionsJSON' wrapper
+      const asseResp = await startAuthentication({ optionsJSON: options });
 
-      // C. Verify
+      // Step C: Verify scan with backend
       const verifyResp = await fetch(`${API_BASE}/login-finish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -81,18 +97,35 @@ export const useBiometricAuth = () => {
       });
 
       const result = await verifyResp.json();
-      if (result.verified) {
-        onSuccess(userId); // Callback to redirect user
-      } else {
-        alert("❌ Authentication Failed");
-      }
+      return result.verified;
+
     } catch (error) {
-      console.error(error);
-      alert("Login Failed: " + error.message);
+      console.error("Biometric Auth Error:", error);
+      if (error.name !== 'NotAllowedError') {
+        toast.error(error.message);
+      }
+      return false;
     } finally {
       setBioLoading(false);
     }
   };
 
-  return { registerPasskey, loginWithPasskey, bioLoading };
+  /**
+   * 3. LOGIN WRAPPER (Optional)
+   * Allows logging into the app using biometrics if the user has logged in once before.
+   */
+  const loginWithPasskey = async (onSuccess) => {
+    const userId = localStorage.getItem('last_userId');
+    if (!userId) {
+      toast.error("Please login with your password once on this device first.");
+      return;
+    }
+
+    const isVerified = await authenticate(userId);
+    if (isVerified) {
+        onSuccess(userId);
+    }
+  };
+
+  return { registerPasskey, loginWithPasskey, authenticate, bioLoading };
 };

@@ -9,6 +9,11 @@ import toast from 'react-hot-toast';
 import logo from "../assets/logo.png";
 import './Dashboard.css';
 
+// ✅ NEW IMPORTS FOR SECURITY
+import { Device } from '@capacitor/device'; 
+import FingerprintJS from '@fingerprintjs/fingerprintjs';
+import { useBiometricAuth } from '../components/BiometricAuth';
+
 // Component Imports
 import FreePeriodTasks from './FreePeriodTasks';
 import Profile from './Profile';
@@ -43,6 +48,29 @@ const getRelativeTime = (timestamp) => {
     if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
     if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d ago`;
     return date.toLocaleDateString();
+};
+
+// --- ✅ HELPER: ROBUST DEVICE ID (Anti-Proxy) ---
+const getUniqueDeviceId = async () => {
+    try {
+        // A. Try getting the NATIVE DEVICE UUID (For Mobile App)
+        const info = await Device.getId();
+        if (info && info.uuid) {
+            return `app-${info.uuid}`;
+        }
+    } catch (err) {
+        // Not running as an app, continue to web method...
+    }
+
+    // B. Browser Fingerprinting (For Website)
+    try {
+        const fp = await FingerprintJS.load();
+        const result = await fp.get();
+        return `web-${result.visitorId}`;
+    } catch (err) {
+        // Fallback (Rare)
+        return 'unknown-device-' + Math.random();
+    }
 };
 
 // --- COMPONENT: Leave Request Form ---
@@ -190,6 +218,54 @@ const NoticesView = ({ notices }) => {
     );
 };
 
+const handleAttendance = async (sessionIdFromQR) => {
+    const toastId = toast.loading("Verifying security...");
+
+    try {
+        // 1. Generate the Unique Device Hardware ID
+        const fp = await FingerprintJS.load();
+        const result = await fp.get();
+        const hardwareId = result.visitorId; // This is the unique "Device Fingerprint"
+
+        // 2. Get Student's Current Location
+        navigator.geolocation.getCurrentPosition(async (position) => {
+            const token = await auth.currentUser.getIdToken();
+            
+            // 3. Send Attendance to Backend with Device ID
+            const response = await fetch(`${BACKEND_URL}/markAttendance`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json', 
+                    'Authorization': `Bearer ${token}` 
+                },
+                body: JSON.stringify({ 
+                    sessionId: sessionIdFromQR, 
+                    deviceId: hardwareId, // ✅ Crucial for Hardware Binding
+                    studentLocation: { 
+                        latitude: position.coords.latitude, 
+                        longitude: position.coords.longitude 
+                    },
+                    verificationMethod: 'qr' // or 'biometric' if using fingerprint
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                toast.success(data.message, { id: toastId });
+            } else {
+                // If this is a device mismatch, the backend sends a 403 error
+                toast.error(data.error, { id: toastId });
+            }
+        }, (err) => {
+            toast.error("Location access denied. Attendance failed.", { id: toastId });
+        });
+
+    } catch (error) {
+        toast.error("Security check failed.", { id: toastId });
+    }
+};
+
 // --- COMPONENT: Smart Schedule Card (Presentational) ---
 const SmartScheduleCard = ({ user, currentSlot, loading }) => {
     const isFree = currentSlot?.type === 'Free' || currentSlot?.type === 'Break' || currentSlot?.type === 'Holiday';
@@ -255,12 +331,9 @@ const AttendanceOverview = ({ user }) => {
     );
 };
 
-// --- DASHBOARD HOME ---
-const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession, recentAttendance, setShowScanner, currentSlot }) => {
+// --- DASHBOARD HOME (Updated with Biometrics) ---
+const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession, recentAttendance, setShowScanner, currentSlot, onBiometricAttendance, bioLoading }) => {
     
-    // ✅ REMOVED the old useEffect that fetched live_sessions here.
-    // It is now handled in the main StudentDashboard component to ensure global access.
-
     useEffect(() => {
         if (!auth.currentUser) return;
         const q = query(collection(db, "attendance"), where("studentId", "==", auth.currentUser.uid), orderBy("timestamp", "desc"), limit(3));
@@ -284,7 +357,26 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                         <>
                             <div className="live-badge pulsate"><div className="dot"></div> <span>SESSION ACTIVE</span></div>
                             <p style={{fontWeight:'bold', margin:'10px 0'}}>{liveSession.subject}</p>
-                            <button className="btn-modern-primary" onClick={() => setShowScanner(true)}>Scan Now</button>
+                            
+                            <div style={{display:'flex', gap:'10px', flexWrap:'wrap'}}>
+                                {/* Standard QR Button */}
+                                <button className="btn-modern-primary" onClick={() => setShowScanner(true)}>
+                                    <i className="fas fa-camera"></i> Scan QR
+                                </button>
+
+                                {/* ✅ BIOMETRIC FALLBACK BUTTON */}
+                                <button 
+                                    className="btn-modern-primary" 
+                                    style={{background: '#059669', border: '1px solid #047857'}}
+                                    onClick={onBiometricAttendance}
+                                    disabled={bioLoading}
+                                >
+                                    {bioLoading ? 'Verifying...' : <><i className="fas fa-fingerprint"></i> Use TouchID</>}
+                                </button>
+                            </div>
+                            <small style={{display:'block', marginTop:'10px', color:'#64748b'}}>
+                                Use TouchID if QR code is not working.
+                            </small>
                         </>
                     ) : <p style={{textAlign:'center', color:'#64748b'}}>No active sessions.</p>}
                 </div>
@@ -357,6 +449,9 @@ export default function StudentDashboard() {
   // ✅ CHATBOT PROMPT STATE
   const [chatInitialMessage, setChatInitialMessage] = useState('');
   
+  // ✅ BIOMETRIC HOOK
+  const { authenticate, bioLoading } = useBiometricAuth();
+
   const scannerRef = useRef(null); 
   const navigate = useNavigate();
 
@@ -393,7 +488,6 @@ export default function StudentDashboard() {
     const unsub = onSnapshot(q, (snap) => {
         if (!snap.empty) {
             // ✅ CLIENT-SIDE FILTERING
-            // Find a session that matches the student's year OR is for 'All'
             const relevantSession = snap.docs.find(doc => {
                 const data = doc.data();
                 return data.targetYear === 'All' || data.targetYear === user.year;
@@ -402,7 +496,7 @@ export default function StudentDashboard() {
             if (relevantSession) {
                 setLiveSession({ id: relevantSession.id, ...relevantSession.data() });
             } else {
-                setLiveSession(null); // Hide if session exists but not for this student
+                setLiveSession(null); 
             }
         } else {
             setLiveSession(null);
@@ -410,9 +504,9 @@ export default function StudentDashboard() {
     });
 
     return () => unsub();
-  }, [user]); // Dependency on user is crucial
+  }, [user]); 
 
-  // 3. GLOBAL SCHEDULE LOGIC (Runs every minute)
+  // 3. GLOBAL SCHEDULE LOGIC
   useEffect(() => {
       const fetchSchedule = async () => {
           if (!user?.department || !user?.year) return;
@@ -510,12 +604,16 @@ export default function StudentDashboard() {
       setIsChatOpen(true);
   };
 
-  const onScanSuccess = (decodedText) => {
+  // ✅ 5. HANDLE QR ATTENDANCE WITH DEVICE BINDING
+  const onScanSuccess = async (decodedText) => {
         if (scannerRef.current) {
             scannerRef.current.pause(true); 
         }
         setShowScanner(false);
-        const toastId = toast.loading("Verifying...");
+        const toastId = toast.loading("Verifying Identity & Device...");
+
+        // ✅ GET ROBUST DEVICE ID
+        const currentDeviceId = await getUniqueDeviceId();
         
         navigator.geolocation.getCurrentPosition(async (position) => {
             try {
@@ -523,7 +621,14 @@ export default function StudentDashboard() {
                 const response = await fetch(`${BACKEND_URL}/markAttendance`, {
                     method: 'POST', 
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ sessionId: decodedText, studentLocation: { latitude: position.coords.latitude, longitude: position.coords.longitude } })
+                    body: JSON.stringify({ 
+                        sessionId: decodedText, 
+                        studentLocation: { 
+                            latitude: position.coords.latitude, 
+                            longitude: position.coords.longitude 
+                        },
+                        deviceId: currentDeviceId // ✅ SENDING DEVICE ID
+                    })
                 });
                 const data = await response.json();
                 
@@ -539,6 +644,46 @@ export default function StudentDashboard() {
             toast.error("Location permission denied.", { id: toastId });
             setShowScanner(false);
         });
+  };
+
+  // ✅ 6. HANDLE BIOMETRIC ATTENDANCE
+  const handleBiometricAttendance = async () => {
+    if (!liveSession) return;
+    
+    // A. Verify Identity via Fingerprint
+    const isVerified = await authenticate(user.uid);
+    if (!isVerified) return;
+
+    const toastId = toast.loading("Marking Attendance...");
+    
+    // ✅ ADD THIS: Get Device ID for biometric flow too
+    const currentDeviceId = await getUniqueDeviceId(); 
+
+    navigator.geolocation.getCurrentPosition(async (position) => {
+        try {
+            const token = await auth.currentUser.getIdToken();
+            const response = await fetch(`${BACKEND_URL}/markAttendance`, {
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ 
+                    sessionId: liveSession.id, 
+                    studentLocation: { 
+                        latitude: position.coords.latitude, 
+                        longitude: position.coords.longitude 
+                    },
+                    deviceId: currentDeviceId, // ✅ MUST send deviceId here too
+                    verificationMethod: 'biometric' 
+                })
+            });
+
+            const data = await response.json();
+            if (response.ok) toast.success(data.message, { id: toastId });
+            else toast.error(data.error, { id: toastId });
+
+        } catch (error) { 
+            toast.error(error.message, { id: toastId }); 
+        }
+    }, () => toast.error("Location Required", { id: toastId }));
   };
 
   useEffect(() => {
@@ -563,20 +708,42 @@ export default function StudentDashboard() {
   const renderContent = () => {
     if (!user) return <div style={{ textAlign: 'center', paddingTop: 50 }}>Loading...</div>;
     switch (activePage) {
-      case 'dashboard': return <DashboardHome user={user} currentSlot={currentSlot} onOpenAI={() => setIsChatOpen(true)} liveSession={liveSession} setLiveSession={setLiveSession} recentAttendance={recentAttendance} setRecentAttendance={setRecentAttendance} setShowScanner={setShowScanner} />;
+      case 'dashboard': return <DashboardHome 
+            user={user} 
+            currentSlot={currentSlot} 
+            onOpenAI={() => setIsChatOpen(true)} 
+            liveSession={liveSession} 
+            setLiveSession={setLiveSession} 
+            recentAttendance={recentAttendance} 
+            setRecentAttendance={setRecentAttendance} 
+            setShowScanner={setShowScanner} 
+            // ✅ PASS BIOMETRIC PROPS
+            onBiometricAttendance={handleBiometricAttendance}
+            bioLoading={bioLoading}
+      />;
       case 'tasks': return <FreePeriodTasks user={user} isFreePeriod={isFreePeriod} onOpenAIWithPrompt={handleOpenAiWithPrompt} />;
       case 'profile': return <Profile user={user} />;
       case 'plans': return <CareerRoadmap user={user} />; 
       case 'leaderboard': return <Leaderboard user={user} />;
       case 'leave': return <LeaveRequestForm user={user} />;
       case 'notices': return <NoticesView notices={notices} />;
-      default: return <DashboardHome user={user} currentSlot={currentSlot} onOpenAI={() => setIsChatOpen(true)} liveSession={liveSession} setLiveSession={setLiveSession} recentAttendance={recentAttendance} setRecentAttendance={setRecentAttendance} setShowScanner={setShowScanner} />;
+      default: return <DashboardHome 
+            user={user} 
+            currentSlot={currentSlot} 
+            onOpenAI={() => setIsChatOpen(true)} 
+            liveSession={liveSession} 
+            setLiveSession={setLiveSession} 
+            recentAttendance={recentAttendance} 
+            setRecentAttendance={setRecentAttendance} 
+            setShowScanner={setShowScanner}
+            onBiometricAttendance={handleBiometricAttendance}
+            bioLoading={bioLoading}
+       />;
     }
   };
 
   return (
     <div className="dashboard-container">
-      
       
       {isMobileNavOpen && <div className="nav-overlay" onClick={() => setIsMobileNavOpen(false)} />}
       
