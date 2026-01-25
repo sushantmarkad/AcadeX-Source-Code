@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "327190164183",
+    "project_id": "scheduplan-1b51d",
+    "storage_bucket": "scheduplan-1b51d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:327190164183:android:cb1d375e7d529a10037692",
+        "android_client_info": {
+          "package_name": "com.acadex.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "327190164183-spa6s7rhijqbactd40u3goht3p5bif5l.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDdTHeJ6wm5-KhAE8AenXJs2J3ld8-IWso"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "327190164183-spa6s7rhijqbactd40u3goht3p5bif5l.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

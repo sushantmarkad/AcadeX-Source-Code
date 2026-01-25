@@ -1,35 +1,58 @@
+/* =========================================
+   📱 MOBILE SAFE AREA FIX (Notch & Home Bar)
+   ========================================= */
+:root {
+  --sat: env(safe-area-inset-top);
+  --sab: env(safe-area-inset-bottom);
+  --sal: env(safe-area-inset-left);
+  --sar: env(safe-area-inset-right);
+}
 
-html, body {
-  margin: 0;
-  padding: 0;
-  width: 100%;
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
   height: 100%;
+  background-color: #f8fafc; 
+}
+
+body {
+  margin: 0;
+  width: 100%;
+  min-height: 100%;
+  
+  /* ✅ PUSH CONTENT AWAY FROM NOTCH & HOME BAR */
+  padding-top: var(--sat);
+  padding-bottom: var(--sab);
+  padding-left: var(--sal);
+  padding-right: var(--sar);
+
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   
-  /* iOS Physics */
   overscroll-behavior-y: none;
   -webkit-tap-highlight-color: transparent;
-  background-color: #f8fafc; /* Default background */
+  background-color: #f8fafc;
 }
 
 #root {
   width: 100%;
   height: 100%;
-  position: relative; /* Essential for absolute positioning of children */
+  position: relative;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
-/* Hide scrollbar but allow scrolling */
 ::-webkit-scrollbar {
   width: 0px;
   background: transparent;
 }
 
 code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
 }

@@ -5,7 +5,7 @@ import { Toaster } from 'react-hot-toast';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from './firebase'; 
-
+import { usePushNotifications } from './hooks/usePushNotifications';
 import IOSSplashScreen from "./components/IOSSplashScreen";
 import logo from "./assets/logo.png"; 
 
@@ -36,8 +36,11 @@ const Dashboard = lazy(() => import("./pages/Dashboard"));
 const AiChatbot = lazy(() => import("./pages/AiChatbot")); 
 
 function App() {
+  usePushNotifications();
   const location = useLocation();
   const [showSplash, setShowSplash] = useState(true);
+  
+  
   
   // Auth State Management
   const [user, setUser] = useState(null);

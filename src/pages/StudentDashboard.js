@@ -456,23 +456,21 @@ export default function StudentDashboard() {
   const navigate = useNavigate();
 
   // 1. User Loading
-  useEffect(() => {
+useEffect(() => {
     const authUnsub = onAuthStateChanged(auth, (authUser) => {
         if (authUser) {
             const unsub = onSnapshot(doc(db, "users", authUser.uid), (doc) => {
                 if (doc.exists()) {
                     setUser(doc.data());
-                } else {
-                    console.error("User doc missing");
                 }
             });
             return () => unsub();
-        } else {
-            navigate('/');
-        }
+        } 
+        // ❌ REMOVED: else { navigate('/'); } 
+        // App.js already handles the redirect. Doing it here causes the crash.
     });
     return () => authUnsub();
-  }, [navigate]);
+  }, []);
 
   // ✅ 2. Listen for Active Session (Filtered by Year) - GLOBAL LISTENER
   useEffect(() => {
@@ -597,7 +595,7 @@ export default function StudentDashboard() {
   }, [activePage, notices, readCount]);
 
   const badgeCount = Math.max(0, notices.length - readCount);
-  const handleLogout = async () => { await signOut(auth); navigate('/'); };
+  const handleLogout = async () => { await signOut(auth);  };
 
   const handleOpenAiWithPrompt = (prompt) => {
       setChatInitialMessage(prompt);

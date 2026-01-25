@@ -590,27 +590,32 @@ export default function TeacherDashboard() {
 
             if ("geolocation" in navigator) {
                 navigator.geolocation.getCurrentPosition(async (pos) => {
-                    const q = query(collection(db, "live_sessions"), where("isActive", "==", true), where("instituteId", "==", teacherInfo.instituteId));
-                    const existing = await getDocs(q);
-                    const batch = writeBatch(db);
-                    existing.forEach(d => batch.update(d.ref, { isActive: false }));
-                    await batch.commit();
-
-                    const newRef = doc(collection(db, 'live_sessions'));
-                    await setDoc(newRef, {
-                        sessionId: newRef.id,
-                        teacherId: auth.currentUser.uid,
-                        teacherName: teacherInfo.firstName,
-                        subject: currentSubject, // ✅ Use Dynamic Subject
-                        targetYear: selectedYear,
-                        createdAt: serverTimestamp(),
-                        isActive: true,
-                        location: { latitude: pos.coords.latitude, longitude: pos.coords.longitude },
-                        instituteId: teacherInfo.instituteId,
-                        department: teacherInfo.department
+                    const response = await fetch(`${BACKEND_URL}/startSession`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            teacherId: auth.currentUser.uid,
+                            teacherName: teacherInfo.firstName,
+                            subject: currentSubject,
+                            department: teacherInfo.department,
+                            year: selectedYear,
+                            instituteId: teacherInfo.instituteId,
+                            location: {
+                                latitude: pos.coords.latitude,
+                                longitude: pos.coords.longitude
+                            }
+                        })
                     });
-                    playSessionStartSound();
-                    toast.success(`Session Started: ${currentSubject} (${selectedYear})`);
+
+                    const data = await response.json();
+                    if (response.ok) {
+                        // Set local state manually or let onSnapshot handle it
+                        playSessionStartSound();
+                        toast.success(`Session Started: ${currentSubject}`);
+                    } else {
+                        toast.error("Failed to start session: " + data.error);
+                    }
+
                 }, (err) => { toast.error("Location required."); });
             } else { toast.error("Geolocation not supported."); }
         }
