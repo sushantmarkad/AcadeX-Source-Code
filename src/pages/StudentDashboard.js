@@ -460,17 +460,17 @@ useEffect(() => {
     const authUnsub = onAuthStateChanged(auth, (authUser) => {
         if (authUser) {
             const unsub = onSnapshot(doc(db, "users", authUser.uid), (doc) => {
-                if (doc.exists()) {
-                    setUser(doc.data());
-                }
+                if (doc.exists()) setUser(doc.data());
             });
             return () => unsub();
-        } 
-        // ❌ REMOVED: else { navigate('/'); } 
-        // App.js already handles the redirect. Doing it here causes the crash.
+        } else {
+            // ✅ SAFETY: Ensure local user state is cleared immediately
+            setUser(null); 
+            // App.js handles the redirect, but this ensures we don't render stale data
+        }
     });
     return () => authUnsub();
-  }, []);
+}, []);
 
   // ✅ 2. Listen for Active Session (Filtered by Year) - GLOBAL LISTENER
   useEffect(() => {
