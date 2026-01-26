@@ -2,11 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
-import { collection, doc, setDoc, serverTimestamp, onSnapshot, query, where, getDocs, writeBatch, Timestamp, addDoc, deleteDoc } from 'firebase/firestore';
+import { collection, doc, setDoc, serverTimestamp, onSnapshot, query, where, getDocs, writeBatch, Timestamp, addDoc, deleteDoc, orderBy } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
 import { CSVLink } from 'react-csv';
 import toast, { Toaster } from 'react-hot-toast';
-// Updated Recharts imports
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import './Dashboard.css';
 import AddTasks from './AddTasks';
@@ -21,7 +20,7 @@ const getGreeting = () => {
 };
 
 // ------------------------------------
-//  COMPONENT: ANNOUNCEMENTS (Preserved)
+//  COMPONENT: ANNOUNCEMENTS
 // ------------------------------------
 const TeacherAnnouncements = ({ teacherInfo }) => {
     const [form, setForm] = useState({ title: '', message: '', targetYear: 'All' });
@@ -171,7 +170,7 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
                 snap.docs.forEach(doc => {
                     const data = doc.data();
                     // Filter by year if backend saves it, else client filter
-                    if (data.targetYear === selectedYear || data.targetYear === 'All') {
+                    if (data.year === selectedYear || data.year === 'All') { // Note: using 'year' field from DB
                         const date = data.timestamp.toDate();
                         const dayStr = date.toLocaleDateString('en-GB', { weekday: 'short' });
                         if (dayMap[dayStr] !== undefined) {
@@ -242,13 +241,24 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
 // ------------------------------------
 //  DASHBOARD HOME (Updated with Subject Logic)
 // ------------------------------------
-const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionToggle, viewMode, setViewMode, selectedDate, setSelectedDate, historyList, historyStats, selectedYear }) => {
+const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionToggle, viewMode, setViewMode, selectedDate, setSelectedDate, historyList, historyStats, selectedYear, sessionLoading }) => {
     const [qrCodeValue, setQrCodeValue] = useState('');
     const [timer, setTimer] = useState(10);
     const [absentList, setAbsentList] = useState("");
 
+    // Helper to get current subject
+    const getCurrentSubject = () => {
+        if (!teacherInfo) return "Class";
+        if (teacherInfo.assignedClasses) {
+            const cls = teacherInfo.assignedClasses.find(c => c.year === selectedYear);
+            if (cls) return cls.subject;
+        }
+        return teacherInfo.subject;
+    };
+    const currentSubject = getCurrentSubject();
+
     const handleInverseAttendance = async () => {
-        const absentees = absentList.split(',').map(s => s.trim());
+        const absentees = absentList.split(',').map(s => s.trim()).filter(s => s !== "");
         const toastId = toast.loading("Processing inverse attendance...");
 
         try {
@@ -262,11 +272,16 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                     year: selectedYear,
                     department: teacherInfo.department,
                     instituteId: teacherInfo.instituteId,
-                    subject: currentSubject // Ensure currentSubject is defined in the component scope
+                    subject: currentSubject 
                 })
             });
-            if (response.ok) toast.success("Marked successfully!", { id: toastId });
-            else toast.error("Failed to mark.", { id: toastId });
+            const data = await response.json();
+            if (response.ok) {
+                toast.success(data.message, { id: toastId });
+                setAbsentList(""); // Clear input
+            } else {
+                toast.error("Failed: " + data.error, { id: toastId });
+            }
         } catch (err) {
             toast.error("Connection error.", { id: toastId });
         }
@@ -284,13 +299,6 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
         }
         return () => { clearInterval(interval); clearInterval(countdown); };
     }, [activeSession]);
-
-    // ✅ Determine current subject
-    let currentSubject = teacherInfo.subject;
-    if (teacherInfo.assignedClasses) {
-        const cls = teacherInfo.assignedClasses.find(c => c.year === selectedYear);
-        if (cls) currentSubject = cls.subject;
-    }
 
     const isSessionRelevant = activeSession && (activeSession.targetYear === selectedYear || activeSession.targetYear === 'All');
     const dateObj = new Date(selectedDate);
@@ -330,8 +338,13 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                                 {isSessionRelevant ? `Subject: ${currentSubject} | Refresh: ${timer}s` : `Start ${currentSubject} class for ${selectedYear} Year.`}
                             </p>
                         </div>
-                        <button onClick={onSessionToggle} className={isSessionRelevant ? "btn-modern-danger" : "btn-modern-primary"} disabled={!teacherInfo || (activeSession && !isSessionRelevant)} style={{ marginTop: 'auto', boxShadow: 'none' }}>
-                            {activeSession && !isSessionRelevant ? 'Other Class Active' : isSessionRelevant ? 'End Session' : 'Start New Session'}
+                        <button 
+                            onClick={onSessionToggle} 
+                            className={isSessionRelevant ? "btn-modern-danger" : "btn-modern-primary"} 
+                            disabled={!teacherInfo || (activeSession && !isSessionRelevant) || sessionLoading} 
+                            style={{ marginTop: 'auto', boxShadow: 'none' }}
+                        >
+                            {sessionLoading ? <i className="fas fa-spinner fa-spin"></i> : (activeSession && !isSessionRelevant ? 'Other Class Active' : isSessionRelevant ? 'End Session' : 'Start New Session')}
                         </button>
                     </div>
                     <div className="card">
@@ -423,9 +436,6 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
     );
 };
 
-
-
-
 // --- 📱 MOBILE FOOTER COMPONENT ---
 const MobileFooter = ({ activePage, setActivePage }) => {
     return (
@@ -463,6 +473,7 @@ export default function TeacherDashboard() {
     const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
     const [activeSession, setActiveSession] = useState(null);
     const [attendanceList, setAttendanceList] = useState([]);
+    const [sessionLoading, setSessionLoading] = useState(false); // New Loading State
 
     // Year & Subject Logic
     const [selectedYear, setSelectedYear] = useState(null);
@@ -562,7 +573,7 @@ export default function TeacherDashboard() {
             const snap = await getDocs(q);
             const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
             // Optional: filter by targetYear if stored in attendance
-            const filtered = list.filter(l => l.targetYear === selectedYear || l.targetYear === 'All');
+            const filtered = list.filter(l => l.targetYear === selectedYear || l.targetYear === 'All' || !l.targetYear);
 
             setHistoryList(filtered);
             setHistoryStats({ total, present: filtered.length, absent: Math.max(0, total - filtered.length) });
@@ -570,7 +581,7 @@ export default function TeacherDashboard() {
         if (viewMode === 'history') fetchHistory();
     }, [viewMode, selectedDate, teacherInfo, selectedYear]);
 
-    // 5. Start Session Handler
+    // 5. Start Session Handler (Optimized)
     const handleSession = async () => {
         if (activeSession) {
             const toastId = toast.loading("Ending Session...");
@@ -588,36 +599,53 @@ export default function TeacherDashboard() {
                 if (cls) currentSubject = cls.subject;
             }
 
+            setSessionLoading(true);
+            const startToast = toast.loading("Starting Class...");
+
             if ("geolocation" in navigator) {
                 navigator.geolocation.getCurrentPosition(async (pos) => {
-                    const response = await fetch(`${BACKEND_URL}/startSession`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            teacherId: auth.currentUser.uid,
-                            teacherName: teacherInfo.firstName,
-                            subject: currentSubject,
-                            department: teacherInfo.department,
-                            year: selectedYear,
-                            instituteId: teacherInfo.instituteId,
-                            location: {
-                                latitude: pos.coords.latitude,
-                                longitude: pos.coords.longitude
-                            }
-                        })
-                    });
+                    try {
+                        const response = await fetch(`${BACKEND_URL}/startSession`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                teacherId: auth.currentUser.uid,
+                                teacherName: teacherInfo.firstName,
+                                subject: currentSubject,
+                                department: teacherInfo.department,
+                                year: selectedYear,
+                                instituteId: teacherInfo.instituteId,
+                                location: { 
+                                    latitude: pos.coords.latitude, 
+                                    longitude: pos.coords.longitude 
+                                }
+                            })
+                        });
 
-                    const data = await response.json();
-                    if (response.ok) {
-                        // Set local state manually or let onSnapshot handle it
-                        playSessionStartSound();
-                        toast.success(`Session Started: ${currentSubject}`);
-                    } else {
-                        toast.error("Failed to start session: " + data.error);
+                        const data = await response.json();
+                        if (response.ok) {
+                            playSessionStartSound();
+                            toast.success(`Session Started: ${currentSubject}`);
+                        } else {
+                            toast.error("Failed to start session: " + data.error);
+                        }
+                    } catch (err) {
+                        toast.error("Network Error: " + err.message);
+                    } finally {
+                        setSessionLoading(false);
+                        toast.dismiss(startToast);
                     }
 
-                }, (err) => { toast.error("Location required."); });
-            } else { toast.error("Geolocation not supported."); }
+                }, (err) => { 
+                    toast.error("Location required."); 
+                    setSessionLoading(false);
+                    toast.dismiss(startToast);
+                }, { enableHighAccuracy: true, timeout: 5000 });
+            } else { 
+                toast.error("Geolocation not supported."); 
+                setSessionLoading(false);
+                toast.dismiss(startToast);
+            }
         }
     };
 
@@ -637,6 +665,7 @@ export default function TeacherDashboard() {
                 selectedDate={selectedDate} setSelectedDate={setSelectedDate}
                 historyList={historyList} historyStats={historyStats}
                 selectedYear={selectedYear} // Passed selectedYear
+                sessionLoading={sessionLoading} // Passed loading state
             />;
             case 'analytics': return <TeacherAnalytics teacherInfo={teacherInfo} selectedYear={selectedYear} />;
             case 'announcements': return <TeacherAnnouncements teacherInfo={teacherInfo} />;
@@ -658,8 +687,6 @@ export default function TeacherDashboard() {
 
     return (
         <div className="dashboard-container">
-
-
             {/* Year Selection Modal */}
             {showYearModal && (
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
