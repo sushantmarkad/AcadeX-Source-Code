@@ -57,6 +57,31 @@ export default function ManageInstituteUsers({ instituteId, showModal }) {
         }
     };
 
+    // ✅ HELPER: Get ALL IDs currently visible on screen
+    const getAllIds = () => {
+        const ids = [];
+        Object.values(groupedUsers).forEach(group => {
+            group.hods.forEach(u => ids.push(u.id));
+            group.teachers.forEach(u => ids.push(u.id));
+            Object.values(group.studentsByYear).forEach(list => {
+                list.forEach(u => ids.push(u.id));
+            });
+        });
+        return ids;
+    };
+
+    const allIds = getAllIds();
+    const isAllSelected = allIds.length > 0 && selectedIds.length === allIds.length;
+
+    // ✅ SELECT ALL TOGGLE FUNCTION
+    const handleSelectAll = () => {
+        if (isAllSelected) {
+            setSelectedIds([]); // Deselect All
+        } else {
+            setSelectedIds(allIds); // Select All
+        }
+    };
+
     const handleDeleteSelected = () => {
         if (selectedIds.length === 0) return;
 
@@ -98,6 +123,30 @@ export default function ManageInstituteUsers({ instituteId, showModal }) {
                     <h2 className="content-title">Manage Institute Users</h2>
                     <p className="content-subtitle">Users organized by department and year.</p>
                 </div>
+
+                {/* ✅ NEW: SELECT ALL CHECKBOX */}
+                {allIds.length > 0 && (
+                    <div 
+                        onClick={handleSelectAll}
+                        style={{
+                            display:'flex', alignItems:'center', gap:'10px', 
+                            background:'#f8fafc', padding:'10px 15px', 
+                            borderRadius:'10px', border:'1px solid #e2e8f0',
+                            cursor: 'pointer', transition: '0.2s'
+                        }}
+                    >
+                        <input 
+                            type="checkbox" 
+                            className="custom-checkbox"
+                            checked={isAllSelected} 
+                            onChange={handleSelectAll} 
+                            style={{cursor:'pointer', width:'18px', height:'18px'}}
+                        />
+                        <span style={{fontWeight:'600', color:'#475569', fontSize:'14px', userSelect:'none'}}>
+                            Select All ({allIds.length})
+                        </span>
+                    </div>
+                )}
             </div>
 
             {Object.keys(groupedUsers).length === 0 && <p style={{textAlign:'center', color:'#666'}}>No users found.</p>}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Papa from 'papaparse';
-import { auth, db, sendPasswordResetEmail } from '../firebase'; 
+import { db } from '../firebase'; 
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import toast from 'react-hot-toast'; 
 import './Dashboard.css';
@@ -37,9 +37,8 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
         const file = e.target.files[0];
         if (!file) return;
 
-        // 🛑 Check for Excel files
         if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
-            toast.error("❌ Invalid File: Please upload a CSV file.\n(Save As > CSV in Excel)", { duration: 5000 });
+            toast.error("❌ Invalid File: Please upload a CSV file.", { duration: 5000 });
             e.target.value = null; 
             return;
         }
@@ -53,16 +52,14 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
         setLoading(true);
         const toastId = toast.loading("Scanning file structure...");
 
-        // 2. Parse CSV as Raw Arrays (Smart Scan)
         Papa.parse(file, {
-            header: false, // We will find the header manually
+            header: false,
             skipEmptyLines: 'greedy',
             complete: async (results) => {
                 const rows = results.data;
                 
-                // 3. Find the Header Row dynamically
+                // Find Header
                 let headerIndex = -1;
-                // Scan first 20 rows to find the one with "Email" and "Roll"
                 for(let i=0; i<Math.min(rows.length, 20); i++) {
                     const rowStr = rows[i].map(c => String(c).toLowerCase()).join(' ');
                     if(rowStr.includes('email') && (rowStr.includes('roll') || rowStr.includes('name'))) {
@@ -73,61 +70,43 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
 
                 if (headerIndex === -1) {
                     toast.error("❌ Could not find 'Email' or 'Roll No' columns.", { id: toastId });
-                    setLoading(false); 
-                    return;
+                    setLoading(false); return;
                 }
 
-                // 4. Map Columns (The "Smart" Part)
+                // Map Columns
                 const headers = rows[headerIndex].map(h => String(h).toLowerCase().trim());
-                
-                // Find where each piece of data lives (indexes)
                 const idxEmail = headers.findIndex(h => h.includes('email'));
                 const idxRoll = headers.findIndex(h => h.includes('roll'));
                 const idxName = headers.findIndex(h => h.includes('name') && !h.includes('user'));
-                const idxSex = headers.findIndex(h => h.includes('sex') || h.includes('gender'));
-                const idxCat = headers.findIndex(h => h.includes('category'));
-                const idxId = headers.findIndex(h => h.includes('student id') || h.includes('college id') || h.includes('prn'));
-                const idxAdmType = headers.findIndex(h => h.includes('admn') || h.includes('type'));
+                const idxId = headers.findIndex(h => h.includes('student id') || h.includes('college id'));
 
                 if (idxEmail === -1) {
                     toast.error("❌ 'Email' column is missing!", { id: toastId });
                     setLoading(false); return;
                 }
 
-                // 5. Construct Objects matched to BACKEND expectations
-                // We map the data to "Roll No", "Name", "Email" keys exactly as your backend expects
+                // Create Clean Data
                 const cleanStudents = rows.slice(headerIndex + 1).map(row => {
-                    // Skip row if email is missing or invalid
                     if (!row[idxEmail] || !String(row[idxEmail]).includes('@')) return null;
-
                     return {
                         "email": row[idxEmail].trim(),
                         "name": idxName !== -1 ? row[idxName].trim() : "Student",
                         "rollNo": idxRoll !== -1 ? row[idxRoll] : "",
-                        
-                        // ✅ FIX: Map 'Student Id' from CSV to 'collegeId' for your App
                         "collegeId": idxId !== -1 ? row[idxId] : "",
-                        
-                        "sex": idxSex !== -1 ? row[idxSex] : "",
-                        "category": idxCat !== -1 ? row[idxCat] : "",
-                        "admissionType": idxAdmType !== -1 ? row[idxAdmType] : "",
-                        
-                        // Add Batch Info (Backend uses this too)
                         "department": selectedDept,
                         "year": selectedYear
                     };
-                }).filter(s => s !== null); // Remove null rows
+                }).filter(s => s !== null);
 
                 if (cleanStudents.length === 0) {
-                    toast.error("❌ No valid students found in file.", { id: toastId });
-                    setLoading(false); 
-                    return;
+                    toast.error("❌ No valid students found.", { id: toastId });
+                    setLoading(false); return;
                 }
 
                 toast.loading(`Uploading ${cleanStudents.length} students...`, { id: toastId });
 
                 try {
-                    // 6. Send to Backend
+                    // ✅ CALL BACKEND (Backend now handles email sending!)
                     const response = await fetch(`${BACKEND_URL}/bulkCreateStudents`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -135,7 +114,7 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                             students: cleanStudents, 
                             instituteId, 
                             instituteName,
-                            department: selectedDept, // Also passing strictly
+                            department: selectedDept, 
                             year: selectedYear
                         })
                     });
@@ -144,27 +123,21 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
 
                     if (!response.ok) throw new Error(data.error || "Upload failed");
 
-                    // 7. Send Emails to successful uploads
-                    let emailCount = 0;
-                    for (const email of data.success) {
-                        try { await sendPasswordResetEmail(auth, email); emailCount++; } 
-                        catch (e) { console.error("Email error:", e); }
-                    }
-
                     setStats({ 
                         total: cleanStudents.length, 
                         success: data.success.length, 
                         failed: data.errors.length 
                     });
                     
-                    toast.success(`Done! Created ${data.success.length} accounts.`, { id: toastId });
+                    // ✅ Success Message
+                    toast.success(`Done! Created ${data.success.length} accounts & sent emails.`, { id: toastId });
 
                 } catch (err) {
                     console.error(err);
                     toast.error("Server Error: " + err.message, { id: toastId });
                 } finally {
                     setLoading(false);
-                    e.target.value = null; // Reset input
+                    e.target.value = null; 
                 }
             },
             error: (err) => {
