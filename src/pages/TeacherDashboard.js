@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
-import { collection, doc, setDoc, serverTimestamp, onSnapshot, query, where, getDocs, writeBatch, Timestamp, addDoc, deleteDoc, orderBy } from 'firebase/firestore';
+import { collection, doc, getDoc, serverTimestamp, onSnapshot, query, where, getDocs, addDoc, deleteDoc, Timestamp } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
 import { CSVLink } from 'react-csv';
-import toast, { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 import './Dashboard.css';
+
+// Component Imports
 import AddTasks from './AddTasks';
 import Profile from './Profile';
 import logo from "../assets/logo.png";
@@ -124,7 +126,7 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
 };
 
 // ------------------------------------
-//  COMPONENT: TEACHER ANALYTICS (Updated)
+//  COMPONENT: TEACHER ANALYTICS
 // ------------------------------------
 const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
     const [weeklyData, setWeeklyData] = useState([]);
@@ -135,59 +137,72 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
             if (!teacherInfo || !selectedYear) return;
             setLoading(true);
 
-            // 1. Determine Subject for this Year
             let currentSubject = teacherInfo.subject;
             if (teacherInfo.assignedClasses) {
                 const classData = teacherInfo.assignedClasses.find(c => c.year === selectedYear);
                 if (classData) currentSubject = classData.subject;
             }
 
-            // 2. Define Time Range (Last 7 Days)
             const endDate = new Date();
             const startDate = new Date();
             startDate.setDate(endDate.getDate() - 6);
             startDate.setHours(0, 0, 0, 0);
 
             try {
-                // 3. Query Attendance
+                // 1. Get Total Class Size
+                const qStudents = query(
+                    collection(db, 'users'), 
+                    where('instituteId', '==', teacherInfo.instituteId),
+                    where('role', '==', 'student'),
+                    where('year', '==', selectedYear),
+                    where('department', '==', teacherInfo.department)
+                );
+                const studentsSnap = await getDocs(qStudents);
+                const totalStudents = studentsSnap.size;
+
+                // 2. Get Attendance
                 const q = query(
                     collection(db, 'attendance'),
                     where('instituteId', '==', teacherInfo.instituteId),
-                    where('subject', '==', currentSubject), // Filter by specific subject
+                    where('subject', '==', currentSubject),
                     where('timestamp', '>=', Timestamp.fromDate(startDate))
                 );
-
                 const snap = await getDocs(q);
 
-                // 4. Process Data (Group by Day)
-                const dayMap = {};
-                // Initialize map with 0 for last 7 days
-                for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-                    const dayStr = d.toLocaleDateString('en-GB', { weekday: 'short' }); // Mon, Tue
-                    dayMap[dayStr] = 0;
-                }
+                // 3. Process Data: Group by Date AND Session
+                const dayStats = {}; // { 'Mon': { sessions: Set(sessionIds), presentCount: 0 } }
 
                 snap.docs.forEach(doc => {
                     const data = doc.data();
-                    // Filter by year if backend saves it, else client filter
-                    if (data.year === selectedYear || data.year === 'All') { // Note: using 'year' field from DB
+                    if (data.year === selectedYear || data.targetYear === selectedYear || data.year === 'All') {
                         const date = data.timestamp.toDate();
                         const dayStr = date.toLocaleDateString('en-GB', { weekday: 'short' });
-                        if (dayMap[dayStr] !== undefined) {
-                            dayMap[dayStr]++;
-                        }
+                        const sessId = data.sessionId;
+
+                        if (!dayStats[dayStr]) dayStats[dayStr] = { sessions: new Set(), presentCount: 0 };
+                        
+                        // We count TOTAL presents across all sessions for that day
+                        dayStats[dayStr].presentCount++;
+                        dayStats[dayStr].sessions.add(sessId);
                     }
                 });
 
-                // Convert to Array for Recharts
-                const chartData = Object.keys(dayMap).map(key => ({
-                    name: key,
-                    students: dayMap[key]
-                }));
+                const chartData = Object.keys(dayStats).map(key => {
+                    const sessionsCount = dayStats[key].sessions.size || 1;
+                    const totalCapacity = totalStudents * sessionsCount; 
+                    const actualPresent = dayStats[key].presentCount;
+                    
+                    return {
+                        name: key,
+                        present: actualPresent,
+                        absent: Math.max(0, totalCapacity - actualPresent)
+                    };
+                });
 
                 setWeeklyData(chartData);
+
             } catch (err) {
-                console.error("Analytics Error:", err);
+                console.error(err);
             } finally {
                 setLoading(false);
             }
@@ -196,41 +211,24 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
         fetchAnalytics();
     }, [teacherInfo, selectedYear]);
 
-    // Subject Label
-    let subjectName = teacherInfo.subject;
-    if (teacherInfo.assignedClasses) {
-        const cls = teacherInfo.assignedClasses.find(c => c.year === selectedYear);
-        if (cls) subjectName = cls.subject;
-    }
-
     return (
         <div className="content-section">
             <h2 className="content-title">Weekly Analytics</h2>
             <div className="card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '20px' }}>
-                    <h3 style={{ margin: 0 }}>Attendance Trend ({selectedYear} - {subjectName})</h3>
-                </div>
-
-                {loading ? <p>Loading chart data...</p> : (
+                <h3>Attendance Overview ({selectedYear})</h3>
+                {loading ? <p>Loading...</p> : (
                     <div style={{ width: '100%', height: 300 }}>
-                        {weeklyData.reduce((a, b) => a + b.students, 0) === 0 ? (
-                            <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
-                                No attendance data for the last 7 days.
-                            </div>
-                        ) : (
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={weeklyData}>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                                    <XAxis dataKey="name" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-                                    <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-                                    <Tooltip
-                                        cursor={{ fill: '#f1f5f9' }}
-                                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                                    />
-                                    <Bar dataKey="students" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={40} />
-                                </BarChart>
-                            </ResponsiveContainer>
-                        )}
+                        <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={weeklyData}>
+                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                <XAxis dataKey="name" />
+                                <YAxis />
+                                <Tooltip />
+                                <Legend />
+                                <Bar dataKey="present" name="Present" fill="#10b981" stackId="a" />
+                                <Bar dataKey="absent" name="Absent" fill="#ef4444" stackId="a" />
+                            </BarChart>
+                        </ResponsiveContainer>
                     </div>
                 )}
             </div>
@@ -239,9 +237,9 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
 };
 
 // ------------------------------------
-//  DASHBOARD HOME (Updated with Subject Logic)
+//  DASHBOARD HOME (Updated with Lab/Practical Logic)
 // ------------------------------------
-const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionToggle, viewMode, setViewMode, selectedDate, setSelectedDate, historyList, historyStats, selectedYear, sessionLoading }) => {
+const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionToggle, viewMode, setViewMode, selectedDate, setSelectedDate, historySessions, selectedYear, sessionLoading, sessionType, setSessionType, selectedBatch, setSelectedBatch, rollStart, setRollStart, rollEnd, setRollEnd }) => {
     const [qrCodeValue, setQrCodeValue] = useState('');
     const [timer, setTimer] = useState(10);
     const [absentList, setAbsentList] = useState("");
@@ -256,6 +254,11 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
         return teacherInfo.subject;
     };
     const currentSubject = getCurrentSubject();
+
+    // SORTING FIX: Ensure list is sorted by Roll No (Numeric)
+    const sortedAttendanceList = [...attendanceList].sort((a, b) => {
+        return parseInt(a.rollNo) - parseInt(b.rollNo);
+    });
 
     const handleInverseAttendance = async () => {
         const absentees = absentList.split(',').map(s => s.trim()).filter(s => s !== "");
@@ -272,13 +275,15 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                     year: selectedYear,
                     department: teacherInfo.department,
                     instituteId: teacherInfo.instituteId,
-                    subject: currentSubject 
+                    subject: currentSubject,
+                    type: activeSession.type || 'theory', // Send type
+                    batch: activeSession.batch || 'All'   // Send batch
                 })
             });
             const data = await response.json();
             if (response.ok) {
                 toast.success(data.message, { id: toastId });
-                setAbsentList(""); // Clear input
+                setAbsentList("");
             } else {
                 toast.error("Failed: " + data.error, { id: toastId });
             }
@@ -325,6 +330,7 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
 
             {viewMode === 'live' && (
                 <div className="cards-grid">
+                    {/* --- START SESSION CARD --- */}
                     <div className="card" style={{ background: isSessionRelevant ? 'linear-gradient(135deg, #d1fae5 0%, #ecfdf5 100%)' : 'linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%)', border: isSessionRelevant ? '1px solid #a7f3d0' : '1px solid #bfdbfe', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                         <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
@@ -334,39 +340,104 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                                     {isSessionRelevant && <span className="status-badge-pill" style={{ background: 'white', color: '#15803d', fontSize: '10px', padding: '2px 8px', marginTop: '4px' }}>ACTIVE</span>}
                                 </div>
                             </div>
+
+                            {!isSessionRelevant && (
+                                <div style={{ marginBottom: '15px' }}>
+                                    <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                                        <button
+                                            onClick={() => setSessionType('theory')}
+                                            style={{ flex: 1, padding: '6px', borderRadius: '6px', border: 'none', background: sessionType === 'theory' ? '#2563eb' : 'white', color: sessionType === 'theory' ? 'white' : '#64748b', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold' }}
+                                        >
+                                            Theory
+                                        </button>
+                                        <button
+                                            onClick={() => setSessionType('practical')}
+                                            style={{ flex: 1, padding: '6px', borderRadius: '6px', border: 'none', background: sessionType === 'practical' ? '#2563eb' : 'white', color: sessionType === 'practical' ? 'white' : '#64748b', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold' }}
+                                        >
+                                            Practical
+                                        </button>
+                                    </div>
+
+                                    {sessionType === 'practical' && (
+                                        <div style={{ marginTop: '15px', background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                            <div className="input-group" style={{ marginBottom: '10px' }}>
+                                                <label style={{ fontSize: '11px', color: '#1e40af', fontWeight: 'bold' }}>Select Batch Name</label>
+                                                <select
+                                                    value={selectedBatch}
+                                                    onChange={(e) => setSelectedBatch(e.target.value)}
+                                                    style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #bfdbfe', fontSize: '13px' }}
+                                                >
+                                                    {['A', 'B', 'C', 'D', 'E'].map(b => <option key={b} value={b}>Batch {b}</option>)}
+                                                </select>
+                                            </div>
+
+                                            <div style={{ display: 'flex', gap: '10px' }}>
+                                                <div className="input-group" style={{ marginBottom: '0', flex: 1 }}>
+                                                    <label style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold' }}>Start Roll No.</label>
+                                                    <input
+                                                        type="number"
+                                                        value={rollStart}
+                                                        onChange={(e) => setRollStart(e.target.value)}
+                                                        placeholder="1"
+                                                        style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #bfdbfe', fontSize: '13px' }}
+                                                    />
+                                                </div>
+                                                <div className="input-group" style={{ marginBottom: '0', flex: 1 }}>
+                                                    <label style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold' }}>End Roll No.</label>
+                                                    <input
+                                                        type="number"
+                                                        value={rollEnd}
+                                                        onChange={(e) => setRollEnd(e.target.value)}
+                                                        placeholder="20"
+                                                        style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #bfdbfe', fontSize: '13px' }}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
                             <p style={{ color: isSessionRelevant ? '#166534' : '#1e40af', marginBottom: '20px', fontSize: '13px', opacity: 0.9 }}>
-                                {isSessionRelevant ? `Subject: ${currentSubject} | Refresh: ${timer}s` : `Start ${currentSubject} class for ${selectedYear} Year.`}
+                                {isSessionRelevant
+                                    ? `Subject: ${currentSubject} ${activeSession.type === 'practical' ? `(Lab - Batch ${activeSession.batch})` : '(Theory)'} | Refresh: ${timer}s`
+                                    : `Start ${sessionType === 'practical' ? `Lab (Batch ${selectedBatch})` : 'Theory'} for ${selectedYear} Year.`
+                                }
                             </p>
                         </div>
-                        <button 
-                            onClick={onSessionToggle} 
-                            className={isSessionRelevant ? "btn-modern-danger" : "btn-modern-primary"} 
-                            disabled={!teacherInfo || (activeSession && !isSessionRelevant) || sessionLoading} 
+                        <button
+                            onClick={onSessionToggle}
+                            className={isSessionRelevant ? "btn-modern-danger" : "btn-modern-primary"}
+                            disabled={!teacherInfo || (activeSession && !isSessionRelevant) || sessionLoading}
                             style={{ marginTop: 'auto', boxShadow: 'none' }}
                         >
                             {sessionLoading ? <i className="fas fa-spinner fa-spin"></i> : (activeSession && !isSessionRelevant ? 'Other Class Active' : isSessionRelevant ? 'End Session' : 'Start New Session')}
                         </button>
                     </div>
+
                     <div className="card">
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}><div className="icon-box-modern" style={{ background: '#fff7ed', color: '#ea580c' }}><i className="fas fa-users"></i></div><h3 style={{ margin: 0, fontSize: '18px' }}>Total Present</h3></div>
-                        <div style={{ marginTop: 'auto' }}><div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}><span style={{ fontSize: '56px', fontWeight: '800', color: 'var(--text-primary)', lineHeight: '1' }}>{isSessionRelevant ? attendanceList.length : 0}</span><span style={{ color: 'var(--text-secondary)', fontSize: '16px', fontWeight: 500 }}>Students</span></div></div>
+                        <div style={{ marginTop: 'auto' }}><div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}><span style={{ fontSize: '56px', fontWeight: '800', color: 'var(--text-primary)', lineHeight: '1' }}>{isSessionRelevant ? sortedAttendanceList.length : 0}</span><span style={{ color: 'var(--text-secondary)', fontSize: '16px', fontWeight: 500 }}>Students</span></div></div>
                     </div>
+
                     {isSessionRelevant && (
                         <div className="card card-full-width" style={{ textAlign: 'center', border: 'none', boxShadow: '0 8px 30px rgba(0,0,0,0.06)' }}>
                             <div className="qr-code-wrapper" style={{ background: 'white', padding: '20px', borderRadius: '16px', boxShadow: '0 10px 25px rgba(37,99,235,0.1)', display: 'inline-block' }}><QRCodeSVG value={qrCodeValue} size={220} /></div>
                         </div>
                     )}
+
                     {isSessionRelevant && (
                         <div className="card card-full-width" style={{ marginTop: '20px', padding: '0', overflow: 'hidden' }}>
                             <div style={{ padding: '20px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}><h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: '#1e293b' }}>Live Student List</h3><span className="status-badge-pill" style={{ background: '#dcfce7', color: '#15803d' }}>Live</span></div>
                             <div className="table-wrapper" style={{ border: 'none', borderRadius: 0 }}>
                                 <table className="attendance-table">
                                     <thead style={{ background: 'white' }}><tr><th>Roll No.</th><th>Name</th></tr></thead>
-                                    <tbody>{attendanceList.map(s => (<tr key={s.id}><td style={{ fontWeight: '600', color: '#334155' }}>{s.rollNo}</td><td style={{ fontWeight: '500' }}>{s.firstName} {s.lastName}</td></tr>))}{attendanceList.length === 0 && <tr><td colSpan="2" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}><i className="fas fa-spinner fa-spin" style={{ marginRight: '8px' }}></i> Waiting for scans...</td></tr>}</tbody>
+                                    <tbody>{sortedAttendanceList.map(s => (<tr key={s.id}><td style={{ fontWeight: '600', color: '#334155' }}>{s.rollNo}</td><td style={{ fontWeight: '500' }}>{s.firstName} {s.lastName}</td></tr>))}{sortedAttendanceList.length === 0 && <tr><td colSpan="2" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}><i className="fas fa-spinner fa-spin" style={{ marginRight: '8px' }}></i> Waiting for scans...</td></tr>}</tbody>
                                 </table>
                             </div>
                         </div>
                     )}
+
                     {isSessionRelevant && (
                         <div className="card" style={{ marginTop: '20px', borderLeft: '5px solid #f59e0b' }}>
                             <h3 style={{ fontSize: '18px', color: '#1e293b' }}><i className="fas fa-user-minus"></i> Quick Mark (Absentee Entry)</h3>
@@ -397,39 +468,104 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                         </div>
                     )}
                 </div>
-
             )}
 
+            {/* --- NEW HISTORY VIEW: SESSION BASED --- */}
             {viewMode === 'history' && (
                 <div className="cards-grid">
+                    {/* DATE SELECTOR HEADER */}
                     <div className="card card-full-width" style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '20px', background: '#f8fafc' }}>
                         <div style={{ flex: 1 }}>
-                            <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', marginBottom: '6px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Select Date</label>
-                            <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '10px', fontSize: '15px', fontWeight: '500', outline: 'none' }} />
+                            <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', textTransform: 'uppercase' }}>Select Date</label>
+                            <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '10px', fontSize: '15px' }} />
                         </div>
-                        <div style={{ flex: 2, paddingLeft: '20px', borderLeft: '2px solid #e2e8f0' }}>
-                            <p style={{ fontSize: '12px', color: '#64748b', margin: 0, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Viewing Report for:</p>
+                        <div style={{ flex: 2 }}>
+                            <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Viewing Report for:</p>
                             <h3 style={{ margin: '4px 0 0 0', fontSize: '22px', color: '#1e293b' }}>{formattedDate} ({selectedYear})</h3>
                         </div>
                     </div>
-                    <div className="card" style={{ background: '#f0fdf4', borderLeft: '5px solid #10b981', padding: '20px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><div><span style={{ fontSize: '11px', fontWeight: '800', color: '#166534', textTransform: 'uppercase' }}>Present</span><h2 style={{ margin: '5px 0 0 0', fontSize: '32px', color: '#14532d' }}>{historyStats.present}</h2></div><div className="icon-box-modern" style={{ background: 'rgba(255,255,255,0.5)', color: '#15803d' }}><i className="fas fa-check-circle"></i></div></div>
-                    </div>
-                    <div className="card" style={{ background: '#fef2f2', borderLeft: '5px solid #ef4444', padding: '20px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><div><span style={{ fontSize: '11px', fontWeight: '800', color: '#991b1b', textTransform: 'uppercase' }}>Absent</span><h2 style={{ margin: '5px 0 0 0', fontSize: '32px', color: '#7f1d1d' }}>{historyStats.absent}</h2></div><div className="icon-box-modern" style={{ background: 'rgba(255,255,255,0.5)', color: '#dc2626' }}><i className="fas fa-times-circle"></i></div></div>
-                    </div>
-                    <div className="card" style={{ background: '#eff6ff', borderLeft: '5px solid #3b82f6', padding: '20px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}><div><span style={{ fontSize: '11px', fontWeight: '800', color: '#1e40af', textTransform: 'uppercase' }}>Total</span><h2 style={{ margin: '5px 0 0 0', fontSize: '32px', color: '#1e3a8a' }}>{historyStats.total}</h2></div><div className="icon-box-modern" style={{ background: 'rgba(255,255,255,0.5)', color: '#2563eb' }}><i className="fas fa-users"></i></div></div>
-                    </div>
-                    <div className="card card-full-width" style={{ marginTop: '10px' }}>
-                        <div style={{ padding: '20px', borderBottom: '1px solid #f1f5f9' }}><h3 style={{ margin: 0, fontSize: '18px', color: '#1e293b' }}>Attendance List</h3></div>
-                        <div className="table-wrapper" style={{ border: 'none' }}>
-                            <table className="attendance-table">
-                                <thead style={{ background: '#f8fafc' }}><tr><th>Roll No</th><th>Name</th><th>Time In</th><th>Status</th></tr></thead>
-                                <tbody>{historyList.map(item => (<tr key={item.id}><td style={{ fontWeight: 'bold', color: '#334155' }}>{item.rollNo}</td><td>{item.firstName} {item.lastName}</td><td style={{ color: '#64748b' }}>{item.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td><td><span className="status-badge status-approved">Present</span></td></tr>))}{historyList.length === 0 && <tr><td colSpan="4" style={{ textAlign: 'center', padding: '30px', color: '#94a3b8', fontStyle: 'italic' }}>No records found.</td></tr>}</tbody>
-                            </table>
+
+                    {/* SESSION CARDS */}
+                    {historySessions.length === 0 ? (
+                        <div className="card card-full-width" style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                            <i className="fas fa-calendar-times" style={{ fontSize: '30px', marginBottom: '10px' }}></i>
+                            <p>No sessions found for this date.</p>
                         </div>
-                    </div>
+                    ) : (
+                        historySessions.map((session, index) => (
+                            <div key={session.sessionId} className="card card-full-width" style={{ marginTop: '20px', borderLeft: session.type === 'practical' ? '5px solid #8b5cf6' : '5px solid #3b82f6' }}>
+                                {/* SESSION HEADER */}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '15px', marginBottom: '15px' }}>
+                                    <div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                                            {/* Time Badge */}
+                                            <span style={{ background: '#f1f5f9', color: '#64748b', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>
+                                                {session.startTime}
+                                            </span>
+                                            
+                                            {/* Type Badge (THEORY vs PRACTICAL) */}
+                                            {session.type === 'practical' ? (
+                                                <span style={{ background: '#ede9fe', color: '#7c3aed', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                                                    🧪 Practical (Batch {session.batch})
+                                                </span>
+                                            ) : (
+                                                <span style={{ background: '#eff6ff', color: '#2563eb', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                                                    📚 Theory
+                                                </span>
+                                            )}
+                                        </div>
+                                        
+                                        <p style={{ fontSize: '13px', color: '#64748b', margin: '8px 0 0 0' }}>
+                                            Present: <strong style={{ color: '#166534' }}>{session.presentCount}</strong> | Absent: <strong style={{ color: '#dc2626' }}>{session.absentCount}</strong>
+                                        </p>
+                                    </div>
+
+                                    {/* ✅ FIXED CSV: Pass Type and Batch directly as data, use strings for keys */}
+                                    <CSVLink 
+                                        data={session.students.map(s => ({
+                                            ...s,
+                                            type: session.type === 'practical' ? 'Practical' : 'Theory',
+                                            batch: session.type === 'practical' ? session.batch : 'All'
+                                        }))} 
+                                        headers={[
+                                            { label: "Roll No", key: "rollNo" },
+                                            { label: "Name", key: "name" },
+                                            { label: "Status", key: "status" },
+                                            { label: "Time In", key: "timeIn" },
+                                            { label: "Type", key: "type" },
+                                            { label: "Batch", key: "batch" }
+                                        ]}
+                                        filename={`${session.type}-Attendance-${formattedDate}-${session.batch}.csv`}
+                                        style={{ fontSize: '13px', color: '#3b82f6', textDecoration: 'none', fontWeight: '600' }}
+                                    >
+                                        <i className="fas fa-download"></i> CSV
+                                    </CSVLink>
+                                </div>
+
+                                {/* STUDENT TABLE */}
+                                <div className="table-wrapper" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                                    <table className="attendance-table">
+                                        <thead style={{ position: 'sticky', top: 0, zIndex: 5 }}>
+                                            <tr><th>Roll No</th><th>Name</th><th>Status</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            {session.students.map(s => (
+                                                <tr key={s.id} style={{ background: s.status === 'Absent' ? '#fef2f2' : 'white' }}>
+                                                    <td style={{ fontWeight: 'bold' }}>{s.rollNo}</td>
+                                                    <td>{s.name}</td>
+                                                    <td>
+                                                        <span className={`status-badge ${s.status === 'Present' ? 'status-approved' : 'status-rejected'}`}>
+                                                            {s.status}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        ))
+                    )}
                 </div>
             )}
         </div>
@@ -473,43 +609,40 @@ export default function TeacherDashboard() {
     const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
     const [activeSession, setActiveSession] = useState(null);
     const [attendanceList, setAttendanceList] = useState([]);
-    const [sessionLoading, setSessionLoading] = useState(false); // New Loading State
+    const [sessionLoading, setSessionLoading] = useState(false);
 
     // Year & Subject Logic
     const [selectedYear, setSelectedYear] = useState(null);
     const [showYearModal, setShowYearModal] = useState(false);
 
+    // Lab / Practical State
+    const [sessionType, setSessionType] = useState('theory'); // 'theory' | 'practical'
+    const [selectedBatch, setSelectedBatch] = useState('A');
+    const [rollStart, setRollStart] = useState(1);
+    const [rollEnd, setRollEnd] = useState(20);
+
     // History State
     const [viewMode, setViewMode] = useState('live');
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-    const [historyList, setHistoryList] = useState([]);
-    const [historyStats, setHistoryStats] = useState({ present: 0, absent: 0, total: 0 });
+    // ✅ NEW: Store an array of SESSIONS, not just a flat list of students
+    const [historySessions, setHistorySessions] = useState([]);
     const navigate = useNavigate();
 
     const playSessionStartSound = () => { const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2578/2578-preview.mp3'); audio.play().catch(error => console.log("Audio play failed:", error)); };
 
-    // 1. Fetch Teacher Info & Auto-Select Class
     useEffect(() => {
         if (!auth.currentUser) return;
         const unsub = onSnapshot(doc(db, "users", auth.currentUser.uid), (doc) => {
             if (doc.exists()) {
                 const data = doc.data();
                 setTeacherInfo(data);
-
-                // Auto Select if only 1 class exists in new structure
                 if (data.assignedClasses && data.assignedClasses.length === 1) {
                     setSelectedYear(data.assignedClasses[0].year);
-                }
-                // Fallback for old structure
-                else if (data.assignedYears && data.assignedYears.length === 1 && !data.assignedClasses) {
+                } else if (data.assignedYears && data.assignedYears.length === 1 && !data.assignedClasses) {
                     setSelectedYear(data.assignedYears[0]);
-                }
-                // Show modal if multiple
-                else if ((data.assignedClasses?.length > 1 || data.assignedYears?.length > 1) && !selectedYear) {
+                } else if ((data.assignedClasses?.length > 1 || data.assignedYears?.length > 1) && !selectedYear) {
                     setShowYearModal(true);
-                }
-                // Fallback for very old data
-                else if (!selectedYear) {
+                } else if (!selectedYear) {
                     setSelectedYear('All');
                 }
             }
@@ -517,7 +650,6 @@ export default function TeacherDashboard() {
         return () => unsub();
     }, [auth.currentUser, selectedYear]);
 
-    // 2. Active Session Listener
     useEffect(() => {
         if (!auth.currentUser) return;
         const q = query(collection(db, 'live_sessions'), where('teacherId', '==', auth.currentUser.uid), where('isActive', '==', true));
@@ -525,7 +657,6 @@ export default function TeacherDashboard() {
         return () => unsub();
     }, []);
 
-    // 3. Attendance Listener (Live)
     useEffect(() => {
         let unsubscribe;
         if (activeSession && teacherInfo?.instituteId) {
@@ -541,12 +672,12 @@ export default function TeacherDashboard() {
         return () => { if (unsubscribe) unsubscribe(); };
     }, [activeSession, teacherInfo]);
 
-    // 4. History Data Fetching (Updated for Dynamic Subject)
+    // ✅ NEW HISTORY LOGIC: Group by Session (Separates Morning/Afternoon classes)
+   // ✅ NEW HISTORY LOGIC: Filter Student List by Roll Range for Practicals
     useEffect(() => {
         const fetchHistory = async () => {
             if (!teacherInfo?.instituteId || !selectedYear) return;
 
-            // Determine Subject
             let currentSubject = teacherInfo.subject;
             if (teacherInfo.assignedClasses) {
                 const cls = teacherInfo.assignedClasses.find(c => c.year === selectedYear);
@@ -556,32 +687,119 @@ export default function TeacherDashboard() {
             const start = new Date(selectedDate); start.setHours(0, 0, 0, 0);
             const end = new Date(selectedDate); end.setHours(23, 59, 59, 999);
 
-            // Get Total Students
-            const qStudents = query(collection(db, 'users'), where('instituteId', '==', teacherInfo.instituteId), where('role', '==', 'student'), where('year', '==', selectedYear));
-            const studentsSnap = await getDocs(qStudents);
-            const total = studentsSnap.size;
+            try {
+                // 1. Get ALL Students (Master List)
+                const qStudents = query(
+                    collection(db, 'users'), 
+                    where('instituteId', '==', teacherInfo.instituteId), 
+                    where('role', '==', 'student'), 
+                    where('year', '==', selectedYear),
+                    where('department', '==', teacherInfo.department)
+                );
+                const studentsSnap = await getDocs(qStudents);
+                const allStudents = studentsSnap.docs.map(doc => ({ 
+                    id: doc.id, 
+                    ...doc.data(), 
+                    rollNo: parseInt(doc.data().rollNo) || 9999 
+                }));
 
-            // Get Attendance
-            const q = query(
-                collection(db, 'attendance'),
-                where('instituteId', '==', teacherInfo.instituteId),
-                where('subject', '==', currentSubject), // ✅ Filter by Dynamic Subject
-                where('timestamp', '>=', Timestamp.fromDate(start)),
-                where('timestamp', '<=', Timestamp.fromDate(end))
-            );
+                // 2. Get Attendance Records
+                const qAttendance = query(
+                    collection(db, 'attendance'),
+                    where('instituteId', '==', teacherInfo.instituteId),
+                    where('subject', '==', currentSubject),
+                    where('timestamp', '>=', Timestamp.fromDate(start)),
+                    where('timestamp', '<=', Timestamp.fromDate(end))
+                );
+                const attSnap = await getDocs(qAttendance);
 
-            const snap = await getDocs(q);
-            const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-            // Optional: filter by targetYear if stored in attendance
-            const filtered = list.filter(l => l.targetYear === selectedYear || l.targetYear === 'All' || !l.targetYear);
+                // 3. FETCH SESSION DETAILS (Type, Batch, & Roll Range)
+                const uniqueSessionIds = new Set();
+                attSnap.docs.forEach(d => uniqueSessionIds.add(d.data().sessionId));
 
-            setHistoryList(filtered);
-            setHistoryStats({ total, present: filtered.length, absent: Math.max(0, total - filtered.length) });
+                const sessionMetaMap = {};
+                await Promise.all(Array.from(uniqueSessionIds).map(async (sId) => {
+                    try {
+                        const sDoc = await getDoc(doc(db, 'live_sessions', sId));
+                        if (sDoc.exists()) {
+                            sessionMetaMap[sId] = sDoc.data();
+                        }
+                    } catch (e) { console.error("Error fetching session details", e); }
+                }));
+
+                // 4. GROUP BY SESSION ID
+                const sessionsMap = {}; 
+                
+                attSnap.docs.forEach(doc => {
+                    const data = doc.data();
+                    const sId = data.sessionId;
+                    const meta = sessionMetaMap[sId] || {};
+
+                    if (!sessionsMap[sId]) {
+                        sessionsMap[sId] = {
+                            sessionId: sId,
+                            startTime: data.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                            type: meta.type || 'theory', 
+                            batch: meta.batch || 'All',
+                            rollRange: meta.rollRange || null, // ✅ Capture Roll Range
+                            presentRolls: new Set()
+                        };
+                    }
+                    sessionsMap[sId].presentRolls.add(parseInt(data.rollNo));
+                });
+
+                // 5. BUILD REPORT CARDS (With Range Filtering)
+                const finalSessions = Object.values(sessionsMap).map(session => {
+                    
+                    // ✅ KEY FIX: Filter the Class List based on Roll Range
+                    let targetStudents = allStudents;
+
+                    if (session.type === 'practical' && session.rollRange) {
+                        const { start, end } = session.rollRange;
+                        // Only include students who are inside the range [start, end]
+                        targetStudents = allStudents.filter(s => s.rollNo >= start && s.rollNo <= end);
+                    }
+
+                    const studentsWithStatus = targetStudents.map(student => {
+                        const isPresent = session.presentRolls.has(student.rollNo);
+                        return {
+                            id: student.id,
+                            rollNo: student.rollNo,
+                            name: `${student.firstName} ${student.lastName}`,
+                            status: isPresent ? 'Present' : 'Absent',
+                            timeIn: isPresent ? session.startTime : '-'
+                        };
+                    });
+                    
+                    studentsWithStatus.sort((a, b) => a.rollNo - b.rollNo);
+
+                    // Recalculate stats based on the FILTERED list
+                    const presentCount = studentsWithStatus.filter(s => s.status === 'Present').length;
+                    const absentCount = studentsWithStatus.filter(s => s.status === 'Absent').length;
+
+                    return {
+                        sessionId: session.sessionId,
+                        startTime: session.startTime,
+                        type: session.type,
+                        batch: session.batch,
+                        totalStudents: targetStudents.length, // Correct Total for Batch
+                        presentCount: presentCount,
+                        absentCount: absentCount,
+                        students: studentsWithStatus
+                    };
+                });
+                
+                finalSessions.sort((a, b) => a.startTime.localeCompare(b.startTime));
+                setHistorySessions(finalSessions);
+
+            } catch (err) {
+                console.error("History Error:", err);
+            }
         };
+
         if (viewMode === 'history') fetchHistory();
     }, [viewMode, selectedDate, teacherInfo, selectedYear]);
 
-    // 5. Start Session Handler (Optimized)
     const handleSession = async () => {
         if (activeSession) {
             const toastId = toast.loading("Ending Session...");
@@ -592,7 +810,6 @@ export default function TeacherDashboard() {
         } else {
             if (!teacherInfo?.instituteId) return toast.error("Institute ID missing.");
 
-            // Determine Subject
             let currentSubject = teacherInfo.subject;
             if (teacherInfo.assignedClasses) {
                 const cls = teacherInfo.assignedClasses.find(c => c.year === selectedYear);
@@ -618,14 +835,19 @@ export default function TeacherDashboard() {
                                 location: { 
                                     latitude: pos.coords.latitude, 
                                     longitude: pos.coords.longitude 
-                                }
+                                },
+                                type: sessionType, 
+                                batch: sessionType === 'practical' ? selectedBatch : 'All',
+                                rollRange: sessionType === 'practical' 
+                                    ? { start: parseInt(rollStart), end: parseInt(rollEnd) } 
+                                    : null
                             })
                         });
 
                         const data = await response.json();
                         if (response.ok) {
                             playSessionStartSound();
-                            toast.success(`Session Started: ${currentSubject}`);
+                            toast.success(`Session Started: ${currentSubject} (${sessionType})`);
                         } else {
                             toast.error("Failed to start session: " + data.error);
                         }
@@ -663,9 +885,15 @@ export default function TeacherDashboard() {
                 onSessionToggle={handleSession}
                 viewMode={viewMode} setViewMode={setViewMode}
                 selectedDate={selectedDate} setSelectedDate={setSelectedDate}
-                historyList={historyList} historyStats={historyStats}
-                selectedYear={selectedYear} // Passed selectedYear
-                sessionLoading={sessionLoading} // Passed loading state
+                historySessions={historySessions}
+                selectedYear={selectedYear}
+                sessionLoading={sessionLoading}
+                sessionType={sessionType}
+                setSessionType={setSessionType}
+                selectedBatch={selectedBatch}
+                setSelectedBatch={setSelectedBatch}
+                rollStart={rollStart} setRollStart={setRollStart}
+                rollEnd={rollEnd} setRollEnd={setRollEnd}
             />;
             case 'analytics': return <TeacherAnalytics teacherInfo={teacherInfo} selectedYear={selectedYear} />;
             case 'announcements': return <TeacherAnnouncements teacherInfo={teacherInfo} />;
@@ -675,8 +903,39 @@ export default function TeacherDashboard() {
         }
     };
 
-    const csvHeaders = [{ label: "Roll No.", key: "rollNo" }, { label: "First Name", key: "firstName" }, { label: "Last Name", key: "lastName" }, { label: "Email", key: "studentEmail" }];
-    const csvData = viewMode === 'live' ? attendanceList : historyList;
+    // CSV Logic for Flattened Sessions (Sidebar Download)
+    const rawData = viewMode === 'live' 
+        ? attendanceList 
+        : historySessions.flatMap(session => 
+            session.students.map(s => ({
+                ...s,
+                timeIn: s.status === 'Present' ? session.startTime : 'N/A',
+                type: session.type, // Add type to sidebar download
+                batch: session.batch // Add batch to sidebar download
+            }))
+        );
+
+    const sortedData = [...rawData].sort((a, b) => parseInt(a.rollNo) - parseInt(b.rollNo));
+    
+    const csvData = sortedData.map(student => ({
+        rollNo: student.rollNo,
+        studentName: student.name || `${student.firstName} ${student.lastName}`, 
+        email: student.email || student.studentEmail || '-',
+        timeIn: student.timeIn || (student.timestamp?.toDate ? student.timestamp.toDate().toLocaleTimeString() : 'N/A'),
+        status: student.status || 'Present',
+        type: student.type || (activeSession?.type === 'practical' ? 'Practical' : 'Theory'),
+        batch: student.batch || (activeSession?.type === 'practical' ? activeSession.batch : 'All')
+    }));
+
+    const csvHeaders = [
+        { label: "Roll No.", key: "rollNo" }, 
+        { label: "Student Name", key: "studentName" }, 
+        { label: "Time In", key: "timeIn" },
+        { label: "Status", key: "status" },
+        { label: "Type", key: "type" },
+        { label: "Batch", key: "batch" }
+    ];
+
     const csvFilename = viewMode === 'live' ? `Live-${activeSession?.subject || 'Class'}.csv` : `Report-${selectedDate}.csv`;
 
     const NavLink = ({ page, iconClass, label }) => (
@@ -687,19 +946,16 @@ export default function TeacherDashboard() {
 
     return (
         <div className="dashboard-container">
-            {/* Year Selection Modal */}
             {showYearModal && (
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div className="card" style={{ width: '90%', maxWidth: '350px', textAlign: 'center', padding: '30px' }}>
                         <h2 style={{ color: '#1e293b', marginBottom: '10px' }}>Select Classroom</h2>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                            {/* Handle New Structure */}
                             {teacherInfo?.assignedClasses?.map(cls => (
                                 <button key={cls.year} onClick={() => { setSelectedYear(cls.year); setShowYearModal(false); toast.success(`Entered ${cls.year} (${cls.subject})`); }} style={{ padding: '15px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                     <span>{cls.year} - {cls.subject}</span><i className="fas fa-arrow-right" style={{ color: '#3b82f6' }}></i>
                                 </button>
                             ))}
-                            {/* Handle Legacy Structure */}
                             {!teacherInfo?.assignedClasses && teacherInfo?.assignedYears?.map(y => (
                                 <button key={y} onClick={() => { setSelectedYear(y); setShowYearModal(false); }} style={{ padding: '15px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer' }}><span>{y} Year</span></button>
                             ))}
@@ -714,13 +970,9 @@ export default function TeacherDashboard() {
                 {teacherInfo && (
                     <div className="teacher-info" onClick={() => { setActivePage('profile'); setIsMobileNavOpen(false); }} style={{ cursor: 'pointer' }}>
                         <h4>{teacherInfo.firstName} {teacherInfo.lastName}</h4>
-
-                        {/* ✅ FIXED: Display subject based on the selected year */}
                         <p style={{ opacity: 0.8, fontSize: '13px' }}>
                             {teacherInfo.assignedClasses?.find(c => c.year === selectedYear)?.subject || "Select a Class"}
                         </p>
-
-                        {/* Switch Class Button */}
                         {(teacherInfo.assignedClasses?.length > 1 || teacherInfo.assignedYears?.length > 1) && (
                             <div onClick={(e) => { e.stopPropagation(); setShowYearModal(true); }} className="edit-profile-pill" style={{ marginTop: '8px', background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', justifyContent: 'center' }}>
                                 <i className="fas fa-exchange-alt" style={{ fontSize: '10px' }}></i><span>Switch Class ({selectedYear})</span>
@@ -742,8 +994,6 @@ export default function TeacherDashboard() {
             <main className="main-content">
                 <header className="mobile-header"><button className="hamburger-btn" onClick={() => setIsMobileNavOpen(true)}><i className="fas fa-bars"></i></button><div className="mobile-brand"><img src={logo} alt="Logo" className="mobile-logo-img" /><span className="mobile-logo-text">AcadeX</span></div><div style={{ width: '40px' }}></div></header>
                 {renderContent()}
-
-                {/* ✅ MOBILE FOOTER */}
                 <MobileFooter activePage={activePage} setActivePage={setActivePage} />
             </main>
         </div>

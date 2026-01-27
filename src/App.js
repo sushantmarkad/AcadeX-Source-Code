@@ -8,6 +8,7 @@ import { auth, db } from './firebase';
 import { usePushNotifications } from './hooks/usePushNotifications';
 import IOSSplashScreen from "./components/IOSSplashScreen";
 import logo from "./assets/logo.png"; 
+import Onboarding from './pages/Onboarding'; // ✅ Standard import for fast load
 
 // Import the Skeleton Component
 import DashboardSkeleton from "./components/DashboardSkeleton";
@@ -36,17 +37,16 @@ const Dashboard = lazy(() => import("./pages/Dashboard"));
 const AiChatbot = lazy(() => import("./pages/AiChatbot")); 
 
 function App() {
+  
   usePushNotifications();
   const location = useLocation();
   const [showSplash, setShowSplash] = useState(true);
-  
-  
   
   // Auth State Management
   const [user, setUser] = useState(null);
   const [userRole, setUserRole] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-
+  
   // 1. Persistent Login Logic
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -81,6 +81,9 @@ function App() {
     return '/dashboard';
   };
 
+  // ✅ Check Onboarding Status from Local Storage
+  const hasSeenOnboarding = localStorage.getItem('hasSeenOnboarding');
+
   // 2. Show App Logo Splash Screen FIRST
   if (showSplash) {
     return (
@@ -100,7 +103,6 @@ function App() {
     // 4. Main App Render
     <Suspense fallback={<DashboardSkeleton />}>
       {/* ✅ GLOBAL TOASTER CONFIGURATION */}
-      {/* This handles notifications for the entire app to prevent duplicates */}
       <Toaster 
           position="bottom-center" 
           reverseOrder={false}
@@ -118,10 +120,17 @@ function App() {
       <AnimatePresence mode="wait">
         <Routes location={location} key={location.pathname}>
           
-          {/* Public Routes with Auto-Redirect */}
+          {/* ✅ UPDATED ROOT ROUTE LOGIC */}
           <Route path="/" element={
-            !user ? <Login /> : <Navigate to={getDashboardRoute()} />
+            user ? (
+                // A. If Logged In -> Go to Dashboard
+                <Navigate to={getDashboardRoute()} />
+            ) : (
+                // B. If Not Logged In -> Check Onboarding
+                !hasSeenOnboarding ? <Onboarding /> : <Navigate to="/login" />
+            )
           } />
+
           <Route path="/login" element={
             !user ? <Login /> : <Navigate to={getDashboardRoute()} />
           } />

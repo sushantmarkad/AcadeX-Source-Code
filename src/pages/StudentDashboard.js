@@ -3,11 +3,13 @@ import ReactDOM from 'react-dom';
 import { signOut, onAuthStateChanged } from 'firebase/auth'; 
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
-import { collection, query, where, onSnapshot, doc, getDoc, orderBy, limit } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, getDoc, orderBy, limit, updateDoc } from 'firebase/firestore';
 import { Html5Qrcode } from 'html5-qrcode';
 import toast from 'react-hot-toast';
 import logo from "../assets/logo.png";
 import './Dashboard.css';
+import { Capacitor } from '@capacitor/core';
+import { PushNotifications } from '@capacitor/push-notifications';
 
 // ✅ NEW IMPORTS FOR SECURITY
 import { Device } from '@capacitor/device'; 
@@ -473,6 +475,7 @@ useEffect(() => {
 }, []);
 
   // ✅ 2. Listen for Active Session (Filtered by Year) - GLOBAL LISTENER
+  // ✅ 2. Listen for Active Session (Filtered by Year AND Roll No Range)
   useEffect(() => {
     if (!auth.currentUser || !user) return;
 
@@ -488,7 +491,24 @@ useEffect(() => {
             // ✅ CLIENT-SIDE FILTERING
             const relevantSession = snap.docs.find(doc => {
                 const data = doc.data();
-                return data.targetYear === 'All' || data.targetYear === user.year;
+                
+                // 1. Check Year Match
+                const isYearMatch = data.targetYear === 'All' || data.targetYear === user.year;
+                if (!isYearMatch) return false;
+
+                // 2. Check Roll Number Range (For Practical Labs)
+                if (data.type === 'practical' && data.rollRange) {
+                    const myRoll = parseInt(user.rollNo); // Convert student roll to number
+                    const min = parseInt(data.rollRange.start);
+                    const max = parseInt(data.rollRange.end);
+
+                    // If my roll number is OUTSIDE the range, hide this session
+                    if (isNaN(myRoll) || myRoll < min || myRoll > max) {
+                        return false; 
+                    }
+                }
+
+                return true; // Passed all checks
             });
 
             if (relevantSession) {
@@ -502,7 +522,7 @@ useEffect(() => {
     });
 
     return () => unsub();
-  }, [user]); 
+  }, [user]);
 
   // 3. GLOBAL SCHEDULE LOGIC
   useEffect(() => {
@@ -593,6 +613,72 @@ useEffect(() => {
           localStorage.setItem('seenNoticesCount', newCount.toString());
       }
   }, [activePage, notices, readCount]);
+
+  // ✅ 7. PUSH NOTIFICATION SETUP (Get Token & Save to DB)
+  useEffect(() => {
+      const registerPushNotifications = async () => {
+          // Only run on Android/iOS (Native Devices)
+          if (Capacitor.isNativePlatform()) {
+              
+              // 1. Request Permission
+              let permStatus = await PushNotifications.checkPermissions();
+              if (permStatus.receive === 'prompt') {
+                  permStatus = await PushNotifications.requestPermissions();
+              }
+
+              if (permStatus.receive !== 'granted') {
+                  console.error('User denied permissions!');
+                  return;
+              }
+
+              // 2. Register with FCM
+              await PushNotifications.register();
+
+              // 3. Listen for the Token (The "Address" of this phone)
+              PushNotifications.addListener('registration', async (token) => {
+                  console.log('Push Token:', token.value);
+                  
+                  // 4. Save Token to Firestore (So Backend can find it)
+                  if (user?.uid) {
+                      const userRef = doc(db, 'users', user.uid);
+                      // We use merge to avoid overwriting other data
+                      await updateDoc(userRef, { fcmToken: token.value }); 
+                  }
+              });
+
+              // 4. Handle Errors
+              PushNotifications.addListener('registrationError', (error) => {
+                  console.error('Error on registration: ' + JSON.stringify(error));
+              });
+
+              // 5. Handle Incoming Notification (While App is Open)
+              PushNotifications.addListener('pushNotificationReceived', (notification) => {
+                  toast(notification.title + ": " + notification.body, { 
+                      icon: '🔔', 
+                      duration: 5000,
+                      style: { background: '#3b82f6', color: '#fff' }
+                  });
+              });
+
+              // 6. Handle Notification Tap (When user clicks the notification)
+              PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
+                  // Navigate to dashboard or specific page
+                  setActivePage('dashboard');
+              });
+          }
+      };
+
+      if (user?.uid) {
+          registerPushNotifications();
+      }
+      
+      // Cleanup listeners on unmount
+      return () => {
+          if (Capacitor.isNativePlatform()) {
+              PushNotifications.removeAllListeners();
+          }
+      };
+  }, [user]);
 
   const badgeCount = Math.max(0, notices.length - readCount);
   const handleLogout = async () => { await signOut(auth);  };
