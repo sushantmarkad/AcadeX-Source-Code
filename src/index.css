@@ -61,10 +61,10 @@ code {
 
 /* Forces the header to push content down below the notch */
 .mobile-header {
-  padding-top: max(10px, var(--sat)) !important;
+  padding-top: max(20px, var(--sat)) !important;
 }
 
 /* Ensures Sidebar (if visible) also respects the top notch */
 .sidebar {
-  padding-top: max(20px, var(--sat)) !important;
+  padding-top: max(30px, var(--sat)) !important;
 }
