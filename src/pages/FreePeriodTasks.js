@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import ReactDOM from 'react-dom'; 
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { db, auth } from '../firebase';
 import { collection, query, where, onSnapshot, doc, updateDoc, increment } from 'firebase/firestore';
 import './Dashboard.css';
 
-// ✅ Import Modals
+// Import Modals
 import ResumeBuilderModal from '../components/ResumeBuilderModal';
 import CodingChallengeModal from '../components/CodingChallengeModal';
 import TypingTestModal from '../components/TypingTestModal';
@@ -14,7 +15,6 @@ import FreePeriodQuiz from '../components/FreePeriodQuiz';
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
-// Updated Activities List with new Types
 const ALL_ACTIVITIES = [
     { id: 1, title: 'Daily Coding Challenge', type: 'Coding', xp: 50, color: '#6366f1', icon: 'fa-laptop-code', tags: ['coding', 'tech'] },
     { id: 2, title: 'Speed Typing Test', type: 'Typing', xp: 20, color: '#f59e0b', icon: 'fa-keyboard', tags: ['productivity', 'universal'] },
@@ -51,22 +51,39 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
     useEffect(() => { if (user?.xp !== undefined) setCredits(user.xp); }, [user?.xp]);
     const cgpaBoost = (credits / 5000).toFixed(2);
 
-    // --- FETCH ASSIGNMENTS ---
+    // --- FETCH ASSIGNMENTS (Fixed: No Double Toasts) ---
     useEffect(() => {
         const fetchAssignments = async () => {
             if (!user) return;
+            
+            // ✅ FIX: Use a unique ID so it doesn't duplicate
+            const toastId = 'fetch-assignments-toast';
+            toast.loading("Fetching Assignments...", { id: toastId });
+            
             try {
                 const res = await fetch(`${BACKEND_URL}/getAssignments`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ department: user.department, year: user.year || 'All' })
                 });
+                
                 const data = await res.json();
                 setAssignments(data.tasks || []);
-            } catch (err) { console.error(err); }
+                
+                // Dismiss ONLY this specific toast
+                toast.dismiss(toastId);
+                
+            } catch (err) { 
+                console.error(err);
+                toast.error("Failed to load assignments", { id: toastId });
+            }
         };
-        fetchAssignments();
-    }, [user]);
+        
+        // Prevent re-fetching if we already have data (Optional optimization)
+        if (assignments.length === 0) {
+            fetchAssignments();
+        }
+    }, [user]); // Removed 'assignments.length' dependency to allow refresh on user change
 
     useEffect(() => {
         if (!auth.currentUser) return;
@@ -97,7 +114,6 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
     const startTask = (task) => {
         if (task.title === 'Update Resume') { setIsResumeModalOpen(true); return; }
         
-        // Open appropriate modal based on type
         if (task.type === 'Coding') setShowCodingModal(true);
         else if (task.type === 'Typing') setShowTypingModal(true);
         else if (task.type === 'FlashCard') setShowFlashCardModal(true);
@@ -119,7 +135,11 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
     const handleSubmitFile = async () => {
         if (!file || !submitModal.taskId) return toast.error("Please select a file.");
         setUploading(true);
-        const toastId = toast.loading("Uploading...");
+        
+        // ✅ Unique ID for upload toast
+        const toastId = 'upload-toast'; 
+        toast.loading("Uploading...", { id: toastId });
+
         try {
             const formData = new FormData();
             formData.append('document', file); 
@@ -136,9 +156,13 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
                 ...prev,
                 [submitModal.taskId]: { status: 'Pending', submittedAt: new Date(), documentUrl: URL.createObjectURL(file) } 
             }));
-            setSubmitModal({ open: false, taskId: null }); setFile(null);
-        } catch (error) { toast.error("Error submitting", { id: toastId }); } 
-        finally { setUploading(false); }
+            setSubmitModal({ open: false, taskId: null }); 
+            setFile(null);
+        } catch (error) { 
+            toast.error("Error submitting", { id: toastId }); 
+        } finally { 
+            setUploading(false); 
+        }
     };
 
     return (
@@ -201,7 +225,6 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
             {/* TAB 2: QUICK PICKS */}
             {activeTab === 'gamified' && (
                 <div>
-                    {/* Free Period Quiz Component */}
                     <FreePeriodQuiz user={user} isFree={isFreePeriod} />
 
                     <h3 className="section-heading" style={{marginTop:'20px'}}>Quick Picks</h3>
@@ -223,18 +246,83 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
                 </div>
             )}
 
-            {/* --- MODALS --- */}
-            {submitModal.open && (
-                <div className="custom-modal-overlay">
-                    <div className="custom-modal-box glass-modal">
-                        <h3>Submit Assignment</h3>
-                        <input type="file" onChange={(e) => setFile(e.target.files[0])} />
-                        <div className="modal-actions" style={{marginTop:'20px'}}>
-                            <button onClick={() => setSubmitModal({ open: false, taskId: null })}>Cancel</button>
-                            <button className="btn-primary" onClick={handleSubmitFile} disabled={uploading}>{uploading ? '...' : 'Submit'}</button>
+            {/* --- MODALS (Uses Portal) --- */}
+            {submitModal.open && ReactDOM.createPortal(
+                <div className="custom-modal-overlay" style={{ 
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
+                    backgroundColor: 'rgba(0, 0, 0, 0.7)', zIndex: 99999, 
+                    display: 'flex', justifyContent: 'center', alignItems: 'center',
+                    backdropFilter: 'blur(5px)'
+                }}>
+                    <div className="custom-modal-box glass-modal" style={{ maxWidth: '500px', width: '90%', padding: '30px' }}>
+                        <h3 style={{ marginBottom: '20px', color: '#1e293b', textAlign: 'center', fontSize: '20px' }}>
+                            Submit Assignment
+                        </h3>
+                        
+                        <div style={{ 
+                            border: '2px dashed #cbd5e1', 
+                            borderRadius: '16px', 
+                            padding: '40px 20px', 
+                            textAlign: 'center',
+                            backgroundColor: '#f8fafc',
+                            cursor: 'pointer',
+                            position: 'relative',
+                            transition: 'all 0.2s'
+                        }}>
+                            <input 
+                                type="file" 
+                                onChange={(e) => setFile(e.target.files[0])} 
+                                style={{ 
+                                    opacity: 0, 
+                                    position: 'absolute', 
+                                    top: 0, left: 0, right: 0, bottom: 0, 
+                                    width: '100%', height: '100%', 
+                                    cursor: 'pointer' 
+                                }} 
+                            />
+                            <div style={{ pointerEvents: 'none' }}>
+                                <div style={{ 
+                                    width: '50px', height: '50px', background: '#eff6ff', 
+                                    borderRadius: '50%', display: 'flex', alignItems: 'center', 
+                                    justifyContent: 'center', margin: '0 auto 15px auto' 
+                                }}>
+                                    <i className="fas fa-cloud-upload-alt" style={{ fontSize: '24px', color: '#3b82f6' }}></i>
+                                </div>
+                                
+                                {file ? (
+                                    <div>
+                                        <p style={{ margin: 0, fontWeight: 'bold', color: '#059669', fontSize: '16px' }}>{file.name}</p>
+                                        <p style={{ margin: '5px 0 0 0', fontSize: '13px', color: '#64748b' }}>{(file.size / 1024 / 1024).toFixed(2)} MB</p>
+                                    </div>
+                                ) : (
+                                    <div>
+                                        <p style={{ margin: 0, fontWeight: '600', color: '#475569', fontSize: '16px' }}>Click to Upload File</p>
+                                        <p style={{ margin: '8px 0 0 0', fontSize: '13px', color: '#94a3b8' }}>PDF, Word, or Images allowed</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="modal-actions" style={{ marginTop: '25px', display: 'flex', gap: '15px' }}>
+                            <button 
+                                onClick={() => { setSubmitModal({ open: false, taskId: null }); setFile(null); }} 
+                                className="btn-ghost"
+                                style={{ flex: 1, padding: '12px', justifyContent: 'center', border: '1px solid #e2e8f0', cursor: 'pointer' }}
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                className="btn-primary" 
+                                onClick={handleSubmitFile} 
+                                disabled={uploading}
+                                style={{ flex: 1, padding: '12px', justifyContent: 'center', opacity: uploading ? 0.7 : 1, cursor: 'pointer' }}
+                            >
+                                {uploading ? <><i className="fas fa-spinner fa-spin"></i> Uploading...</> : 'Submit Assignment'}
+                            </button>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
             <ResumeBuilderModal isOpen={isResumeModalOpen} onClose={() => setIsResumeModalOpen(false)} user={user} />

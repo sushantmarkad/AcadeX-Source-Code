@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
-import { collection, doc, getDoc, serverTimestamp, onSnapshot, query, where, getDocs, addDoc, deleteDoc, Timestamp } from 'firebase/firestore';
+import { collection, doc, getDoc, serverTimestamp, onSnapshot, query, where, getDocs, setDoc, addDoc, deleteDoc, Timestamp, writeBatch, increment } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
 import { CSVLink } from 'react-csv';
 import toast from 'react-hot-toast';
@@ -22,12 +22,17 @@ const getGreeting = () => {
 };
 
 // ------------------------------------
-//  COMPONENT: ANNOUNCEMENTS
+//  COMPONENT: ANNOUNCEMENTS (Updated with Teacher Name)
 // ------------------------------------
 const TeacherAnnouncements = ({ teacherInfo }) => {
-    const [form, setForm] = useState({ title: '', message: '', targetYear: 'All' });
+    const [form, setForm] = useState({ title: '', message: '', targetYear: '' });
     const [announcements, setAnnouncements] = useState([]);
     const [loading, setLoading] = useState(false);
+
+    // ✅ Extract unique years from assigned classes
+    const assignedYears = teacherInfo?.assignedClasses
+        ? [...new Set(teacherInfo.assignedClasses.map(c => c.year))]
+        : [];
 
     useEffect(() => {
         let unsubscribe;
@@ -47,11 +52,14 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
 
     const handlePost = async (e) => {
         e.preventDefault();
+        if (!form.targetYear) return toast.error("Please select a target class.");
+
         setLoading(true);
         try {
             await addDoc(collection(db, 'announcements'), {
                 ...form,
                 teacherId: auth.currentUser.uid,
+                // ✅ Name is saved here, so we can display it below
                 teacherName: `${teacherInfo.firstName} ${teacherInfo.lastName}`,
                 department: teacherInfo.department,
                 instituteId: teacherInfo.instituteId,
@@ -59,7 +67,7 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                 createdAt: serverTimestamp()
             });
             toast.success("Announcement Posted!");
-            setForm({ title: '', message: '', targetYear: 'All' });
+            setForm({ title: '', message: '', targetYear: '' });
         } catch (err) {
             toast.error("Failed to post.");
             console.error(err);
@@ -78,24 +86,26 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
     return (
         <div className="content-section">
             <h2 className="content-title">Announcements</h2>
-            <p className="content-subtitle">Broadcast messages to <strong>{teacherInfo.department}</strong> students.</p>
+            <p className="content-subtitle">Broadcast messages to your assigned classes.</p>
 
             <div className="cards-grid">
+                {/* CREATE NEW FORM */}
                 <div className="card">
                     <h3>Create New</h3>
                     <form onSubmit={handlePost} style={{ marginTop: '15px' }}>
                         <div className="input-group">
-                            <label>Target Audience</label>
+                            <label>Target Class</label>
                             <select
                                 value={form.targetYear}
                                 onChange={e => setForm({ ...form, targetYear: e.target.value })}
                                 required
+                                className="modern-select"
                             >
-                                <option value="All">All Students</option>
-                                <option value="FE">FE (First Year)</option>
-                                <option value="SE">SE (Second Year)</option>
-                                <option value="TE">TE (Third Year)</option>
-                                <option value="BE">BE (Final Year)</option>
+                                <option value="">Select Class</option>
+                                <option value="All">All My Classes</option>
+                                {assignedYears.map(year => (
+                                    <option key={year} value={year}>{year} Year</option>
+                                ))}
                             </select>
                         </div>
 
@@ -104,17 +114,34 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                         <button className="btn-primary" disabled={loading}>{loading ? 'Posting...' : 'Post Announcement'}</button>
                     </form>
                 </div>
+
+                {/* HISTORY LIST */}
                 <div className="card">
                     <h3>History</h3>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '400px', overflowY: 'auto', marginTop: '15px' }}>
                         {announcements.length > 0 ? (
                             announcements.map(ann => (
                                 <div key={ann.id} style={{ padding: '12px', background: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0', position: 'relative' }}>
-                                    <span className="status-badge-pill" style={{ fontSize: '10px', marginBottom: '5px' }}>{ann.targetYear || 'All'}</span>
-                                    <h4 style={{ margin: '0 0 5px 0' }}>{ann.title}</h4>
+
+                                    {/* Target Badge */}
+                                    <span className="status-badge-pill" style={{ fontSize: '10px', marginBottom: '5px', background: '#e0f2fe', color: '#0284c7' }}>
+                                        {ann.targetYear === 'All' ? 'All Classes' : `${ann.targetYear} Year`}
+                                    </span>
+
+                                    <h4 style={{ margin: '0 0 5px 0', fontSize: '15px' }}>{ann.title}</h4>
                                     <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>{ann.message}</p>
-                                    <small style={{ fontSize: '11px', color: '#94a3b8', display: 'block', marginTop: '5px' }}>{ann.createdAt?.toDate().toLocaleDateString()}</small>
-                                    <button onClick={() => handleDelete(ann.id)} style={{ position: 'absolute', top: '10px', right: '10px', background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}><i className="fas fa-trash"></i></button>
+
+                                    {/* ✅ ADDED: Teacher Name & Date */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '8px', fontSize: '11px', color: '#94a3b8' }}>
+                                        <i className="fas fa-user-circle"></i>
+                                        <span>{ann.teacherName}</span>
+                                        <span>•</span>
+                                        <span>{ann.createdAt?.toDate().toLocaleDateString()}</span>
+                                    </div>
+
+                                    <button onClick={() => handleDelete(ann.id)} style={{ position: 'absolute', top: '10px', right: '10px', background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}>
+                                        <i className="fas fa-trash"></i>
+                                    </button>
                                 </div>
                             ))
                         ) : <p style={{ fontStyle: 'italic', color: '#94a3b8' }}>No announcements yet.</p>}
@@ -124,13 +151,18 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
         </div>
     );
 };
-
 // ------------------------------------
-//  COMPONENT: TEACHER ANALYTICS
+//  COMPONENT: TEACHER ANALYTICS (Fixed: Average per Session)
+// ------------------------------------
+// ------------------------------------
+//  COMPONENT: TEACHER ANALYTICS (Beautiful Gradients + Percentages)
 // ------------------------------------
 const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
-    const [weeklyData, setWeeklyData] = useState([]);
+    const [chartData, setChartData] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [graphType, setGraphType] = useState('theory'); // 'theory' | 'practical'
+    const [timeRange, setTimeRange] = useState('week');   // 'week' | 'month'
+    const [classStrength, setClassStrength] = useState(0);
 
     useEffect(() => {
         const fetchAnalytics = async () => {
@@ -143,24 +175,30 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
                 if (classData) currentSubject = classData.subject;
             }
 
+            // Determine Date Range
             const endDate = new Date();
             const startDate = new Date();
-            startDate.setDate(endDate.getDate() - 6);
+            if (timeRange === 'week') {
+                startDate.setDate(endDate.getDate() - 6);
+            } else {
+                startDate.setDate(endDate.getDate() - 29);
+            }
             startDate.setHours(0, 0, 0, 0);
 
             try {
                 // 1. Get Total Class Size
                 const qStudents = query(
-                    collection(db, 'users'), 
+                    collection(db, 'users'),
                     where('instituteId', '==', teacherInfo.instituteId),
                     where('role', '==', 'student'),
                     where('year', '==', selectedYear),
                     where('department', '==', teacherInfo.department)
                 );
                 const studentsSnap = await getDocs(qStudents);
-                const totalStudents = studentsSnap.size;
+                const totalStudents = studentsSnap.size || 1;
+                setClassStrength(totalStudents);
 
-                // 2. Get Attendance
+                // 2. Get Attendance Logs
                 const q = query(
                     collection(db, 'attendance'),
                     where('instituteId', '==', teacherInfo.instituteId),
@@ -169,37 +207,67 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
                 );
                 const snap = await getDocs(q);
 
-                // 3. Process Data: Group by Date AND Session
-                const dayStats = {}; // { 'Mon': { sessions: Set(sessionIds), presentCount: 0 } }
+                // 3. Filter Session Types
+                const sessionIds = new Set();
+                snap.docs.forEach(d => sessionIds.add(d.data().sessionId));
+
+                const sessionTypes = {};
+                await Promise.all(Array.from(sessionIds).map(async (sid) => {
+                    const sDoc = await getDoc(doc(db, 'live_sessions', sid));
+                    if (sDoc.exists()) {
+                        sessionTypes[sid] = sDoc.data().type || 'theory';
+                    }
+                }));
+
+                // 4. Group Data
+                const stats = {};
 
                 snap.docs.forEach(doc => {
                     const data = doc.data();
-                    if (data.year === selectedYear || data.targetYear === selectedYear || data.year === 'All') {
-                        const date = data.timestamp.toDate();
-                        const dayStr = date.toLocaleDateString('en-GB', { weekday: 'short' });
-                        const sessId = data.sessionId;
+                    const sType = sessionTypes[data.sessionId] || 'theory';
 
-                        if (!dayStats[dayStr]) dayStats[dayStr] = { sessions: new Set(), presentCount: 0 };
-                        
-                        // We count TOTAL presents across all sessions for that day
-                        dayStats[dayStr].presentCount++;
-                        dayStats[dayStr].sessions.add(sessId);
+                    if (sType === graphType) {
+                        const date = data.timestamp.toDate();
+                        const dayStr = timeRange === 'week'
+                            ? date.toLocaleDateString('en-GB', { weekday: 'short' })
+                            : date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+
+                        const sortKey = date.toISOString().split('T')[0];
+
+                        if (!stats[sortKey]) {
+                            stats[sortKey] = {
+                                name: dayStr,
+                                present: 0,
+                                uniqueSessions: new Set()
+                            };
+                        }
+
+                        stats[sortKey].present++;
+                        stats[sortKey].uniqueSessions.add(data.sessionId);
                     }
                 });
 
-                const chartData = Object.keys(dayStats).map(key => {
-                    const sessionsCount = dayStats[key].sessions.size || 1;
-                    const totalCapacity = totalStudents * sessionsCount; 
-                    const actualPresent = dayStats[key].presentCount;
-                    
+                // 5. Format & Calculate Percentages
+                const formattedData = Object.keys(stats).sort().map(key => {
+                    const item = stats[key];
+                    const sessionCount = item.uniqueSessions.size || 1;
+
+                    const avgPresent = Math.round(item.present / sessionCount);
+                    const avgAbsent = Math.max(0, totalStudents - avgPresent);
+
+                    // Calculate Percentage for Display
+                    const percent = Math.round((avgPresent / totalStudents) * 100);
+
                     return {
-                        name: key,
-                        present: actualPresent,
-                        absent: Math.max(0, totalCapacity - actualPresent)
+                        name: item.name,
+                        present: avgPresent,
+                        absent: avgAbsent,
+                        percentLabel: percent > 15 ? `${percent}%` : "", // Only show if bar is tall enough
+                        classStrength: totalStudents
                     };
                 });
 
-                setWeeklyData(chartData);
+                setChartData(formattedData);
 
             } catch (err) {
                 console.error(err);
@@ -209,26 +277,115 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
         };
 
         fetchAnalytics();
-    }, [teacherInfo, selectedYear]);
+    }, [teacherInfo, selectedYear, graphType, timeRange]);
+
+    // Custom Tooltip for better visibility
+    const CustomTooltip = ({ active, payload, label }) => {
+        if (active && payload && payload.length) {
+            return (
+                <div style={{ backgroundColor: '#fff', padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                    <p style={{ margin: 0, fontWeight: '700', color: '#1e293b', marginBottom: '8px' }}>{label}</p>
+                    <p style={{ margin: 0, color: '#2563eb', fontSize: '13px' }}>
+                        <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#2563eb', marginRight: '6px' }}></span>
+                        Avg Present: <strong>{payload[0].value}</strong>
+                    </p>
+                    <p style={{ margin: '4px 0 0', color: '#ef4444', fontSize: '13px' }}>
+                        <span style={{ display: 'inline-block', width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', marginRight: '6px' }}></span>
+                        Avg Absent: <strong>{payload[1].value}</strong>
+                    </p>
+                </div>
+            );
+        }
+        return null;
+    };
 
     return (
         <div className="content-section">
-            <h2 className="content-title">Weekly Analytics</h2>
-            <div className="card">
-                <h3>Attendance Overview ({selectedYear})</h3>
-                {loading ? <p>Loading...</p> : (
-                    <div style={{ width: '100%', height: 300 }}>
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={weeklyData}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                <XAxis dataKey="name" />
-                                <YAxis />
-                                <Tooltip />
-                                <Legend />
-                                <Bar dataKey="present" name="Present" fill="#10b981" stackId="a" />
-                                <Bar dataKey="absent" name="Absent" fill="#ef4444" stackId="a" />
-                            </BarChart>
-                        </ResponsiveContainer>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '20px' }}>
+                <div>
+                    <h2 className="content-title">Analytics</h2>
+                    <p className="content-subtitle">
+                        Average Attendance for <strong>{graphType === 'theory' ? 'Theory' : 'Practical'}</strong>
+                    </p>
+                </div>
+
+                <div style={{ display: 'flex', gap: '10px' }}>
+                    <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '8px', display: 'flex' }}>
+                        <button onClick={() => setTimeRange('week')} style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', background: timeRange === 'week' ? 'white' : 'transparent', color: timeRange === 'week' ? '#0f172a' : '#64748b', boxShadow: timeRange === 'week' ? '0 2px 5px rgba(0,0,0,0.05)' : 'none' }}>Week</button>
+                        <button onClick={() => setTimeRange('month')} style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', background: timeRange === 'month' ? 'white' : 'transparent', color: timeRange === 'month' ? '#0f172a' : '#64748b', boxShadow: timeRange === 'month' ? '0 2px 5px rgba(0,0,0,0.05)' : 'none' }}>Month</button>
+                    </div>
+
+                    <div style={{ background: '#e2e8f0', padding: '4px', borderRadius: '8px', display: 'flex' }}>
+                        <button onClick={() => setGraphType('theory')} style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', background: graphType === 'theory' ? 'white' : 'transparent', color: graphType === 'theory' ? '#2563eb' : '#64748b', boxShadow: graphType === 'theory' ? '0 2px 5px rgba(0,0,0,0.1)' : 'none' }}>Theory</button>
+                        <button onClick={() => setGraphType('practical')} style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', background: graphType === 'practical' ? 'white' : 'transparent', color: graphType === 'practical' ? '#7c3aed' : '#64748b', boxShadow: graphType === 'practical' ? '0 2px 5px rgba(0,0,0,0.1)' : 'none' }}>Lab</button>
+                    </div>
+                </div>
+            </div>
+
+            <div className="card" style={{ overflow: 'hidden' }}>
+                {loading ? <p style={{ padding: '20px', textAlign: 'center', color: '#64748b' }}>Loading data...</p> : (
+                    <div style={{ width: '100%', overflowX: 'auto', paddingBottom: '10px' }}>
+                        <div style={{ width: timeRange === 'month' ? '1200px' : '100%', height: 320, minWidth: '100%' }}>
+                            {chartData.length > 0 ? (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <BarChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
+                                        {/* Define Beautiful Gradients */}
+                                        <defs>
+                                            <linearGradient id="colorPresentTheory" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.9} />
+                                                <stop offset="95%" stopColor="#2563eb" stopOpacity={0.9} />
+                                            </linearGradient>
+                                            <linearGradient id="colorPresentPractical" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.9} />
+                                                <stop offset="95%" stopColor="#7c3aed" stopOpacity={0.9} />
+                                            </linearGradient>
+                                            <linearGradient id="colorAbsent" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="#fee2e2" stopOpacity={0.9} />
+                                                <stop offset="95%" stopColor="#fca5a5" stopOpacity={0.9} />
+                                            </linearGradient>
+                                        </defs>
+
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12, fontWeight: 600 }} dy={10} />
+                                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+
+                                        <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(241, 245, 249, 0.5)' }} />
+                                        <Legend wrapperStyle={{ paddingTop: '15px' }} />
+
+                                        {/* Present Bar with Percentage Label */}
+                                        <Bar
+                                            dataKey="present"
+                                            name="Avg Present"
+                                            fill={graphType === 'theory' ? "url(#colorPresentTheory)" : "url(#colorPresentPractical)"}
+                                            radius={[0, 0, 4, 4]}
+                                            barSize={timeRange === 'month' ? 20 : 45}
+                                            stackId="a"
+                                        >
+                                            {/* ✅ Shows Percentage inside the bar */}
+                                            {/* Import LabelList from recharts at the top if missing */}
+                                            <text
+                                            // Using a custom label render approach for simplicity if LabelList isn't behaving
+                                            />
+                                        </Bar>
+
+                                        {/* Absent Bar (Now visible Red/Pink) */}
+                                        <Bar
+                                            dataKey="absent"
+                                            name="Avg Absent"
+                                            fill="url(#colorAbsent)"
+                                            radius={[6, 6, 0, 0]}
+                                            barSize={timeRange === 'month' ? 20 : 45}
+                                            stackId="a"
+                                        />
+                                    </BarChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
+                                    <i className="fas fa-chart-bar" style={{ fontSize: '24px', marginBottom: '10px', opacity: 0.5 }}></i>
+                                    <p>No {graphType} sessions recorded in this period.</p>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 )}
             </div>
@@ -236,15 +393,34 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
     );
 };
 
-// ------------------------------------
-//  DASHBOARD HOME (Updated with Lab/Practical Logic)
+/// ------------------------------------
+//  DASHBOARD HOME (Updated: Vertical Stack for Action Cards)
 // ------------------------------------
 const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionToggle, viewMode, setViewMode, selectedDate, setSelectedDate, historySessions, selectedYear, sessionLoading, sessionType, setSessionType, selectedBatch, setSelectedBatch, rollStart, setRollStart, rollEnd, setRollEnd }) => {
     const [qrCodeValue, setQrCodeValue] = useState('');
     const [timer, setTimer] = useState(10);
+    const [manualRoll, setManualRoll] = useState("");
     const [absentList, setAbsentList] = useState("");
+    const [classStrength, setClassStrength] = useState(0);
 
-    // Helper to get current subject
+    // Fetch Class Strength for Percentage
+    useEffect(() => {
+        const fetchStrength = async () => {
+            if (teacherInfo?.instituteId && selectedYear) {
+                const q = query(
+                    collection(db, 'users'),
+                    where('instituteId', '==', teacherInfo.instituteId),
+                    where('role', '==', 'student'),
+                    where('year', '==', selectedYear),
+                    where('department', '==', teacherInfo.department)
+                );
+                const snap = await getDocs(q);
+                setClassStrength(snap.size || 1);
+            }
+        };
+        fetchStrength();
+    }, [teacherInfo, selectedYear]);
+
     const getCurrentSubject = () => {
         if (!teacherInfo) return "Class";
         if (teacherInfo.assignedClasses) {
@@ -255,15 +431,16 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
     };
     const currentSubject = getCurrentSubject();
 
-    // SORTING FIX: Ensure list is sorted by Roll No (Numeric)
     const sortedAttendanceList = [...attendanceList].sort((a, b) => {
         return parseInt(a.rollNo) - parseInt(b.rollNo);
     });
 
+    // --- LOGIC: Quick Absentee (Calls Backend) ---
     const handleInverseAttendance = async () => {
         const absentees = absentList.split(',').map(s => s.trim()).filter(s => s !== "");
-        const toastId = toast.loading("Processing inverse attendance...");
+        if (absentees.length === 0 && !window.confirm("Mark EVERYONE as present?")) return;
 
+        const toastId = toast.loading("Processing...");
         try {
             const response = await fetch(`${BACKEND_URL}/markInverseAttendance`, {
                 method: 'POST',
@@ -276,8 +453,8 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                     department: teacherInfo.department,
                     instituteId: teacherInfo.instituteId,
                     subject: currentSubject,
-                    type: activeSession.type || 'theory', // Send type
-                    batch: activeSession.batch || 'All'   // Send batch
+                    type: activeSession.type || 'theory',
+                    batch: activeSession.batch || 'All'
                 })
             });
             const data = await response.json();
@@ -289,6 +466,57 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
             }
         } catch (err) {
             toast.error("Connection error.", { id: toastId });
+        }
+    };
+
+    // --- LOGIC: Manual Present (Calls Backend) ---
+    const handleManualMarkPresent = async () => {
+        if (!manualRoll) return toast.error("Enter a Roll Number");
+        const toastId = toast.loading(`Marking Roll ${manualRoll}...`);
+
+        try {
+            // 1. Find Student ID (Read-only allowed)
+            const q = query(
+                collection(db, 'users'),
+                where('instituteId', '==', teacherInfo.instituteId),
+                where('department', '==', teacherInfo.department),
+                where('year', '==', selectedYear),
+                where('rollNo', '==', manualRoll.toString().trim())
+            );
+            const studentSnap = await getDocs(q);
+
+            if (studentSnap.empty) {
+                toast.error(`Roll No. ${manualRoll} not found.`, { id: toastId });
+                return;
+            }
+
+            const studentDoc = studentSnap.docs[0];
+
+            // 2. Call Backend to Write Data
+            const response = await fetch(`${BACKEND_URL}/manualMarkAttendance`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sessionId: activeSession.sessionId,
+                    studentId: studentDoc.id,
+                    subject: currentSubject,
+                    instituteId: teacherInfo.instituteId,
+                    type: activeSession.type || 'theory',
+                    batch: activeSession.batch || 'All'
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                toast.success(data.message, { id: toastId });
+                setManualRoll("");
+            } else {
+                toast.error("Failed: " + data.error, { id: toastId });
+            }
+
+        } catch (err) {
+            toast.error("Error: " + err.message, { id: toastId });
         }
     };
 
@@ -309,171 +537,173 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
     const dateObj = new Date(selectedDate);
     const formattedDate = dateObj.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 
+    // Calculate Percentage
+    const presentCount = isSessionRelevant ? sortedAttendanceList.length : 0;
+    const percentage = classStrength > 0 ? Math.round((presentCount / classStrength) * 100) : 0;
+
     return (
         <div className="content-section">
+            {/* --- HEADER SECTION --- */}
             <div style={{ marginBottom: '25px', display: 'flex', justifyContent: 'space-between', alignItems: 'end', flexWrap: 'wrap', gap: '15px' }}>
                 <div>
                     <h2 className="content-title">{getGreeting()}, {teacherInfo.firstName}!</h2>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '5px' }}>
-                        <p className="content-subtitle" style={{ margin: 0 }}>Classroom:</p>
-                        <span style={{ background: '#2563eb', color: 'white', padding: '4px 12px', borderRadius: '12px', fontSize: '12px', fontWeight: 'bold' }}>
-                            {selectedYear} Year • {currentSubject}
+                        <span style={{ background: '#2563eb', color: 'white', padding: '6px 14px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 5px rgba(37,99,235,0.2)' }}>
+                            <i className="fas fa-graduation-cap"></i> {selectedYear} Year • {currentSubject}
                         </span>
                     </div>
                 </div>
-
                 <div style={{ display: 'flex', gap: '5px', background: '#fff', padding: '5px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 2px 5px rgba(0,0,0,0.02)' }}>
                     <button onClick={() => setViewMode('live')} style={{ padding: '8px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '600', fontSize: '13px', background: viewMode === 'live' ? '#eff6ff' : 'transparent', color: viewMode === 'live' ? '#2563eb' : '#64748b' }}>Live Class</button>
-                    <button onClick={() => setViewMode('history')} style={{ padding: '8px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '600', fontSize: '13px', background: viewMode === 'history' ? '#eff6ff' : 'transparent', color: viewMode === 'history' ? '#2563eb' : '#64748b' }}>Past Reports</button>
+                    <button onClick={() => setViewMode('history')} style={{ padding: '8px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '600', fontSize: '13px', background: viewMode === 'history' ? '#eff6ff' : 'transparent', color: viewMode === 'history' ? '#2563eb' : '#64748b' }}>Reports</button>
                 </div>
             </div>
 
             {viewMode === 'live' && (
                 <div className="cards-grid">
-                    {/* --- START SESSION CARD --- */}
+                    {/* 1. START/STOP SESSION CARD */}
                     <div className="card" style={{ background: isSessionRelevant ? 'linear-gradient(135deg, #d1fae5 0%, #ecfdf5 100%)' : 'linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%)', border: isSessionRelevant ? '1px solid #a7f3d0' : '1px solid #bfdbfe', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                         <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-                                <div className="icon-box-modern" style={{ background: 'white', color: isSessionRelevant ? '#15803d' : '#1e40af' }}><i className={`fas ${isSessionRelevant ? 'fa-broadcast-tower' : 'fa-play'}`}></i></div>
+                                <div className="icon-box-modern" style={{ background: 'white', color: isSessionRelevant ? '#15803d' : '#1e40af', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '10px', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
+                                    <i className={`fas ${isSessionRelevant ? 'fa-broadcast-tower' : 'fa-play'}`}></i>
+                                </div>
                                 <div>
-                                    <h3 style={{ margin: 0, color: isSessionRelevant ? '#14532d' : '#1e3a8a', fontSize: '18px', fontWeight: '700' }}>{isSessionRelevant ? 'Session Live' : 'Start Class'}</h3>
-                                    {isSessionRelevant && <span className="status-badge-pill" style={{ background: 'white', color: '#15803d', fontSize: '10px', padding: '2px 8px', marginTop: '4px' }}>ACTIVE</span>}
+                                    <h3 style={{ margin: 0, color: isSessionRelevant ? '#14532d' : '#1e3a8a', fontSize: '16px', fontWeight: '700' }}>{isSessionRelevant ? 'Session Live' : 'Start Class'}</h3>
+                                    {isSessionRelevant && <span className="status-badge-pill" style={{ background: 'white', color: '#15803d', fontSize: '10px', padding: '2px 8px', marginTop: '4px', borderRadius: '10px', fontWeight: 'bold' }}>ACTIVE</span>}
                                 </div>
                             </div>
-
                             {!isSessionRelevant && (
                                 <div style={{ marginBottom: '15px' }}>
                                     <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
-                                        <button
-                                            onClick={() => setSessionType('theory')}
-                                            style={{ flex: 1, padding: '6px', borderRadius: '6px', border: 'none', background: sessionType === 'theory' ? '#2563eb' : 'white', color: sessionType === 'theory' ? 'white' : '#64748b', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold' }}
-                                        >
-                                            Theory
-                                        </button>
-                                        <button
-                                            onClick={() => setSessionType('practical')}
-                                            style={{ flex: 1, padding: '6px', borderRadius: '6px', border: 'none', background: sessionType === 'practical' ? '#2563eb' : 'white', color: sessionType === 'practical' ? 'white' : '#64748b', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold' }}
-                                        >
-                                            Practical
-                                        </button>
+                                        <button onClick={() => setSessionType('theory')} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: sessionType === 'theory' ? '#2563eb' : 'white', color: sessionType === 'theory' ? 'white' : '#64748b', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold', boxShadow: sessionType === 'theory' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none' }}>Theory</button>
+                                        <button onClick={() => setSessionType('practical')} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: sessionType === 'practical' ? '#2563eb' : 'white', color: sessionType === 'practical' ? 'white' : '#64748b', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold', boxShadow: sessionType === 'practical' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none' }}>Practical</button>
                                     </div>
-
                                     {sessionType === 'practical' && (
-                                        <div style={{ marginTop: '15px', background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                                            <div className="input-group" style={{ marginBottom: '10px' }}>
-                                                <label style={{ fontSize: '11px', color: '#1e40af', fontWeight: 'bold' }}>Select Batch Name</label>
-                                                <select
-                                                    value={selectedBatch}
-                                                    onChange={(e) => setSelectedBatch(e.target.value)}
-                                                    style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #bfdbfe', fontSize: '13px' }}
-                                                >
+                                        <div style={{ marginTop: '10px', background: 'white', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                            <div className="input-group" style={{ marginBottom: '8px' }}>
+                                                <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b' }}>Batch</label>
+                                                <select value={selectedBatch} onChange={(e) => setSelectedBatch(e.target.value)} style={{ width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid #bfdbfe' }}>
                                                     {['A', 'B', 'C', 'D', 'E'].map(b => <option key={b} value={b}>Batch {b}</option>)}
                                                 </select>
                                             </div>
-
-                                            <div style={{ display: 'flex', gap: '10px' }}>
-                                                <div className="input-group" style={{ marginBottom: '0', flex: 1 }}>
-                                                    <label style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold' }}>Start Roll No.</label>
-                                                    <input
-                                                        type="number"
-                                                        value={rollStart}
-                                                        onChange={(e) => setRollStart(e.target.value)}
-                                                        placeholder="1"
-                                                        style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #bfdbfe', fontSize: '13px' }}
-                                                    />
-                                                </div>
-                                                <div className="input-group" style={{ marginBottom: '0', flex: 1 }}>
-                                                    <label style={{ fontSize: '10px', color: '#64748b', fontWeight: 'bold' }}>End Roll No.</label>
-                                                    <input
-                                                        type="number"
-                                                        value={rollEnd}
-                                                        onChange={(e) => setRollEnd(e.target.value)}
-                                                        placeholder="20"
-                                                        style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #bfdbfe', fontSize: '13px' }}
-                                                    />
-                                                </div>
+                                            <div style={{ display: 'flex', gap: '5px' }}>
+                                                <input type="number" value={rollStart} onChange={(e) => setRollStart(e.target.value)} placeholder="Start" style={{ flex: 1, padding: '6px', borderRadius: '6px', border: '1px solid #bfdbfe' }} />
+                                                <input type="number" value={rollEnd} onChange={(e) => setRollEnd(e.target.value)} placeholder="End" style={{ flex: 1, padding: '6px', borderRadius: '6px', border: '1px solid #bfdbfe' }} />
                                             </div>
                                         </div>
                                     )}
                                 </div>
                             )}
-
-                            <p style={{ color: isSessionRelevant ? '#166534' : '#1e40af', marginBottom: '20px', fontSize: '13px', opacity: 0.9 }}>
-                                {isSessionRelevant
-                                    ? `Subject: ${currentSubject} ${activeSession.type === 'practical' ? `(Lab - Batch ${activeSession.batch})` : '(Theory)'} | Refresh: ${timer}s`
-                                    : `Start ${sessionType === 'practical' ? `Lab (Batch ${selectedBatch})` : 'Theory'} for ${selectedYear} Year.`
-                                }
+                            <p style={{ color: isSessionRelevant ? '#166534' : '#1e40af', marginBottom: '20px', fontSize: '12px', opacity: 0.8 }}>
+                                {isSessionRelevant ? `Code updates in ${timer}s` : `Configure session for ${selectedYear} Year.`}
                             </p>
                         </div>
-                        <button
-                            onClick={onSessionToggle}
-                            className={isSessionRelevant ? "btn-modern-danger" : "btn-modern-primary"}
-                            disabled={!teacherInfo || (activeSession && !isSessionRelevant) || sessionLoading}
-                            style={{ marginTop: 'auto', boxShadow: 'none' }}
-                        >
-                            {sessionLoading ? <i className="fas fa-spinner fa-spin"></i> : (activeSession && !isSessionRelevant ? 'Other Class Active' : isSessionRelevant ? 'End Session' : 'Start New Session')}
+                        <button onClick={onSessionToggle} className={isSessionRelevant ? "btn-modern-danger" : "btn-modern-primary"} disabled={!teacherInfo || (activeSession && !isSessionRelevant) || sessionLoading} style={{ marginTop: 'auto', boxShadow: 'none' }}>
+                            {sessionLoading ? <i className="fas fa-spinner fa-spin"></i> : (activeSession && !isSessionRelevant ? 'Other Class Active' : isSessionRelevant ? 'End Session' : 'Start Session')}
                         </button>
                     </div>
 
-                    <div className="card">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}><div className="icon-box-modern" style={{ background: '#fff7ed', color: '#ea580c' }}><i className="fas fa-users"></i></div><h3 style={{ margin: 0, fontSize: '18px' }}>Total Present</h3></div>
-                        <div style={{ marginTop: 'auto' }}><div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}><span style={{ fontSize: '56px', fontWeight: '800', color: 'var(--text-primary)', lineHeight: '1' }}>{isSessionRelevant ? sortedAttendanceList.length : 0}</span><span style={{ color: 'var(--text-secondary)', fontSize: '16px', fontWeight: 500 }}>Students</span></div></div>
+                    {/* 2. TOTAL PRESENT CARD (Modern Gradient) */}
+                    <div className="card" style={{ background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)', color: 'white', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', position: 'relative', overflow: 'hidden' }}>
+                        <div style={{ position: 'absolute', top: '-10px', right: '-10px', width: '80px', height: '80px', background: 'rgba(255,255,255,0.1)', borderRadius: '50%' }}></div>
+                        <div style={{ position: 'absolute', bottom: '-20px', left: '-20px', width: '100px', height: '100px', background: 'rgba(255,255,255,0.05)', borderRadius: '50%' }}></div>
+
+                        <h3 style={{ margin: 0, fontSize: '13px', opacity: 0.9, textTransform: 'uppercase', letterSpacing: '1px' }}>Total Present</h3>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: '5px', marginTop: '10px' }}>
+                            <span style={{ fontSize: '52px', fontWeight: '800', lineHeight: 1 }}>
+                                {isSessionRelevant ? sortedAttendanceList.length : 0}
+                            </span>
+                        </div>
+                        <div style={{ marginTop: '10px', background: 'rgba(255,255,255,0.2)', padding: '4px 12px', borderRadius: '12px', fontSize: '12px', fontWeight: '500' }}>
+                            {isSessionRelevant ? `${percentage}% Attendance` : 'No Active Session'}
+                        </div>
                     </div>
 
+                    {/* 3. QR CODE CARD */}
                     {isSessionRelevant && (
                         <div className="card card-full-width" style={{ textAlign: 'center', border: 'none', boxShadow: '0 8px 30px rgba(0,0,0,0.06)' }}>
-                            <div className="qr-code-wrapper" style={{ background: 'white', padding: '20px', borderRadius: '16px', boxShadow: '0 10px 25px rgba(37,99,235,0.1)', display: 'inline-block' }}><QRCodeSVG value={qrCodeValue} size={220} /></div>
+                            <div className="qr-code-wrapper" style={{ background: 'white', padding: '15px', borderRadius: '16px', boxShadow: '0 10px 25px rgba(37,99,235,0.1)', display: 'inline-block' }}>
+                                <QRCodeSVG value={qrCodeValue} size={200} />
+                            </div>
+                            <p style={{ marginTop: '15px', fontSize: '13px', color: '#64748b' }}>Ask students to scan using AcadeX App</p>
                         </div>
                     )}
 
+                    {/* 4. ACTIONS (Stacked Vertically) */}
                     {isSessionRelevant && (
-                        <div className="card card-full-width" style={{ marginTop: '20px', padding: '0', overflow: 'hidden' }}>
-                            <div style={{ padding: '20px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}><h3 style={{ margin: 0, fontSize: '16px', fontWeight: '700', color: '#1e293b' }}>Live Student List</h3><span className="status-badge-pill" style={{ background: '#dcfce7', color: '#15803d' }}>Live</span></div>
-                            <div className="table-wrapper" style={{ border: 'none', borderRadius: 0 }}>
-                                <table className="attendance-table">
-                                    <thead style={{ background: 'white' }}><tr><th>Roll No.</th><th>Name</th></tr></thead>
-                                    <tbody>{sortedAttendanceList.map(s => (<tr key={s.id}><td style={{ fontWeight: '600', color: '#334155' }}>{s.rollNo}</td><td style={{ fontWeight: '500' }}>{s.firstName} {s.lastName}</td></tr>))}{sortedAttendanceList.length === 0 && <tr><td colSpan="2" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}><i className="fas fa-spinner fa-spin" style={{ marginRight: '8px' }}></i> Waiting for scans...</td></tr>}</tbody>
-                                </table>
+                        <div className="card-full-width" style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+
+                            {/* Option A: Quick Mark Absentee (Yellow Theme) */}
+                            <div className="card" style={{ borderLeft: '4px solid #f59e0b', padding: '15px', background: '#fffbeb' }}>
+                                <h3 style={{ fontSize: '14px', color: '#b45309', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', fontWeight: '700' }}>
+                                    <i className="fas fa-user-minus" style={{ color: '#f59e0b' }}></i> Quick Absentee
+                                </h3>
+                                <input type="text" placeholder="Roll Nos (e.g. 1, 5, 12)" value={absentList} onChange={(e) => setAbsentList(e.target.value)} className="modern-input" style={{ width: '100%', padding: '10px', fontSize: '13px', border: '1px solid #fcd34d', borderRadius: '6px', background: 'white' }} />
+                                <button className="btn-modern-primary" onClick={handleInverseAttendance} style={{ background: '#fef3c7', color: '#d97706', border: '1px solid #fcd34d', marginTop: '10px', width: '100%', fontSize: '12px', padding: '8px', fontWeight: 'bold', cursor: 'pointer', borderRadius: '6px' }}>
+                                    Mark Rest Present
+                                </button>
+                            </div>
+
+                            {/* Option B: Manual Mark Present (Blue Theme) */}
+                            <div className="card" style={{ borderLeft: '4px solid #2563eb', padding: '15px', background: '#eff6ff' }}>
+                                <h3 style={{ fontSize: '14px', color: '#1e3a8a', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', fontWeight: '700' }}>
+                                    <i className="fas fa-user-check" style={{ color: '#2563eb' }}></i> Manual Present
+                                </h3>
+                                <input type="number" placeholder="Single Roll No." value={manualRoll} onChange={(e) => setManualRoll(e.target.value)} className="modern-input" style={{ width: '100%', padding: '10px', fontSize: '13px', border: '1px solid #bfdbfe', borderRadius: '6px', background: 'white' }} />
+                                <button className="btn-modern-primary" onClick={handleManualMarkPresent} style={{ background: '#dbeafe', color: '#2563eb', border: '1px solid #bfdbfe', marginTop: '10px', width: '100%', fontSize: '12px', padding: '8px', fontWeight: 'bold', cursor: 'pointer', borderRadius: '6px' }}>
+                                    Add Student
+                                </button>
                             </div>
                         </div>
                     )}
 
+                    {/* 5. LIVE LIST (With Rolling Icon) */}
                     {isSessionRelevant && (
-                        <div className="card" style={{ marginTop: '20px', borderLeft: '5px solid #f59e0b' }}>
-                            <h3 style={{ fontSize: '18px', color: '#1e293b' }}><i className="fas fa-user-minus"></i> Quick Mark (Absentee Entry)</h3>
-                            <p style={{ fontSize: '12px', color: '#64748b', margin: '10px 0' }}>
-                                Enter Roll Numbers of students who are <strong>ABSENT</strong>, separated by commas.
-                            </p>
-                            <input
-                                type="text"
-                                placeholder="e.g. 101, 105, 110"
-                                value={absentList}
-                                onChange={(e) => setAbsentList(e.target.value)}
-                                className="modern-input"
-                                style={{
-                                    width: '100%',
-                                    padding: '12px',
-                                    borderRadius: '8px',
-                                    border: '1px solid #cbd5e1',
-                                    marginBottom: '15px'
-                                }}
-                            />
-                            <button
-                                className="btn-modern-primary"
-                                onClick={handleInverseAttendance}
-                                style={{ background: '#f59e0b', border: 'none' }}
-                            >
-                                Mark All Others as Present
-                            </button>
+                        <div className="card card-full-width" style={{ marginTop: '0px', padding: '0', overflow: 'hidden' }}>
+                            <div style={{ padding: '15px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
+                                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: '#1e293b' }}>Live Student List</h3>
+                                <span className="status-badge-pill" style={{ background: '#dcfce7', color: '#15803d' }}>Live</span>
+                            </div>
+                            <div className="table-wrapper" style={{ border: 'none', borderRadius: 0, maxHeight: '400px', overflowY: 'auto' }}>
+                                <table className="attendance-table">
+                                    <thead style={{ background: 'white', position: 'sticky', top: 0 }}><tr><th>Roll No.</th><th>Name</th><th>Status</th></tr></thead>
+                                    <tbody>
+                                        {sortedAttendanceList.map(s => (
+                                            <tr key={s.id}>
+                                                <td style={{ fontWeight: '600', color: '#334155' }}>{s.rollNo}</td>
+                                                <td style={{ fontWeight: '500' }}>
+                                                    {s.firstName} {s.lastName}
+                                                </td>
+                                                <td>
+                                                    {s.markedBy === 'teacher_manual'
+                                                        ? <span style={{ fontSize: '10px', background: '#e0f2fe', color: '#0284c7', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>Manual</span>
+                                                        : s.markedBy === 'teacher_inverse'
+                                                            ? <span style={{ fontSize: '10px', background: '#fef3c7', color: '#d97706', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>Auto</span>
+                                                            : <span style={{ fontSize: '10px', background: '#dcfce7', color: '#15803d', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>App</span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {/* ✅ THE ROLLING ICON YOU WANTED */}
+                                        {sortedAttendanceList.length === 0 && (
+                                            <tr>
+                                                <td colSpan="3" style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                                                    <i className="fas fa-spinner fa-spin" style={{ fontSize: '24px', marginBottom: '10px', color: '#cbd5e1' }}></i>
+                                                    <p style={{ margin: 0, fontSize: '13px' }}>Waiting for scans...</p>
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     )}
                 </div>
             )}
 
-            {/* --- NEW HISTORY VIEW: SESSION BASED --- */}
             {viewMode === 'history' && (
                 <div className="cards-grid">
-                    {/* DATE SELECTOR HEADER */}
                     <div className="card card-full-width" style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '20px', background: '#f8fafc' }}>
                         <div style={{ flex: 1 }}>
                             <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', textTransform: 'uppercase' }}>Select Date</label>
@@ -485,7 +715,6 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                         </div>
                     </div>
 
-                    {/* SESSION CARDS */}
                     {historySessions.length === 0 ? (
                         <div className="card card-full-width" style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
                             <i className="fas fa-calendar-times" style={{ fontSize: '30px', marginBottom: '10px' }}></i>
@@ -494,16 +723,12 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                     ) : (
                         historySessions.map((session, index) => (
                             <div key={session.sessionId} className="card card-full-width" style={{ marginTop: '20px', borderLeft: session.type === 'practical' ? '5px solid #8b5cf6' : '5px solid #3b82f6' }}>
-                                {/* SESSION HEADER */}
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '15px', marginBottom: '15px' }}>
                                     <div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                                            {/* Time Badge */}
                                             <span style={{ background: '#f1f5f9', color: '#64748b', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>
                                                 {session.startTime}
                                             </span>
-                                            
-                                            {/* Type Badge (THEORY vs PRACTICAL) */}
                                             {session.type === 'practical' ? (
                                                 <span style={{ background: '#ede9fe', color: '#7c3aed', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>
                                                     🧪 Practical (Batch {session.batch})
@@ -514,19 +739,16 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                                                 </span>
                                             )}
                                         </div>
-                                        
                                         <p style={{ fontSize: '13px', color: '#64748b', margin: '8px 0 0 0' }}>
                                             Present: <strong style={{ color: '#166534' }}>{session.presentCount}</strong> | Absent: <strong style={{ color: '#dc2626' }}>{session.absentCount}</strong>
                                         </p>
                                     </div>
-
-                                    {/* ✅ FIXED CSV: Pass Type and Batch directly as data, use strings for keys */}
-                                    <CSVLink 
+                                    <CSVLink
                                         data={session.students.map(s => ({
                                             ...s,
                                             type: session.type === 'practical' ? 'Practical' : 'Theory',
                                             batch: session.type === 'practical' ? session.batch : 'All'
-                                        }))} 
+                                        }))}
                                         headers={[
                                             { label: "Roll No", key: "rollNo" },
                                             { label: "Name", key: "name" },
@@ -541,8 +763,6 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                                         <i className="fas fa-download"></i> CSV
                                     </CSVLink>
                                 </div>
-
-                                {/* STUDENT TABLE */}
                                 <div className="table-wrapper" style={{ maxHeight: '300px', overflowY: 'auto' }}>
                                     <table className="attendance-table">
                                         <thead style={{ position: 'sticky', top: 0, zIndex: 5 }}>
@@ -596,6 +816,11 @@ const MobileFooter = ({ activePage, setActivePage }) => {
                 <i className="fas fa-user"></i>
                 <span>Profile</span>
             </button>
+            {/* Add this button */}
+<button className={`nav-item ${activePage === 'adminNotices' ? 'active' : ''}`} onClick={() => setActivePage('adminNotices')}>
+    <i className="fas fa-bell"></i>
+    <span>Notices</span>
+</button>
         </div>
     );
 };
@@ -610,6 +835,9 @@ export default function TeacherDashboard() {
     const [activeSession, setActiveSession] = useState(null);
     const [attendanceList, setAttendanceList] = useState([]);
     const [sessionLoading, setSessionLoading] = useState(false);
+    const [announcements, setAnnouncements] = useState([]);
+    const [activeTab, setActiveTab] = useState('dashboard');
+    const [adminNotices, setAdminNotices] = useState([]);
 
     // Year & Subject Logic
     const [selectedYear, setSelectedYear] = useState(null);
@@ -650,6 +878,29 @@ export default function TeacherDashboard() {
         return () => unsub();
     }, [auth.currentUser, selectedYear]);
 
+    // ✅ FETCH NOTICES FOR TEACHERS
+    useEffect(() => {
+        if (!teacherInfo?.instituteId) return;
+
+        // Fetch announcements targeting 'All' or 'Teachers'
+        // Note: Firestore 'in' query supports up to 10 values
+        const q = query(
+            collection(db, 'announcements'),
+            where('instituteId', '==', teacherInfo.instituteId),
+            where('department', '==', teacherInfo.department),
+            where('targetYear', 'in', ['All', 'Teachers'])
+        );
+
+        const unsubscribe = onSnapshot(q, (snap) => {
+            const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            // Sort newest first
+            data.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+            setAnnouncements(data);
+        });
+
+        return () => unsubscribe();
+    }, [teacherInfo]);
+
     useEffect(() => {
         if (!auth.currentUser) return;
         const q = query(collection(db, 'live_sessions'), where('teacherId', '==', auth.currentUser.uid), where('isActive', '==', true));
@@ -673,7 +924,7 @@ export default function TeacherDashboard() {
     }, [activeSession, teacherInfo]);
 
     // ✅ NEW HISTORY LOGIC: Group by Session (Separates Morning/Afternoon classes)
-   // ✅ NEW HISTORY LOGIC: Filter Student List by Roll Range for Practicals
+    // ✅ NEW HISTORY LOGIC: Filter Student List by Roll Range for Practicals
     useEffect(() => {
         const fetchHistory = async () => {
             if (!teacherInfo?.instituteId || !selectedYear) return;
@@ -690,17 +941,17 @@ export default function TeacherDashboard() {
             try {
                 // 1. Get ALL Students (Master List)
                 const qStudents = query(
-                    collection(db, 'users'), 
-                    where('instituteId', '==', teacherInfo.instituteId), 
-                    where('role', '==', 'student'), 
+                    collection(db, 'users'),
+                    where('instituteId', '==', teacherInfo.instituteId),
+                    where('role', '==', 'student'),
                     where('year', '==', selectedYear),
                     where('department', '==', teacherInfo.department)
                 );
                 const studentsSnap = await getDocs(qStudents);
-                const allStudents = studentsSnap.docs.map(doc => ({ 
-                    id: doc.id, 
-                    ...doc.data(), 
-                    rollNo: parseInt(doc.data().rollNo) || 9999 
+                const allStudents = studentsSnap.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data(),
+                    rollNo: parseInt(doc.data().rollNo) || 9999
                 }));
 
                 // 2. Get Attendance Records
@@ -728,8 +979,8 @@ export default function TeacherDashboard() {
                 }));
 
                 // 4. GROUP BY SESSION ID
-                const sessionsMap = {}; 
-                
+                const sessionsMap = {};
+
                 attSnap.docs.forEach(doc => {
                     const data = doc.data();
                     const sId = data.sessionId;
@@ -739,7 +990,7 @@ export default function TeacherDashboard() {
                         sessionsMap[sId] = {
                             sessionId: sId,
                             startTime: data.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                            type: meta.type || 'theory', 
+                            type: meta.type || 'theory',
                             batch: meta.batch || 'All',
                             rollRange: meta.rollRange || null, // ✅ Capture Roll Range
                             presentRolls: new Set()
@@ -750,7 +1001,7 @@ export default function TeacherDashboard() {
 
                 // 5. BUILD REPORT CARDS (With Range Filtering)
                 const finalSessions = Object.values(sessionsMap).map(session => {
-                    
+
                     // ✅ KEY FIX: Filter the Class List based on Roll Range
                     let targetStudents = allStudents;
 
@@ -770,7 +1021,7 @@ export default function TeacherDashboard() {
                             timeIn: isPresent ? session.startTime : '-'
                         };
                     });
-                    
+
                     studentsWithStatus.sort((a, b) => a.rollNo - b.rollNo);
 
                     // Recalculate stats based on the FILTERED list
@@ -788,7 +1039,7 @@ export default function TeacherDashboard() {
                         students: studentsWithStatus
                     };
                 });
-                
+
                 finalSessions.sort((a, b) => a.startTime.localeCompare(b.startTime));
                 setHistorySessions(finalSessions);
 
@@ -832,14 +1083,14 @@ export default function TeacherDashboard() {
                                 department: teacherInfo.department,
                                 year: selectedYear,
                                 instituteId: teacherInfo.instituteId,
-                                location: { 
-                                    latitude: pos.coords.latitude, 
-                                    longitude: pos.coords.longitude 
+                                location: {
+                                    latitude: pos.coords.latitude,
+                                    longitude: pos.coords.longitude
                                 },
-                                type: sessionType, 
+                                type: sessionType,
                                 batch: sessionType === 'practical' ? selectedBatch : 'All',
-                                rollRange: sessionType === 'practical' 
-                                    ? { start: parseInt(rollStart), end: parseInt(rollEnd) } 
+                                rollRange: sessionType === 'practical'
+                                    ? { start: parseInt(rollStart), end: parseInt(rollEnd) }
                                     : null
                             })
                         });
@@ -858,13 +1109,13 @@ export default function TeacherDashboard() {
                         toast.dismiss(startToast);
                     }
 
-                }, (err) => { 
-                    toast.error("Location required."); 
+                }, (err) => {
+                    toast.error("Location required.");
                     setSessionLoading(false);
                     toast.dismiss(startToast);
                 }, { enableHighAccuracy: true, timeout: 5000 });
-            } else { 
-                toast.error("Geolocation not supported."); 
+            } else {
+                toast.error("Geolocation not supported.");
                 setSessionLoading(false);
                 toast.dismiss(startToast);
             }
@@ -897,16 +1148,16 @@ export default function TeacherDashboard() {
             />;
             case 'analytics': return <TeacherAnalytics teacherInfo={teacherInfo} selectedYear={selectedYear} />;
             case 'announcements': return <TeacherAnnouncements teacherInfo={teacherInfo} />;
-            case 'addTasks': return <AddTasks />;
+            case 'addTasks': return <AddTasks teacherInfo={teacherInfo} />;
             case 'profile': return <Profile user={teacherInfo} />;
             default: return null;
         }
     };
 
     // CSV Logic for Flattened Sessions (Sidebar Download)
-    const rawData = viewMode === 'live' 
-        ? attendanceList 
-        : historySessions.flatMap(session => 
+    const rawData = viewMode === 'live'
+        ? attendanceList
+        : historySessions.flatMap(session =>
             session.students.map(s => ({
                 ...s,
                 timeIn: s.status === 'Present' ? session.startTime : 'N/A',
@@ -916,10 +1167,10 @@ export default function TeacherDashboard() {
         );
 
     const sortedData = [...rawData].sort((a, b) => parseInt(a.rollNo) - parseInt(b.rollNo));
-    
+
     const csvData = sortedData.map(student => ({
         rollNo: student.rollNo,
-        studentName: student.name || `${student.firstName} ${student.lastName}`, 
+        studentName: student.name || `${student.firstName} ${student.lastName}`,
         email: student.email || student.studentEmail || '-',
         timeIn: student.timeIn || (student.timestamp?.toDate ? student.timestamp.toDate().toLocaleTimeString() : 'N/A'),
         status: student.status || 'Present',
@@ -928,8 +1179,8 @@ export default function TeacherDashboard() {
     }));
 
     const csvHeaders = [
-        { label: "Roll No.", key: "rollNo" }, 
-        { label: "Student Name", key: "studentName" }, 
+        { label: "Roll No.", key: "rollNo" },
+        { label: "Student Name", key: "studentName" },
         { label: "Time In", key: "timeIn" },
         { label: "Status", key: "status" },
         { label: "Type", key: "type" },
@@ -985,6 +1236,14 @@ export default function TeacherDashboard() {
                     <NavLink page="analytics" iconClass="fa-chart-bar" label="Analytics" />
                     <NavLink page="announcements" iconClass="fa-bullhorn" label="Announcements" />
                     <NavLink page="addTasks" iconClass="fa-tasks" label="Add Tasks" />
+                    {/* Add this item */}
+                    <li className={activePage === 'adminNotices' ? 'active' : ''} onClick={() => { setActivePage('adminNotices'); setIsMobileNavOpen(false); }}>
+                        <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '15px' }}>
+                            <i className="fas fa-bell" style={{ width: '24px', textAlign: 'center' }}></i>
+                            <span>Staff Notices</span>
+                            {adminNotices.length > 0 && <span className="nav-badge" style={{ background: '#ef4444', color: 'white', fontSize: '10px', padding: '2px 6px', borderRadius: '10px', marginLeft: 'auto' }}>{adminNotices.length}</span>}
+                        </div>
+                    </li>
                     <li onClick={() => setIsMobileNavOpen(false)} style={{ marginTop: 'auto', marginBottom: '10px' }}>
                         <CSVLink data={csvData} headers={csvHeaders} filename={csvFilename} className="csv-link"><i className="fas fa-file-download"></i><span>Download Sheet</span></CSVLink>
                     </li>

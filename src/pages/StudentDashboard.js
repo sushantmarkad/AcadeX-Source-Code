@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import ReactDOM from 'react-dom'; 
-import { signOut, onAuthStateChanged } from 'firebase/auth'; 
+import ReactDOM from 'react-dom';
+import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
 import { collection, query, where, onSnapshot, doc, getDoc, orderBy, limit, updateDoc } from 'firebase/firestore';
@@ -12,7 +12,7 @@ import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 
 // ✅ NEW IMPORTS FOR SECURITY
-import { Device } from '@capacitor/device'; 
+import { Device } from '@capacitor/device';
 import FingerprintJS from '@fingerprintjs/fingerprintjs';
 import { useBiometricAuth } from '../components/BiometricAuth';
 
@@ -108,12 +108,12 @@ const LeaveRequestForm = ({ user }) => {
             formData.append('reason', form.reason);
             formData.append('fromDate', form.fromDate);
             formData.append('toDate', form.toDate);
-            
+
             if (file) formData.append('document', file);
 
             const res = await fetch(`${BACKEND_URL}/requestLeave`, {
                 method: 'POST',
-                body: formData 
+                body: formData
             });
 
             const data = await res.json();
@@ -122,73 +122,79 @@ const LeaveRequestForm = ({ user }) => {
             toast.success("Request sent to HOD!", { id: toastId });
             setForm({ reason: '', fromDate: '', toDate: '' });
             setFile(null);
-        } catch (err) { 
-            toast.error(err.message, { id: toastId }); 
-        } finally { 
-            setLoading(false); 
+        } catch (err) {
+            toast.error(err.message, { id: toastId });
+        } finally {
+            setLoading(false);
         }
     };
 
     return (
         <div className="content-section">
             <h2 className="content-title">Request Leave</h2>
-            <div className="card" style={{marginBottom: '30px'}}>
+            <div className="card" style={{ marginBottom: '30px' }}>
                 <form onSubmit={handleSubmit}>
                     <div className="input-group">
                         <label>Reason</label>
-                        <input type="text" required value={form.reason} onChange={e => setForm({...form, reason: e.target.value})} placeholder="e.g. Medical Leave" />
+                        <input type="text" required value={form.reason} onChange={e => setForm({ ...form, reason: e.target.value })} placeholder="e.g. Medical Leave" />
                     </div>
-                    
-                    <div style={{display:'flex', gap:'15px', flexWrap:'wrap'}}>
-                        <div className="input-group" style={{flex:1}}>
+
+                    <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+                        <div className="input-group" style={{ flex: 1 }}>
                             <label>From</label>
-                            <input type="date" required value={form.fromDate} onChange={e => setForm({...form, fromDate: e.target.value})} />
+                            <input type="date" required value={form.fromDate} onChange={e => setForm({ ...form, fromDate: e.target.value })} />
                         </div>
-                        <div className="input-group" style={{flex:1}}>
+                        <div className="input-group" style={{ flex: 1 }}>
                             <label>To</label>
-                            <input type="date" required value={form.toDate} onChange={e => setForm({...form, toDate: e.target.value})} />
+                            <input type="date" required value={form.toDate} onChange={e => setForm({ ...form, toDate: e.target.value })} />
                         </div>
                     </div>
 
                     <div className="input-group">
-                        <label>Attach Proof (Optional)</label>
-                        <input type="file" accept="image/*,.pdf" onChange={(e) => setFile(e.target.files[0])} style={{padding:'10px', background:'#f8fafc'}} />
-                        <small style={{color:'#64748b'}}>Upload medical certificate or letter (Max 5MB)</small>
+                        <label>Attach Proof <span style={{ color: 'red' }}>*</span></label>
+                        <input
+                            type="file"
+                            accept="image/*,.pdf"
+                            required  // 👈 THIS MAKES IT MANDATORY
+                            onChange={(e) => setFile(e.target.files[0])}
+                            style={{ padding: '10px', background: '#f8fafc' }}
+                        />
+                        <small style={{ color: '#64748b' }}>Upload medical certificate or letter (Max 5MB)</small>
                     </div>
-
                     <button className="btn-primary" disabled={loading}>
                         {loading ? 'Sending...' : 'Submit Request'}
                     </button>
                 </form>
             </div>
 
-            <h3 style={{color:'#1e293b', margin:'0 0 15px 0', fontSize:'18px'}}>My Leave History</h3>
+            <h3 style={{ color: '#1e293b', margin: '0 0 15px 0', fontSize: '18px' }}>My Leave History</h3>
             <div className="cards-grid">
                 {myLeaves.length > 0 ? (
                     myLeaves.map(leave => (
-                        <div key={leave.id} className="card" style={{borderLeft: `5px solid ${leave.status === 'approved' ? '#10b981' : leave.status === 'rejected' ? '#ef4444' : '#f59e0b'}`, padding: '15px'}}>
-                            <div style={{display:'flex', justifyContent:'space-between', alignItems:'start'}}>
+                        <div key={leave.id} className="card" style={{ borderLeft: `5px solid ${leave.status === 'approved' ? '#10b981' : leave.status === 'rejected' ? '#ef4444' : '#f59e0b'}`, padding: '15px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
                                 <div>
-                                    <h4 style={{margin:'0 0 5px 0', fontSize:'16px'}}>{leave.reason}</h4>
-                                    <p style={{margin:0, fontSize:'13px', color:'#64748b'}}>
+                                    <h4 style={{ margin: '0 0 5px 0', fontSize: '16px' }}>{leave.reason}</h4>
+                                    <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
                                         {new Date(leave.fromDate).toLocaleDateString()} ➔ {new Date(leave.toDate).toLocaleDateString()}
                                     </p>
                                     {leave.documentUrl && (
-                                        <a href={leave.documentUrl} target="_blank" rel="noreferrer" style={{display:'inline-flex', alignItems:'center', gap:'5px', fontSize:'12px', color:'#2563eb', marginTop:'8px', textDecoration:'none', background:'#eff6ff', padding:'4px 8px', borderRadius:'6px'}}>
+                                        <a href={leave.documentUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#2563eb', marginTop: '8px', textDecoration: 'none', background: '#eff6ff', padding: '4px 8px', borderRadius: '6px' }}>
                                             <i className="fas fa-paperclip"></i> View Proof
                                         </a>
                                     )}
                                 </div>
-                                <span className={`status-badge status-${leave.status}`} style={{textTransform: 'uppercase', fontSize:'11px', letterSpacing:'0.5px'}}>{leave.status}</span>
+                                <span className={`status-badge status-${leave.status}`} style={{ textTransform: 'uppercase', fontSize: '11px', letterSpacing: '0.5px' }}>{leave.status}</span>
                             </div>
                         </div>
                     ))
-                ) : <div className="card" style={{textAlign:'center', padding:'30px', color:'#94a3b8', fontStyle:'italic'}}>No leave history found.</div>}
+                ) : <div className="card" style={{ textAlign: 'center', padding: '30px', color: '#94a3b8', fontStyle: 'italic' }}>No leave history found.</div>}
             </div>
         </div>
     );
 };
 
+// --- COMPONENT: Notices View ---
 // --- COMPONENT: Notices View ---
 const NoticesView = ({ notices }) => {
     return (
@@ -199,7 +205,7 @@ const NoticesView = ({ notices }) => {
                 {notices.length > 0 ? notices.map((n, index) => {
                     const isNew = (new Date() - (n.createdAt?.toDate ? n.createdAt.toDate() : new Date())) / (1000 * 60 * 60) < 24;
                     return (
-                        <div key={n.id} className="notice-card" style={{animationDelay: `${index * 0.1}s`}}>
+                        <div key={n.id} className="notice-card" style={{ animationDelay: `${index * 0.1}s` }}>
                             <div className="notice-icon-box"><i className="fas fa-bullhorn"></i></div>
                             <div className="notice-content">
                                 <div className="notice-header">
@@ -207,6 +213,15 @@ const NoticesView = ({ notices }) => {
                                     <span className="notice-time">{getRelativeTime(n.createdAt)}</span>
                                 </div>
                                 <p className="notice-body">{n.message}</p>
+
+                                {/* ✅ ADDED: Teacher Name Display */}
+                                {n.teacherName && (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b', marginBottom: '10px' }}>
+                                        <i className="fas fa-user-circle" style={{ color: '#94a3b8' }}></i>
+                                        <span>Posted by <strong>{n.teacherName}</strong></span>
+                                    </div>
+                                )}
+
                                 <div className="notice-footer">
                                     <span className="notice-dept-badge">{n.department || 'General'}</span>
                                     {n.targetYear !== 'All' && <span className="notice-year-badge">{n.targetYear}</span>}
@@ -232,20 +247,20 @@ const handleAttendance = async (sessionIdFromQR) => {
         // 2. Get Student's Current Location
         navigator.geolocation.getCurrentPosition(async (position) => {
             const token = await auth.currentUser.getIdToken();
-            
+
             // 3. Send Attendance to Backend with Device ID
             const response = await fetch(`${BACKEND_URL}/markAttendance`, {
                 method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json', 
-                    'Authorization': `Bearer ${token}` 
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
                 },
-                body: JSON.stringify({ 
-                    sessionId: sessionIdFromQR, 
+                body: JSON.stringify({
+                    sessionId: sessionIdFromQR,
                     deviceId: hardwareId, // ✅ Crucial for Hardware Binding
-                    studentLocation: { 
-                        latitude: position.coords.latitude, 
-                        longitude: position.coords.longitude 
+                    studentLocation: {
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude
                     },
                     verificationMethod: 'qr' // or 'biometric' if using fingerprint
                 })
@@ -272,19 +287,19 @@ const handleAttendance = async (sessionIdFromQR) => {
 const SmartScheduleCard = ({ user, currentSlot, loading }) => {
     const isFree = currentSlot?.type === 'Free' || currentSlot?.type === 'Break' || currentSlot?.type === 'Holiday';
 
-    if (loading) return <div className="card" style={{padding:'20px', textAlign:'center'}}>Loading Schedule...</div>;
+    if (loading) return <div className="card" style={{ padding: '20px', textAlign: 'center' }}>Loading Schedule...</div>;
 
     return (
         <>
-            <div className="card" style={{borderLeft: isFree ? '5px solid #10b981' : '5px solid #3b82f6', background: isFree ? 'linear-gradient(to right, #ecfdf5, white)' : 'white'}}>
-                <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+            <div className="card" style={{ borderLeft: isFree ? '5px solid #10b981' : '5px solid #3b82f6', background: isFree ? 'linear-gradient(to right, #ecfdf5, white)' : 'white' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
-                        <h4 style={{margin:0, color: isFree ? '#059669' : '#2563eb', fontSize:'12px', fontWeight:'bold'}}>{isFree ? "🟢 RIGHT NOW" : "🔴 LIVE CLASS"}</h4>
-                        <h2 style={{margin:'5px 0 0 0', fontSize:'20px', color: '#1e293b', fontWeight:'700'}}>{currentSlot?.subject || "Free Period"}</h2>
-                        <p style={{margin:'4px 0 0 0', fontSize:'13px', color:'#64748b'}}>{currentSlot?.startTime ? `${currentSlot.startTime} - ${currentSlot.endTime}` : "Enjoy your free time!"}</p>
+                        <h4 style={{ margin: 0, color: isFree ? '#059669' : '#2563eb', fontSize: '12px', fontWeight: 'bold' }}>{isFree ? "🟢 RIGHT NOW" : "🔴 LIVE CLASS"}</h4>
+                        <h2 style={{ margin: '5px 0 0 0', fontSize: '20px', color: '#1e293b', fontWeight: '700' }}>{currentSlot?.subject || "Free Period"}</h2>
+                        <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#64748b' }}>{currentSlot?.startTime ? `${currentSlot.startTime} - ${currentSlot.endTime}` : "Enjoy your free time!"}</p>
                     </div>
                 </div>
-                {isFree && <div style={{marginTop:'15px', padding:'10px', background:'#dcfce7', color:'#166534', borderRadius:'8px', fontSize:'13px'}}>✨ Free Period Detected! Check "Free Tasks" tab for AI activities.</div>}
+                {isFree && <div style={{ marginTop: '15px', padding: '10px', background: '#dcfce7', color: '#166534', borderRadius: '8px', fontSize: '13px' }}>✨ Free Period Detected! Check "Free Tasks" tab for AI activities.</div>}
             </div>
             {isFree && <FreePeriodQuiz user={user} isFree={isFree} />}
         </>
@@ -304,7 +319,7 @@ const AttendanceOverview = ({ user }) => {
                 const statsDoc = await getDoc(doc(db, "department_stats", `${user.instituteId}_${user.department}`));
                 const total = statsDoc.exists() ? (statsDoc.data().totalClasses || 0) : 0;
                 setTotalClasses(total);
-                const myAttended = user.attendanceCount || 0; 
+                const myAttended = user.attendanceCount || 0;
                 setAttendedClasses(myAttended);
                 if (total > 0) setPercentage(Math.min(100, Math.round((myAttended / total) * 100)));
             } catch (err) { console.error("Error fetching stats:", err); }
@@ -335,7 +350,11 @@ const AttendanceOverview = ({ user }) => {
 
 // --- DASHBOARD HOME (Updated with Biometrics) ---
 const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession, recentAttendance, setShowScanner, currentSlot, onBiometricAttendance, bioLoading }) => {
-    
+
+    // ✅ NEW: Logic to extract "Sushant" from "Sushant Sukhadev"
+    // If lastName exists, take the first word. Otherwise fallback to firstName.
+    const displayName = user?.lastName ? user.lastName.split(' ')[0] : user?.firstName;
+
     useEffect(() => {
         if (!auth.currentUser) return;
         const q = query(collection(db, "attendance"), where("studentId", "==", auth.currentUser.uid), orderBy("timestamp", "desc"), limit(3));
@@ -345,42 +364,43 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
 
     return (
         <div className="content-section">
-            <h2 className="content-title">Welcome, {user.firstName}!</h2>
+            {/* ✅ UPDATED: Uses the formatted name */}
+            <h2 className="content-title">Welcome, {displayName}!</h2>
             <div className="cards-grid">
                 <SmartScheduleCard user={user} currentSlot={currentSlot} loading={!currentSlot} />
-                
+
                 <AttendanceOverview user={user} />
                 <div className="card" style={{ background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)', border: 'none' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '15px' }}>
                         <div className="icon-box-modern"><i className="fas fa-qrcode"></i></div>
-                        <h3 style={{ margin: 0, color: '#1e3a8a', fontWeight:'700' }}>Live Attendance</h3>
+                        <h3 style={{ margin: 0, color: '#1e3a8a', fontWeight: '700' }}>Live Attendance</h3>
                     </div>
                     {liveSession ? (
                         <>
                             <div className="live-badge pulsate"><div className="dot"></div> <span>SESSION ACTIVE</span></div>
-                            <p style={{fontWeight:'bold', margin:'10px 0'}}>{liveSession.subject}</p>
-                            
-                            <div style={{display:'flex', gap:'10px', flexWrap:'wrap'}}>
+                            <p style={{ fontWeight: 'bold', margin: '10px 0' }}>{liveSession.subject}</p>
+
+                            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                                 {/* Standard QR Button */}
                                 <button className="btn-modern-primary" onClick={() => setShowScanner(true)}>
                                     <i className="fas fa-camera"></i> Scan QR
                                 </button>
 
                                 {/* ✅ BIOMETRIC FALLBACK BUTTON */}
-                                <button 
-                                    className="btn-modern-primary" 
-                                    style={{background: '#059669', border: '1px solid #047857'}}
+                                <button
+                                    className="btn-modern-primary"
+                                    style={{ background: '#059669', border: '1px solid #047857' }}
                                     onClick={onBiometricAttendance}
                                     disabled={bioLoading}
                                 >
                                     {bioLoading ? 'Verifying...' : <><i className="fas fa-fingerprint"></i> Use TouchID</>}
                                 </button>
                             </div>
-                            <small style={{display:'block', marginTop:'10px', color:'#64748b'}}>
+                            <small style={{ display: 'block', marginTop: '10px', color: '#64748b' }}>
                                 Use TouchID if QR code is not working.
                             </small>
                         </>
-                    ) : <p style={{textAlign:'center', color:'#64748b'}}>No active sessions.</p>}
+                    ) : <p style={{ textAlign: 'center', color: '#64748b' }}>No active sessions.</p>}
                 </div>
                 <div className="card">
                     <h3>Recent History</h3>
@@ -406,10 +426,10 @@ const MobileFooter = ({ activePage, setActivePage, badgeCount, liveSession, onSc
                 <i className="fas fa-home"></i>
                 <span>Home</span>
             </button>
-            <button className={`nav-item ${activePage === 'notices' ? 'active' : ''}`} onClick={() => setActivePage('notices')} style={{position:'relative'}}>
+            <button className={`nav-item ${activePage === 'notices' ? 'active' : ''}`} onClick={() => setActivePage('notices')} style={{ position: 'relative' }}>
                 <i className="fas fa-bullhorn"></i>
                 <span>Updates</span>
-                {badgeCount > 0 && <span className="nav-badge" style={{position:'absolute', top:'-5px', right:'15px', padding:'2px 6px'}}>{badgeCount}</span>}
+                {badgeCount > 0 && <span className="nav-badge" style={{ position: 'absolute', top: '-5px', right: '15px', padding: '2px 6px' }}>{badgeCount}</span>}
             </button>
             <div className="scan-btn-wrapper">
                 <button className="scan-btn" onClick={onScan}>
@@ -431,512 +451,512 @@ const MobileFooter = ({ activePage, setActivePage, badgeCount, liveSession, onSc
 
 // --- MAIN COMPONENT ---
 export default function StudentDashboard() {
-  const [activePage, setActivePage] = useState('dashboard');
-  const [user, setUser] = useState(null);
-  const [notices, setNotices] = useState([]); 
-  const [readCount, setReadCount] = useState(() => {
-      const saved = localStorage.getItem('seenNoticesCount');
-      return saved ? parseInt(saved) : 0;
-  });
-
-  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const [showScanner, setShowScanner] = useState(false);
-  const [liveSession, setLiveSession] = useState(null);
-  const [recentAttendance, setRecentAttendance] = useState([]);
-  
-  // ✅ GLOBAL SCHEDULE STATE
-  const [currentSlot, setCurrentSlot] = useState(null);
-  const [isFreePeriod, setIsFreePeriod] = useState(false);
-  // ✅ CHATBOT PROMPT STATE
-  const [chatInitialMessage, setChatInitialMessage] = useState('');
-  
-  // ✅ BIOMETRIC HOOK
-  const { authenticate, bioLoading } = useBiometricAuth();
-
-  const scannerRef = useRef(null); 
-  const navigate = useNavigate();
-
-  // 1. User Loading
-useEffect(() => {
-    const authUnsub = onAuthStateChanged(auth, (authUser) => {
-        if (authUser) {
-            const unsub = onSnapshot(doc(db, "users", authUser.uid), (doc) => {
-                if (doc.exists()) setUser(doc.data());
-            });
-            return () => unsub();
-        } else {
-            // ✅ SAFETY: Ensure local user state is cleared immediately
-            setUser(null); 
-            // App.js handles the redirect, but this ensures we don't render stale data
-        }
+    const [activePage, setActivePage] = useState('dashboard');
+    const [user, setUser] = useState(null);
+    const [notices, setNotices] = useState([]);
+    const [readCount, setReadCount] = useState(() => {
+        const saved = localStorage.getItem('seenNoticesCount');
+        return saved ? parseInt(saved) : 0;
     });
-    return () => authUnsub();
-}, []);
 
-  // ✅ 2. Listen for Active Session (Filtered by Year) - GLOBAL LISTENER
-  // ✅ 2. Listen for Active Session (Filtered by Year AND Roll No Range)
-  useEffect(() => {
-    if (!auth.currentUser || !user) return;
+    const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+    const [isChatOpen, setIsChatOpen] = useState(false);
+    const [showScanner, setShowScanner] = useState(false);
+    const [liveSession, setLiveSession] = useState(null);
+    const [recentAttendance, setRecentAttendance] = useState([]);
 
-    // Fetch ANY active session for this institute
-    const q = query(
-        collection(db, 'live_sessions'), 
-        where('isActive', '==', true), 
-        where('instituteId', '==', user.instituteId)
-    );
+    // ✅ GLOBAL SCHEDULE STATE
+    const [currentSlot, setCurrentSlot] = useState(null);
+    const [isFreePeriod, setIsFreePeriod] = useState(false);
+    // ✅ CHATBOT PROMPT STATE
+    const [chatInitialMessage, setChatInitialMessage] = useState('');
 
-    const unsub = onSnapshot(q, (snap) => {
-        if (!snap.empty) {
-            // ✅ CLIENT-SIDE FILTERING
-            const relevantSession = snap.docs.find(doc => {
-                const data = doc.data();
-                
-                // 1. Check Year Match
-                const isYearMatch = data.targetYear === 'All' || data.targetYear === user.year;
-                if (!isYearMatch) return false;
+    // ✅ BIOMETRIC HOOK
+    const { authenticate, bioLoading } = useBiometricAuth();
 
-                // 2. Check Roll Number Range (For Practical Labs)
-                if (data.type === 'practical' && data.rollRange) {
-                    const myRoll = parseInt(user.rollNo); // Convert student roll to number
-                    const min = parseInt(data.rollRange.start);
-                    const max = parseInt(data.rollRange.end);
+    const scannerRef = useRef(null);
+    const navigate = useNavigate();
 
-                    // If my roll number is OUTSIDE the range, hide this session
-                    if (isNaN(myRoll) || myRoll < min || myRoll > max) {
-                        return false; 
+    // 1. User Loading
+    useEffect(() => {
+        const authUnsub = onAuthStateChanged(auth, (authUser) => {
+            if (authUser) {
+                const unsub = onSnapshot(doc(db, "users", authUser.uid), (doc) => {
+                    if (doc.exists()) setUser(doc.data());
+                });
+                return () => unsub();
+            } else {
+                // ✅ SAFETY: Ensure local user state is cleared immediately
+                setUser(null);
+                // App.js handles the redirect, but this ensures we don't render stale data
+            }
+        });
+        return () => authUnsub();
+    }, []);
+
+    // ✅ 2. Listen for Active Session (Filtered by Year) - GLOBAL LISTENER
+    // ✅ 2. Listen for Active Session (Filtered by Year AND Roll No Range)
+    useEffect(() => {
+        if (!auth.currentUser || !user) return;
+
+        // Fetch ANY active session for this institute
+        const q = query(
+            collection(db, 'live_sessions'),
+            where('isActive', '==', true),
+            where('instituteId', '==', user.instituteId)
+        );
+
+        const unsub = onSnapshot(q, (snap) => {
+            if (!snap.empty) {
+                // ✅ CLIENT-SIDE FILTERING
+                const relevantSession = snap.docs.find(doc => {
+                    const data = doc.data();
+
+                    // 1. Check Year Match
+                    const isYearMatch = data.targetYear === 'All' || data.targetYear === user.year;
+                    if (!isYearMatch) return false;
+
+                    // 2. Check Roll Number Range (For Practical Labs)
+                    if (data.type === 'practical' && data.rollRange) {
+                        const myRoll = parseInt(user.rollNo); // Convert student roll to number
+                        const min = parseInt(data.rollRange.start);
+                        const max = parseInt(data.rollRange.end);
+
+                        // If my roll number is OUTSIDE the range, hide this session
+                        if (isNaN(myRoll) || myRoll < min || myRoll > max) {
+                            return false;
+                        }
                     }
+
+                    return true; // Passed all checks
+                });
+
+                if (relevantSession) {
+                    setLiveSession({ id: relevantSession.id, ...relevantSession.data() });
+                } else {
+                    setLiveSession(null);
+                }
+            } else {
+                setLiveSession(null);
+            }
+        });
+
+        return () => unsub();
+    }, [user]);
+
+    // 3. GLOBAL SCHEDULE LOGIC
+    useEffect(() => {
+        const fetchSchedule = async () => {
+            if (!user?.department || !user?.year) return;
+
+            let sem = user.semester || (user.year === 'FE' ? '1' : user.year === 'SE' ? '3' : user.year === 'TE' ? '5' : '7');
+            const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            const today = days[new Date().getDay()];
+
+            if (today === 'Sunday') {
+                setCurrentSlot({ type: 'Holiday', subject: 'Weekend! Relax.' });
+                return;
+            }
+
+            try {
+                const docSnap = await getDoc(doc(db, 'timetables', `${user.department}_Sem${sem}_${today}`));
+                if (docSnap.exists()) {
+                    const slots = docSnap.data().slots;
+                    const now = getCurrentTimeMinutes();
+                    const activeSlot = slots.find(slot => {
+                        const start = getMinutesFromTime(slot.startTime);
+                        const end = getMinutesFromTime(slot.endTime);
+                        return now >= start && now < end;
+                    });
+
+                    const slotData = activeSlot || { type: 'Free', subject: 'No active class.', startTime: '00:00', endTime: '00:00' };
+                    setCurrentSlot(slotData);
+
+                    const isNowFree = slotData.type === 'Free' || slotData.type === 'Break' || slotData.type === 'Holiday';
+
+                    if (isNowFree && !isFreePeriod) {
+                        toast("Free Period Detected! Curriculum Tasks generated.", { icon: '🤖', duration: 5000 });
+                        setIsFreePeriod(true);
+                    } else if (!isNowFree) {
+                        setIsFreePeriod(false);
+                    }
+                } else {
+                    setCurrentSlot({ type: 'Free', subject: 'No Schedule Found', startTime: '00:00', endTime: '00:00' });
+                }
+            } catch (error) {
+                console.error(error);
+                setCurrentSlot({ type: 'Free', subject: 'Error Loading', startTime: '00:00', endTime: '00:00' });
+            }
+        };
+
+        fetchSchedule();
+        const interval = setInterval(fetchSchedule, 60000);
+        return () => clearInterval(interval);
+    }, [user, isFreePeriod]);
+
+    // 4. Notice Fetching Logic
+    useEffect(() => {
+        if (!user?.instituteId) return;
+        const q = query(collection(db, 'announcements'), where('instituteId', '==', user.instituteId));
+        let isInitialMount = true;
+        const unsub = onSnapshot(q, (snapshot) => {
+            const all = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            const relevant = all.filter(n => {
+                const isDeptMatch = n.department === user.department || n.department === 'General';
+                const isYearMatch = n.targetYear === 'All' || n.targetYear === user.year;
+                return isDeptMatch && isYearMatch;
+            });
+            relevant.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+            setNotices(relevant);
+            if (isInitialMount) {
+                const unread = Math.max(0, relevant.length - readCount);
+                if (unread > 0) toast(`You have ${unread} unread notices!`, { icon: '📬', duration: 4000 });
+                isInitialMount = false;
+            } else {
+                snapshot.docChanges().forEach((change) => {
+                    if (change.type === 'added') {
+                        const n = change.doc.data();
+                        const isDeptMatch = n.department === user.department || n.department === 'General';
+                        const isYearMatch = n.targetYear === 'All' || n.targetYear === user.year;
+                        if (isDeptMatch && isYearMatch) toast(`📢 New: ${n.title}`, { icon: '🔔', duration: 5000 });
+                    }
+                });
+            }
+        });
+        return () => unsub();
+    }, [user?.instituteId, user?.department, user?.year, readCount]);
+
+    useEffect(() => {
+        if (activePage === 'notices' && notices.length > readCount) {
+            const newCount = notices.length;
+            setReadCount(newCount);
+            localStorage.setItem('seenNoticesCount', newCount.toString());
+        }
+    }, [activePage, notices, readCount]);
+
+    // ✅ 7. PUSH NOTIFICATION SETUP (Get Token & Save to DB)
+    useEffect(() => {
+        const registerPushNotifications = async () => {
+            // Only run on Android/iOS (Native Devices)
+            if (Capacitor.isNativePlatform()) {
+
+                // 1. Request Permission
+                let permStatus = await PushNotifications.checkPermissions();
+                if (permStatus.receive === 'prompt') {
+                    permStatus = await PushNotifications.requestPermissions();
                 }
 
-                return true; // Passed all checks
-            });
+                if (permStatus.receive !== 'granted') {
+                    console.error('User denied permissions!');
+                    return;
+                }
 
-            if (relevantSession) {
-                setLiveSession({ id: relevantSession.id, ...relevantSession.data() });
-            } else {
-                setLiveSession(null); 
+                // 2. Register with FCM
+                await PushNotifications.register();
+
+                // 3. Listen for the Token (The "Address" of this phone)
+                PushNotifications.addListener('registration', async (token) => {
+                    console.log('Push Token:', token.value);
+
+                    // 4. Save Token to Firestore (So Backend can find it)
+                    if (user?.uid) {
+                        const userRef = doc(db, 'users', user.uid);
+                        // We use merge to avoid overwriting other data
+                        await updateDoc(userRef, { fcmToken: token.value });
+                    }
+                });
+
+                // 4. Handle Errors
+                PushNotifications.addListener('registrationError', (error) => {
+                    console.error('Error on registration: ' + JSON.stringify(error));
+                });
+
+                // 5. Handle Incoming Notification (While App is Open)
+                PushNotifications.addListener('pushNotificationReceived', (notification) => {
+                    toast(notification.title + ": " + notification.body, {
+                        icon: '🔔',
+                        duration: 5000,
+                        style: { background: '#3b82f6', color: '#fff' }
+                    });
+                });
+
+                // 6. Handle Notification Tap (When user clicks the notification)
+                PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
+                    // Navigate to dashboard or specific page
+                    setActivePage('dashboard');
+                });
             }
-        } else {
-            setLiveSession(null);
+        };
+
+        if (user?.uid) {
+            registerPushNotifications();
         }
-    });
 
-    return () => unsub();
-  }, [user]);
+        // Cleanup listeners on unmount
+        return () => {
+            if (Capacitor.isNativePlatform()) {
+                PushNotifications.removeAllListeners();
+            }
+        };
+    }, [user]);
 
-  // 3. GLOBAL SCHEDULE LOGIC
-  useEffect(() => {
-      const fetchSchedule = async () => {
-          if (!user?.department || !user?.year) return;
-          
-          let sem = user.semester || (user.year === 'FE' ? '1' : user.year === 'SE' ? '3' : user.year === 'TE' ? '5' : '7');
-          const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-          const today = days[new Date().getDay()];
-          
-          if (today === 'Sunday') { 
-              setCurrentSlot({ type: 'Holiday', subject: 'Weekend! Relax.' }); 
-              return; 
-          }
+    const badgeCount = Math.max(0, notices.length - readCount);
+    const handleLogout = async () => { await signOut(auth); };
 
-          try {
-              const docSnap = await getDoc(doc(db, 'timetables', `${user.department}_Sem${sem}_${today}`));
-              if (docSnap.exists()) {
-                  const slots = docSnap.data().slots;
-                  const now = getCurrentTimeMinutes();
-                  const activeSlot = slots.find(slot => {
-                      const start = getMinutesFromTime(slot.startTime);
-                      const end = getMinutesFromTime(slot.endTime);
-                      return now >= start && now < end;
-                  });
+    const handleOpenAiWithPrompt = (prompt) => {
+        setChatInitialMessage(prompt);
+        setIsChatOpen(true);
+    };
 
-                  const slotData = activeSlot || { type: 'Free', subject: 'No active class.', startTime: '00:00', endTime: '00:00' };
-                  setCurrentSlot(slotData);
-                  
-                  const isNowFree = slotData.type === 'Free' || slotData.type === 'Break' || slotData.type === 'Holiday';
-                  
-                  if (isNowFree && !isFreePeriod) {
-                      toast("Free Period Detected! Curriculum Tasks generated.", { icon: '🤖', duration: 5000 });
-                      setIsFreePeriod(true);
-                  } else if (!isNowFree) {
-                      setIsFreePeriod(false);
-                  }
-              } else { 
-                  setCurrentSlot({ type: 'Free', subject: 'No Schedule Found', startTime: '00:00', endTime: '00:00' });
-              }
-          } catch (error) { 
-              console.error(error); 
-              setCurrentSlot({ type: 'Free', subject: 'Error Loading', startTime: '00:00', endTime: '00:00' });
-          }
-      };
-      
-      fetchSchedule();
-      const interval = setInterval(fetchSchedule, 60000); 
-      return () => clearInterval(interval);
-  }, [user, isFreePeriod]);
-
-  // 4. Notice Fetching Logic
-  useEffect(() => {
-      if (!user?.instituteId) return;
-      const q = query(collection(db, 'announcements'), where('instituteId', '==', user.instituteId));
-      let isInitialMount = true; 
-      const unsub = onSnapshot(q, (snapshot) => {
-          const all = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-          const relevant = all.filter(n => {
-               const isDeptMatch = n.department === user.department || n.department === 'General';
-               const isYearMatch = n.targetYear === 'All' || n.targetYear === user.year;
-               return isDeptMatch && isYearMatch;
-          });
-          relevant.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
-          setNotices(relevant);
-          if (isInitialMount) {
-              const unread = Math.max(0, relevant.length - readCount);
-              if (unread > 0) toast(`You have ${unread} unread notices!`, { icon: '📬', duration: 4000 });
-              isInitialMount = false;
-          } else {
-              snapshot.docChanges().forEach((change) => {
-                  if (change.type === 'added') {
-                      const n = change.doc.data();
-                      const isDeptMatch = n.department === user.department || n.department === 'General';
-                      const isYearMatch = n.targetYear === 'All' || n.targetYear === user.year;
-                      if (isDeptMatch && isYearMatch) toast(`📢 New: ${n.title}`, { icon: '🔔', duration: 5000 });
-                  }
-              });
-          }
-      });
-      return () => unsub();
-  }, [user?.instituteId, user?.department, user?.year, readCount]); 
-
-  useEffect(() => {
-      if (activePage === 'notices' && notices.length > readCount) {
-          const newCount = notices.length;
-          setReadCount(newCount);
-          localStorage.setItem('seenNoticesCount', newCount.toString());
-      }
-  }, [activePage, notices, readCount]);
-
-  // ✅ 7. PUSH NOTIFICATION SETUP (Get Token & Save to DB)
-  useEffect(() => {
-      const registerPushNotifications = async () => {
-          // Only run on Android/iOS (Native Devices)
-          if (Capacitor.isNativePlatform()) {
-              
-              // 1. Request Permission
-              let permStatus = await PushNotifications.checkPermissions();
-              if (permStatus.receive === 'prompt') {
-                  permStatus = await PushNotifications.requestPermissions();
-              }
-
-              if (permStatus.receive !== 'granted') {
-                  console.error('User denied permissions!');
-                  return;
-              }
-
-              // 2. Register with FCM
-              await PushNotifications.register();
-
-              // 3. Listen for the Token (The "Address" of this phone)
-              PushNotifications.addListener('registration', async (token) => {
-                  console.log('Push Token:', token.value);
-                  
-                  // 4. Save Token to Firestore (So Backend can find it)
-                  if (user?.uid) {
-                      const userRef = doc(db, 'users', user.uid);
-                      // We use merge to avoid overwriting other data
-                      await updateDoc(userRef, { fcmToken: token.value }); 
-                  }
-              });
-
-              // 4. Handle Errors
-              PushNotifications.addListener('registrationError', (error) => {
-                  console.error('Error on registration: ' + JSON.stringify(error));
-              });
-
-              // 5. Handle Incoming Notification (While App is Open)
-              PushNotifications.addListener('pushNotificationReceived', (notification) => {
-                  toast(notification.title + ": " + notification.body, { 
-                      icon: '🔔', 
-                      duration: 5000,
-                      style: { background: '#3b82f6', color: '#fff' }
-                  });
-              });
-
-              // 6. Handle Notification Tap (When user clicks the notification)
-              PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
-                  // Navigate to dashboard or specific page
-                  setActivePage('dashboard');
-              });
-          }
-      };
-
-      if (user?.uid) {
-          registerPushNotifications();
-      }
-      
-      // Cleanup listeners on unmount
-      return () => {
-          if (Capacitor.isNativePlatform()) {
-              PushNotifications.removeAllListeners();
-          }
-      };
-  }, [user]);
-
-  const badgeCount = Math.max(0, notices.length - readCount);
-  const handleLogout = async () => { await signOut(auth);  };
-
-  const handleOpenAiWithPrompt = (prompt) => {
-      setChatInitialMessage(prompt);
-      setIsChatOpen(true);
-  };
-
-  // ✅ 5. HANDLE QR ATTENDANCE WITH DEVICE BINDING
-  const onScanSuccess = async (decodedText) => {
+    // ✅ 5. HANDLE QR ATTENDANCE WITH DEVICE BINDING
+    const onScanSuccess = async (decodedText) => {
         if (scannerRef.current) {
-            scannerRef.current.pause(true); 
+            scannerRef.current.pause(true);
         }
         setShowScanner(false);
         const toastId = toast.loading("Verifying Identity & Device...");
 
         // ✅ GET ROBUST DEVICE ID
         const currentDeviceId = await getUniqueDeviceId();
-        
+
         navigator.geolocation.getCurrentPosition(async (position) => {
             try {
                 const token = await auth.currentUser.getIdToken();
                 const response = await fetch(`${BACKEND_URL}/markAttendance`, {
-                    method: 'POST', 
+                    method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({ 
-                        sessionId: decodedText, 
-                        studentLocation: { 
-                            latitude: position.coords.latitude, 
-                            longitude: position.coords.longitude 
+                    body: JSON.stringify({
+                        sessionId: decodedText,
+                        studentLocation: {
+                            latitude: position.coords.latitude,
+                            longitude: position.coords.longitude
                         },
                         deviceId: currentDeviceId // ✅ SENDING DEVICE ID
                     })
                 });
                 const data = await response.json();
-                
+
                 if (response.ok) {
                     toast.success(data.message, { id: toastId });
                 } else {
                     toast.error(data.error, { id: toastId });
                 }
-            } catch (error) { 
-                toast.error(error.message, { id: toastId }); 
+            } catch (error) {
+                toast.error(error.message, { id: toastId });
             }
         }, (err) => {
             toast.error("Location permission denied.", { id: toastId });
             setShowScanner(false);
         });
-  };
+    };
 
-  // ✅ 6. HANDLE BIOMETRIC ATTENDANCE
-  const handleBiometricAttendance = async () => {
-    if (!liveSession) return;
-    
-    // A. Verify Identity via Fingerprint
-    const isVerified = await authenticate(user.uid);
-    if (!isVerified) return;
+    // ✅ 6. HANDLE BIOMETRIC ATTENDANCE
+    const handleBiometricAttendance = async () => {
+        if (!liveSession) return;
 
-    const toastId = toast.loading("Marking Attendance...");
-    
-    // ✅ ADD THIS: Get Device ID for biometric flow too
-    const currentDeviceId = await getUniqueDeviceId(); 
+        // A. Verify Identity via Fingerprint
+        const isVerified = await authenticate(user.uid);
+        if (!isVerified) return;
 
-    navigator.geolocation.getCurrentPosition(async (position) => {
-        try {
-            const token = await auth.currentUser.getIdToken();
-            const response = await fetch(`${BACKEND_URL}/markAttendance`, {
-                method: 'POST', 
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ 
-                    sessionId: liveSession.id, 
-                    studentLocation: { 
-                        latitude: position.coords.latitude, 
-                        longitude: position.coords.longitude 
-                    },
-                    deviceId: currentDeviceId, // ✅ MUST send deviceId here too
-                    verificationMethod: 'biometric' 
-                })
-            });
+        const toastId = toast.loading("Marking Attendance...");
 
-            const data = await response.json();
-            if (response.ok) toast.success(data.message, { id: toastId });
-            else toast.error(data.error, { id: toastId });
+        // ✅ ADD THIS: Get Device ID for biometric flow too
+        const currentDeviceId = await getUniqueDeviceId();
 
-        } catch (error) { 
-            toast.error(error.message, { id: toastId }); 
-        }
-    }, () => toast.error("Location Required", { id: toastId }));
-  };
+        navigator.geolocation.getCurrentPosition(async (position) => {
+            try {
+                const token = await auth.currentUser.getIdToken();
+                const response = await fetch(`${BACKEND_URL}/markAttendance`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({
+                        sessionId: liveSession.id,
+                        studentLocation: {
+                            latitude: position.coords.latitude,
+                            longitude: position.coords.longitude
+                        },
+                        deviceId: currentDeviceId, // ✅ MUST send deviceId here too
+                        verificationMethod: 'biometric'
+                    })
+                });
 
-  useEffect(() => {
-    if (showScanner) {
-        const html5QrCode = new Html5Qrcode("reader");
-        scannerRef.current = html5QrCode;
-        const config = { fps: 10, qrbox: { width: 250, height: 250 } };
-        html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
-        .catch(err => {
-            console.error(err);
-            toast.error("Camera failed to start.");
-            setShowScanner(false);
-        });
-        return () => {
-            if (html5QrCode.isScanning) {
-                html5QrCode.stop().then(() => html5QrCode.clear()).catch(console.error);
+                const data = await response.json();
+                if (response.ok) toast.success(data.message, { id: toastId });
+                else toast.error(data.error, { id: toastId });
+
+            } catch (error) {
+                toast.error(error.message, { id: toastId });
             }
-        };
-    }
-  }, [showScanner]);
+        }, () => toast.error("Location Required", { id: toastId }));
+    };
 
-  const renderContent = () => {
-    if (!user) return <div style={{ textAlign: 'center', paddingTop: 50 }}>Loading...</div>;
-    switch (activePage) {
-      case 'dashboard': return <DashboardHome 
-            user={user} 
-            currentSlot={currentSlot} 
-            onOpenAI={() => setIsChatOpen(true)} 
-            liveSession={liveSession} 
-            setLiveSession={setLiveSession} 
-            recentAttendance={recentAttendance} 
-            setRecentAttendance={setRecentAttendance} 
-            setShowScanner={setShowScanner} 
-            // ✅ PASS BIOMETRIC PROPS
-            onBiometricAttendance={handleBiometricAttendance}
-            bioLoading={bioLoading}
-      />;
-      case 'tasks': return <FreePeriodTasks user={user} isFreePeriod={isFreePeriod} onOpenAIWithPrompt={handleOpenAiWithPrompt} />;
-      case 'profile': return <Profile user={user} />;
-      case 'plans': return <CareerRoadmap user={user} />; 
-      case 'leaderboard': return <Leaderboard user={user} />;
-      case 'leave': return <LeaveRequestForm user={user} />;
-      case 'notices': return <NoticesView notices={notices} />;
-      default: return <DashboardHome 
-            user={user} 
-            currentSlot={currentSlot} 
-            onOpenAI={() => setIsChatOpen(true)} 
-            liveSession={liveSession} 
-            setLiveSession={setLiveSession} 
-            recentAttendance={recentAttendance} 
-            setRecentAttendance={setRecentAttendance} 
-            setShowScanner={setShowScanner}
-            onBiometricAttendance={handleBiometricAttendance}
-            bioLoading={bioLoading}
-       />;
-    }
-  };
+    useEffect(() => {
+        if (showScanner) {
+            const html5QrCode = new Html5Qrcode("reader");
+            scannerRef.current = html5QrCode;
+            const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+            html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
+                .catch(err => {
+                    console.error(err);
+                    toast.error("Camera failed to start.");
+                    setShowScanner(false);
+                });
+            return () => {
+                if (html5QrCode.isScanning) {
+                    html5QrCode.stop().then(() => html5QrCode.clear()).catch(console.error);
+                }
+            };
+        }
+    }, [showScanner]);
 
-  return (
-    <div className="dashboard-container">
-      
-      {isMobileNavOpen && <div className="nav-overlay" onClick={() => setIsMobileNavOpen(false)} />}
-      
-      <aside className={`sidebar ${isMobileNavOpen ? 'open' : ''}`} style={{ zIndex: isMobileNavOpen ? 200 : 50 }}>
-        <div className="logo-container"><img src={logo} alt="AcadeX" className="sidebar-logo"/><span className="logo-text">Acadex</span></div>
-        {user && (
-            <div className="teacher-info" onClick={() => { setActivePage('profile'); setIsMobileNavOpen(false); }} style={{ cursor: 'pointer' }}>
-                <h4>{user.firstName} {user.lastName}</h4>
-                <p>Roll No: {user.rollNo}</p>
-                <p style={{fontSize:'14px', color:'#059669', fontWeight:'700', margin:'4px 0'}}>{user.xp || 0} Credits Earned</p>
-            </div>
-        )}
-        <ul className="menu">
-            <li className={activePage === 'dashboard' ? 'active' : ''} onClick={() => {setActivePage('dashboard'); setIsMobileNavOpen(false);}}>
-                <div style={{display:'flex', alignItems:'center', width:'100%', gap: '15px'}}>
-                    <i className="fas fa-home" style={{ width: '24px', textAlign: 'center' }}></i>
-                    <span>Dashboard</span>
-                </div>
-            </li>
-            <li className={activePage === 'notices' ? 'active' : ''} onClick={() => {setActivePage('notices'); setIsMobileNavOpen(false);}}>
-                <div style={{display:'flex', alignItems:'center', width:'100%', gap: '15px'}}>
-                    <i className="fas fa-bullhorn" style={{ width: '24px', textAlign: 'center' }}></i>
-                    <span>Notice Board</span>
-                    {badgeCount > 0 && <span className="nav-badge" style={{ background: '#ef4444', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '12px', marginLeft: 'auto', fontWeight: 'bold' }}>{badgeCount}</span>}
-                </div>
-            </li>
-            <li className={activePage === 'tasks' ? 'active' : ''} onClick={() => {setActivePage('tasks'); setIsMobileNavOpen(false);}}>
-                <div style={{display:'flex', alignItems:'center', width:'100%', gap: '15px'}}>
-                    <i className="fas fa-check-circle" style={{ width: '24px', textAlign: 'center' }}></i>
-                    <span>Free Period Tasks</span>
-                    {isFreePeriod && <span className="nav-badge pulsate" style={{ background: '#10b981', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '12px', marginLeft: 'auto', fontWeight: 'bold' }}>LIVE</span>}
-                </div>
-            </li>
-            <li className={activePage === 'leaderboard' ? 'active' : ''} onClick={() => {setActivePage('leaderboard'); setIsMobileNavOpen(false);}}>
-                <div style={{display:'flex', alignItems:'center', width:'100%', gap: '15px'}}>
-                    <i className="fas fa-trophy" style={{ width: '24px', textAlign: 'center' }}></i>
-                    <span>Leaderboard</span>
-                </div>
-            </li>
-            <li className={activePage === 'plans' ? 'active' : ''} onClick={() => {setActivePage('plans'); setIsMobileNavOpen(false);}}>
-                <div style={{display:'flex', alignItems:'center', width:'100%', gap: '15px'}}>
-                    <i className="fas fa-paper-plane" style={{ width: '24px', textAlign: 'center' }}></i>
-                    <span>Future Plans</span>
-                </div>
-            </li>
-            <li className={activePage === 'leave' ? 'active' : ''} onClick={() => {setActivePage('leave'); setIsMobileNavOpen(false);}}>
-                <div style={{display:'flex', alignItems:'center', width:'100%', gap: '15px'}}>
-                    <i className="fas fa-calendar-minus" style={{ width: '24px', textAlign: 'center' }}></i>
-                    <span>Apply Leave</span>
-                </div>
-            </li>
-            <li className={activePage === 'profile' ? 'active' : ''} onClick={() => {setActivePage('profile'); setIsMobileNavOpen(false);}}>
-                <div style={{display:'flex', alignItems:'center', width:'100%', gap: '15px'}}>
-                    <i className="fas fa-user" style={{ width: '24px', textAlign: 'center' }}></i>
-                    <span>Profile</span>
-                </div>
-            </li>
-        </ul>
-        <div className="sidebar-footer"><button onClick={handleLogout} className="logout-btn"><i className="fas fa-sign-out-alt"></i> <span>Logout</span></button></div>
-      </aside>
+    const renderContent = () => {
+        if (!user) return <div style={{ textAlign: 'center', paddingTop: 50 }}>Loading...</div>;
+        switch (activePage) {
+            case 'dashboard': return <DashboardHome
+                user={user}
+                currentSlot={currentSlot}
+                onOpenAI={() => setIsChatOpen(true)}
+                liveSession={liveSession}
+                setLiveSession={setLiveSession}
+                recentAttendance={recentAttendance}
+                setRecentAttendance={setRecentAttendance}
+                setShowScanner={setShowScanner}
+                // ✅ PASS BIOMETRIC PROPS
+                onBiometricAttendance={handleBiometricAttendance}
+                bioLoading={bioLoading}
+            />;
+            case 'tasks': return <FreePeriodTasks user={user} isFreePeriod={isFreePeriod} onOpenAIWithPrompt={handleOpenAiWithPrompt} />;
+            case 'profile': return <Profile user={user} />;
+            case 'plans': return <CareerRoadmap user={user} />;
+            case 'leaderboard': return <Leaderboard user={user} />;
+            case 'leave': return <LeaveRequestForm user={user} />;
+            case 'notices': return <NoticesView notices={notices} />;
+            default: return <DashboardHome
+                user={user}
+                currentSlot={currentSlot}
+                onOpenAI={() => setIsChatOpen(true)}
+                liveSession={liveSession}
+                setLiveSession={setLiveSession}
+                recentAttendance={recentAttendance}
+                setRecentAttendance={setRecentAttendance}
+                setShowScanner={setShowScanner}
+                onBiometricAttendance={handleBiometricAttendance}
+                bioLoading={bioLoading}
+            />;
+        }
+    };
 
-      <main className="main-content">
-        <header className="mobile-header">
-            <button className="hamburger-btn" onClick={() => setIsMobileNavOpen(true)}><i className="fas fa-bars"></i></button>
-            <div className="mobile-brand"><img src={logo} alt="Logo" className="mobile-logo-img" /><span className="mobile-logo-text">AcadeX</span></div>
-            <div style={{width:'40px'}}></div>
-        </header>
-        
-        {renderContent()}
+    return (
+        <div className="dashboard-container">
 
-        {showScanner && ReactDOM.createPortal(
-            <div style={{
-                position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
-                backgroundColor: 'rgba(0,0,0,0.95)', zIndex: 999999, 
-                display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center'
-            }}>
-                <div id="reader" style={{width: '300px', height: '300px', background: 'black', borderRadius: '12px', overflow:'hidden', border:'2px solid #2563eb'}}></div>
-                <p style={{color:'white', marginTop:'20px', fontWeight: '500', fontSize:'16px'}}>Align QR Code within the frame</p>
-                <button 
-                    onClick={() => setShowScanner(false)} 
-                    style={{
-                        marginTop:'30px', background:'transparent', border:'1px solid white', 
-                        color:'white', padding:'10px 30px', borderRadius:'30px', cursor:'pointer', fontSize:'14px'
-                    }}
-                >
-                    Cancel Scan
-                </button>
-            </div>,
-            document.body
-        )}
+            {isMobileNavOpen && <div className="nav-overlay" onClick={() => setIsMobileNavOpen(false)} />}
 
-        <MobileFooter 
-            activePage={activePage} 
-            setActivePage={setActivePage} 
-            badgeCount={badgeCount} 
-            liveSession={liveSession} 
-            onScan={() => setShowScanner(true)}
-            onChat={() => setIsChatOpen(true)}
-        />
-      </main>
+            <aside className={`sidebar ${isMobileNavOpen ? 'open' : ''}`} style={{ zIndex: isMobileNavOpen ? 200 : 50 }}>
+                <div className="logo-container"><img src={logo} alt="AcadeX" className="sidebar-logo" /><span className="logo-text">Acadex</span></div>
+                {user && (
+                    <div className="teacher-info" onClick={() => { setActivePage('profile'); setIsMobileNavOpen(false); }} style={{ cursor: 'pointer' }}>
+                        <h4>{user.firstName} {user.lastName}</h4>
+                        <p>Roll No: {user.rollNo}</p>
+                        <p style={{ fontSize: '14px', color: '#059669', fontWeight: '700', margin: '4px 0' }}>{user.xp || 0} Credits Earned</p>
+                    </div>
+                )}
+                <ul className="menu">
+                    <li className={activePage === 'dashboard' ? 'active' : ''} onClick={() => { setActivePage('dashboard'); setIsMobileNavOpen(false); }}>
+                        <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '15px' }}>
+                            <i className="fas fa-home" style={{ width: '24px', textAlign: 'center' }}></i>
+                            <span>Dashboard</span>
+                        </div>
+                    </li>
+                    <li className={activePage === 'notices' ? 'active' : ''} onClick={() => { setActivePage('notices'); setIsMobileNavOpen(false); }}>
+                        <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '15px' }}>
+                            <i className="fas fa-bullhorn" style={{ width: '24px', textAlign: 'center' }}></i>
+                            <span>Notice Board</span>
+                            {badgeCount > 0 && <span className="nav-badge" style={{ background: '#ef4444', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '12px', marginLeft: 'auto', fontWeight: 'bold' }}>{badgeCount}</span>}
+                        </div>
+                    </li>
+                    <li className={activePage === 'tasks' ? 'active' : ''} onClick={() => { setActivePage('tasks'); setIsMobileNavOpen(false); }}>
+                        <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '15px' }}>
+                            <i className="fas fa-check-circle" style={{ width: '24px', textAlign: 'center' }}></i>
+                            <span>Free Period Tasks</span>
+                            {isFreePeriod && <span className="nav-badge pulsate" style={{ background: '#10b981', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '12px', marginLeft: 'auto', fontWeight: 'bold' }}>LIVE</span>}
+                        </div>
+                    </li>
+                    <li className={activePage === 'leaderboard' ? 'active' : ''} onClick={() => { setActivePage('leaderboard'); setIsMobileNavOpen(false); }}>
+                        <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '15px' }}>
+                            <i className="fas fa-trophy" style={{ width: '24px', textAlign: 'center' }}></i>
+                            <span>Leaderboard</span>
+                        </div>
+                    </li>
+                    <li className={activePage === 'plans' ? 'active' : ''} onClick={() => { setActivePage('plans'); setIsMobileNavOpen(false); }}>
+                        <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '15px' }}>
+                            <i className="fas fa-paper-plane" style={{ width: '24px', textAlign: 'center' }}></i>
+                            <span>Future Plans</span>
+                        </div>
+                    </li>
+                    <li className={activePage === 'leave' ? 'active' : ''} onClick={() => { setActivePage('leave'); setIsMobileNavOpen(false); }}>
+                        <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '15px' }}>
+                            <i className="fas fa-calendar-minus" style={{ width: '24px', textAlign: 'center' }}></i>
+                            <span>Apply Leave</span>
+                        </div>
+                    </li>
+                    <li className={activePage === 'profile' ? 'active' : ''} onClick={() => { setActivePage('profile'); setIsMobileNavOpen(false); }}>
+                        <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '15px' }}>
+                            <i className="fas fa-user" style={{ width: '24px', textAlign: 'center' }}></i>
+                            <span>Profile</span>
+                        </div>
+                    </li>
+                </ul>
+                <div className="sidebar-footer"><button onClick={handleLogout} className="logout-btn"><i className="fas fa-sign-out-alt"></i> <span>Logout</span></button></div>
+            </aside>
 
-      {user && (
-          <AiChatbot 
-            user={user} 
-            isOpenProp={isChatOpen} 
-            onClose={() => setIsChatOpen(false)} 
-            initialMessage={chatInitialMessage} 
-          />
-      )}
-    </div>
-  );
+            <main className="main-content">
+                <header className="mobile-header">
+                    <button className="hamburger-btn" onClick={() => setIsMobileNavOpen(true)}><i className="fas fa-bars"></i></button>
+                    <div className="mobile-brand"><img src={logo} alt="Logo" className="mobile-logo-img" /><span className="mobile-logo-text">AcadeX</span></div>
+                    <div style={{ width: '40px' }}></div>
+                </header>
+
+                {renderContent()}
+
+                {showScanner && ReactDOM.createPortal(
+                    <div style={{
+                        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                        backgroundColor: 'rgba(0,0,0,0.95)', zIndex: 999999,
+                        display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center'
+                    }}>
+                        <div id="reader" style={{ width: '300px', height: '300px', background: 'black', borderRadius: '12px', overflow: 'hidden', border: '2px solid #2563eb' }}></div>
+                        <p style={{ color: 'white', marginTop: '20px', fontWeight: '500', fontSize: '16px' }}>Align QR Code within the frame</p>
+                        <button
+                            onClick={() => setShowScanner(false)}
+                            style={{
+                                marginTop: '30px', background: 'transparent', border: '1px solid white',
+                                color: 'white', padding: '10px 30px', borderRadius: '30px', cursor: 'pointer', fontSize: '14px'
+                            }}
+                        >
+                            Cancel Scan
+                        </button>
+                    </div>,
+                    document.body
+                )}
+
+                <MobileFooter
+                    activePage={activePage}
+                    setActivePage={setActivePage}
+                    badgeCount={badgeCount}
+                    liveSession={liveSession}
+                    onScan={() => setShowScanner(true)}
+                    onChat={() => setIsChatOpen(true)}
+                />
+            </main>
+
+            {user && (
+                <AiChatbot
+                    user={user}
+                    isOpenProp={isChatOpen}
+                    onClose={() => setIsChatOpen(false)}
+                    initialMessage={chatInitialMessage}
+                />
+            )}
+        </div>
+    );
 }

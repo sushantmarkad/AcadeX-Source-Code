@@ -2,12 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { auth, db, sendPasswordResetEmail } from '../firebase';
-// ✅ Updated imports to include addDoc and serverTimestamp for Announcements
-import { doc, getDoc, collection, query, where, onSnapshot, deleteDoc, addDoc, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc, collection, query, where, onSnapshot, deleteDoc, addDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import toast, { Toaster } from 'react-hot-toast';
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { 
+    PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend, 
+    BarChart, Bar, XAxis, YAxis, CartesianGrid 
+} from 'recharts';
+import { Timestamp } from 'firebase/firestore';
 import logo from "../assets/logo.png";
 import './Dashboard.css';
+import './HODDashboard.css'; 
 
 import ManageTimetable from './ManageTimetable';
 
@@ -19,12 +23,12 @@ export default function HODDashboard() {
     const [deptUsers, setDeptUsers] = useState([]);
     const [leaves, setLeaves] = useState([]);
     const [totalClasses, setTotalClasses] = useState(0);
-    const [searchQuery, setSearchQuery] = useState(""); // Search for Analytics
+    const [searchQuery, setSearchQuery] = useState(""); 
 
     const [selectedRequestIds, setSelectedRequestIds] = useState([]);
     const [selectedUserIds, setSelectedUserIds] = useState([]);
 
-    // ✅ Added Announcement State
+    // ✅ Announcement State (Fixed naming consistency)
     const [announcements, setAnnouncements] = useState([]);
     const [announcementForm, setAnnouncementForm] = useState({ title: '', message: '', targetYear: 'All' });
 
@@ -32,8 +36,17 @@ export default function HODDashboard() {
     const [activeTab, setActiveTab] = useState('dashboard');
     const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
-    // ✅ Updated Teacher Form State (Includes assignedClasses for subject mapping)
-    const [teacherForm, setTeacherForm] = useState({ firstName: '', lastName: '', email: '', password: '', assignedClasses: [] });
+    // ✅ Teacher Form (Includes Academic Year)
+    const [teacherForm, setTeacherForm] = useState({ 
+        firstName: '', lastName: '', email: '', password: '', 
+        academicYear: '2024-2025', 
+        assignedClasses: [] 
+    });
+    
+    // ✅ Profile Editing State
+    const [profileForm, setProfileForm] = useState({ firstName: '', lastName: '', qualification: '', phone: '' });
+    const [isEditingProfile, setIsEditingProfile] = useState(false);
+
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
 
@@ -44,6 +57,14 @@ export default function HODDashboard() {
             if (userDoc.exists()) {
                 const data = userDoc.data();
                 setHodInfo(data);
+                
+                // Initialize Profile Form
+                setProfileForm({
+                    firstName: data.firstName || '',
+                    lastName: data.lastName || '',
+                    qualification: data.qualification || '',
+                    phone: data.phone || ''
+                });
 
                 // Fetch Stats
                 const statsDoc = await getDoc(doc(db, "department_stats", `${data.instituteId}_${data.department}`));
@@ -61,11 +82,10 @@ export default function HODDashboard() {
                 const qLeaves = query(collection(db, 'leave_requests'), where('instituteId', '==', data.instituteId), where('department', '==', data.department), where('status', '==', 'pending'));
                 onSnapshot(qLeaves, (snap) => setLeaves(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
-                // ✅ Fetch Announcements
+                // Fetch Announcements
                 const qAnnouncements = query(collection(db, 'announcements'), where('instituteId', '==', data.instituteId), where('department', '==', data.department));
                 onSnapshot(qAnnouncements, (snap) => {
                     const annData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                    // Sort by createdAt descending (newest first)
                     annData.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
                     setAnnouncements(annData);
                 });
@@ -73,6 +93,78 @@ export default function HODDashboard() {
         };
         init();
     }, []);
+
+    // --- ✅ NEW: ATTENDANCE ANALYTICS LOGIC ---
+    const [attendanceGraph, setAttendanceGraph] = useState([]);
+    const [timeRange, setTimeRange] = useState('week'); // 'week' | 'month'
+
+    useEffect(() => {
+        const fetchAttendanceStats = async () => {
+            if (!hodInfo || deptUsers.length === 0) return;
+
+            // 1. Calculate Total Students per Year
+            const studentsByYear = { FE: 0, SE: 0, TE: 0, BE: 0 };
+            const studentYearMap = {}; // Map uid -> year
+            
+            deptUsers.forEach(u => {
+                if (u.role === 'student' && u.year) {
+                    studentsByYear[u.year] = (studentsByYear[u.year] || 0) + 1;
+                    studentYearMap[u.id] = u.year;
+                }
+            });
+
+            // 2. Define Time Range
+            const now = new Date();
+            const startDate = new Date();
+            if (timeRange === 'week') startDate.setDate(now.getDate() - 7);
+            else startDate.setDate(now.getDate() - 30); // Monthly
+
+            // 3. Fetch Attendance Logs (Optimized for recent only)
+            try {
+                const q = query(
+                    collection(db, 'attendance'),
+                    where('instituteId', '==', hodInfo.instituteId),
+                    where('department', '==', hodInfo.department),
+                    where('timestamp', '>=', Timestamp.fromDate(startDate))
+                );
+                
+                // Note: onSnapshot is better for real-time, but getDocs is fine for analytics to save reads
+                onSnapshot(q, (snap) => {
+                    const yearCounts = { FE: 0, SE: 0, TE: 0, BE: 0 }; // Total 'Present' count
+                    const sessionsByYear = { FE: new Set(), SE: new Set(), TE: new Set(), BE: new Set() };
+
+                    snap.docs.forEach(doc => {
+                        const data = doc.data();
+                        const studentYear = studentYearMap[data.studentId];
+                        
+                        if (studentYear && yearCounts[studentYear] !== undefined) {
+                            yearCounts[studentYear]++;
+                            sessionsByYear[studentYear].add(data.sessionId);
+                        }
+                    });
+
+                    // 4. Calculate Percentage per Year
+                    const graphData = ['FE', 'SE', 'TE', 'BE'].map(year => {
+                        const totalStudents = studentsByYear[year] || 1; // Avoid divide by zero
+                        const totalSessions = sessionsByYear[year].size || 1;
+                        const totalPresent = yearCounts[year];
+                        
+                        // Avg Present % = (Total Present) / (Total Sessions * Total Students) * 100
+                        const avgPct = Math.round((totalPresent / (totalSessions * totalStudents)) * 100) || 0;
+
+                        return { name: year, attendance: avgPct, totalStudents: studentsByYear[year] };
+                    });
+
+                    setAttendanceGraph(graphData);
+                });
+
+            } catch (err) {
+                console.error("Error fetching analytics:", err);
+            }
+        };
+
+        fetchAttendanceStats();
+    }, [hodInfo, deptUsers, timeRange]);
 
     // --- ANALYTICS CALCULATIONS ---
     const studentsList = deptUsers.filter(u => u.role === 'student');
@@ -118,21 +210,18 @@ export default function HODDashboard() {
         else setSelectedRequestIds(studentRequests.map(r => r.id));
     };
 
-    // ✅ Handle Class/Year Selection for New Teacher
+    // Handle Class/Year Selection for New Teacher
     const handleClassToggle = (year) => {
         setTeacherForm(prev => {
             const exists = prev.assignedClasses.find(c => c.year === year);
             if (exists) {
-                // Remove
                 return { ...prev, assignedClasses: prev.assignedClasses.filter(c => c.year !== year) };
             } else {
-                // Add with empty subject
                 return { ...prev, assignedClasses: [...prev.assignedClasses, { year, subject: '' }] };
             }
         });
     };
 
-    // ✅ Handle Subject Input for Specific Year
     const handleSubjectChange = (year, subject) => {
         setTeacherForm(prev => ({
             ...prev,
@@ -142,12 +231,36 @@ export default function HODDashboard() {
 
     // --- ACTIONS ---
 
+    // 1. Update Profile
+    const handleUpdateProfile = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        try {
+            await updateDoc(doc(db, 'users', auth.currentUser.uid), {
+                firstName: profileForm.firstName,
+                lastName: profileForm.lastName,
+                qualification: profileForm.qualification,
+                phone: profileForm.phone
+            });
+            setHodInfo(prev => ({ ...prev, ...profileForm }));
+            setIsEditingProfile(false);
+            toast.success("Profile Updated!");
+        } catch (error) {
+            toast.error("Update Failed");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // 2. Post Announcement
     const handlePostAnnouncement = async (e) => {
         e.preventDefault();
         const toastId = toast.loading("Posting...");
         try {
             await addDoc(collection(db, 'announcements'), {
-                ...announcementForm,
+                title: announcementForm.title,
+                message: announcementForm.message,
+                targetYear: announcementForm.targetYear,
                 instituteId: hodInfo.instituteId,
                 department: hodInfo.department,
                 teacherName: `${hodInfo.firstName} ${hodInfo.lastName} (HOD)`,
@@ -261,7 +374,7 @@ export default function HODDashboard() {
         } catch (e) { toast.error("Error rejecting", { id: toastId }); }
     };
 
-    // ✅ Updated Add Teacher Handler (Sends assignedClasses)
+    // 3. Add Teacher (Sends assignedClasses and Academic Year)
     const handleAddTeacher = async (e) => {
         e.preventDefault();
 
@@ -269,7 +382,6 @@ export default function HODDashboard() {
             toast.error("Please assign at least one class.");
             return;
         }
-        // Check if subjects are filled
         const incomplete = teacherForm.assignedClasses.find(c => !c.subject || c.subject.trim() === "");
         if (incomplete) {
             toast.error(`Please enter a subject for ${incomplete.year} year.`);
@@ -287,16 +399,35 @@ export default function HODDashboard() {
                     instituteId: hodInfo.instituteId,
                     instituteName: hodInfo.instituteName,
                     department: hodInfo.department,
-                    // Backend now expects assignedClasses
                     assignedClasses: teacherForm.assignedClasses,
-                    extras: { qualification: 'Added by HOD' }
+                    extras: { 
+                        academicYear: teacherForm.academicYear,
+                        qualification: 'Added by HOD' 
+                    }
                 })
             });
             await sendPasswordResetEmail(auth, teacherForm.email);
             toast.success(`Teacher Added!`, { id: toastId });
-            setTeacherForm({ firstName: '', lastName: '', email: '', password: '', assignedClasses: [] });
+            setTeacherForm({ firstName: '', lastName: '', email: '', password: '', academicYear: '2024-2025', assignedClasses: [] });
         } catch (error) { toast.error("Error: " + error.message, { id: toastId }); } finally { setLoading(false); }
     };
+
+    const MobileFooter = () => (
+        <div className="mobile-footer">
+            <button className={activeTab === 'dashboard' ? 'active' : ''} onClick={() => setActiveTab('dashboard')}>
+                <i className="fas fa-th-large"></i><span>Home</span>
+            </button>
+            <button className={activeTab === 'analytics' ? 'active' : ''} onClick={() => setActiveTab('analytics')}>
+                <i className="fas fa-chart-pie"></i><span>Stats</span>
+            </button>
+            <button className={activeTab === 'announcements' ? 'active' : ''} onClick={() => setActiveTab('announcements')}>
+                <i className="fas fa-bullhorn"></i><span>Notices</span>
+            </button>
+            <button className={activeTab === 'profile' ? 'active' : ''} onClick={() => setActiveTab('profile')}>
+                <i className="fas fa-user"></i><span>Profile</span>
+            </button>
+        </div>
+    );
 
     const NavLink = ({ page, iconClass, label, count }) => (
         <li className={activeTab === page ? 'active' : ''} onClick={() => { setActiveTab(page); setIsMobileNavOpen(false); }}>
@@ -310,7 +441,7 @@ export default function HODDashboard() {
         <div className="dashboard-container">
             <Toaster
                 position="bottom-center"
-                toastOptions={{ duration: 4000, style: { background: '#1e293b', color: '#fff', marginBottom: '20px' } }}
+                toastOptions={{ duration: 4000, style: { background: '#1e293b', color: '#fff', marginBottom: '60px' } }}
             />
 
             {modal.isOpen && (
@@ -339,6 +470,7 @@ export default function HODDashboard() {
                     <NavLink page="manage" iconClass="fa-users" label="Dept Users" />
                     <NavLink page="timetable" iconClass="fa-calendar-alt" label="Timetable" />
                     <NavLink page="addTeacher" iconClass="fa-chalkboard-teacher" label="Add Teacher" />
+                    <NavLink page="profile" iconClass="fa-user-cog" label="My Profile" />
                 </ul>
                 <div className="sidebar-footer">
                     <button className="logout-btn" onClick={() => signOut(auth).then(() => navigate('/'))}>
@@ -347,29 +479,66 @@ export default function HODDashboard() {
                 </div>
             </aside>
 
-            <main className="main-content">
+            <main className="main-content" style={{paddingBottom: '70px'}}>
                 <header className="mobile-header">
                     <button className="hamburger-btn" onClick={() => setIsMobileNavOpen(true)}><i className="fas fa-bars"></i></button>
                     <div className="mobile-brand"><img src={logo} alt="Logo" className="mobile-logo-img" /><span className="mobile-logo-text">AcadeX</span></div>
                     <div style={{ width: '40px' }}></div>
                 </header>
 
+               {/* ✅ UPDATED DASHBOARD TAB */}
                 {activeTab === 'dashboard' && (
                     <div className="content-section">
-                        <h2 className="content-title">Overview</h2>
-                        <div className="cards-grid">
-                            <div className="card" style={{ background: 'linear-gradient(135deg, #eff6ff 0%, #bfdbfe 100%)', border: 'none' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                                    <div className="icon-box-modern" style={{ background: 'white', color: '#2563eb', width: '50px', height: '50px', fontSize: '20px' }}><i className="fas fa-user-graduate"></i></div>
-                                    <div><h3 style={{ margin: 0, color: '#1e3a8a', fontSize: '16px' }}>Students</h3><p style={{ margin: 0, fontSize: '36px', fontWeight: '800', color: '#1e40af', lineHeight: '1.2' }}>{studentsList.length}</p></div>
+                        <h2 className="content-title">Department Overview</h2>
+                        
+                        {/* 1. Student Count by Year (Cards) */}
+                        <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom:'20px' }}>
+                            {['FE', 'SE', 'TE', 'BE'].map(year => {
+                                const count = studentsList.filter(s => s.year === year).length;
+                                const colors = { FE: '#3b82f6', SE: '#8b5cf6', TE: '#f59e0b', BE: '#10b981' };
+                                const bgs = { FE: '#eff6ff', SE: '#f5f3ff', TE: '#fffbeb', BE: '#ecfdf5' };
+                                return (
+                                    <div key={year} className="card" style={{ background: bgs[year], border: 'none', borderLeft: `4px solid ${colors[year]}` }}>
+                                        <h3 style={{ margin: 0, color: colors[year], fontSize: '14px' }}>{year} Students</h3>
+                                        <p style={{ margin: '5px 0 0', fontSize: '28px', fontWeight: '800', color: '#1e293b' }}>{count}</p>
+                                    </div>
+                                );
+                            })}
+                            <div className="card" style={{ background: '#f8fafc', border: 'none', borderLeft: '4px solid #64748b' }}>
+                                <h3 style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>Total Faculty</h3>
+                                <p style={{ margin: '5px 0 0', fontSize: '28px', fontWeight: '800', color: '#1e293b' }}>{teachersList.length}</p>
+                            </div>
+                        </div>
+
+                        {/* 2. Attendance Analytics Graph */}
+                        <div className="card" style={{ height: '400px', display: 'flex', flexDirection: 'column' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                                <div>
+                                    <h3 style={{ margin: 0, color: '#1e293b' }}>Average Attendance</h3>
+                                    <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>Performance by Class Year</p>
+                                </div>
+                                <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '8px', display: 'flex' }}>
+                                    <button onClick={() => setTimeRange('week')} style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', background: timeRange === 'week' ? 'white' : 'transparent', color: timeRange === 'week' ? '#0f172a' : '#64748b', boxShadow: timeRange === 'week' ? '0 2px 5px rgba(0,0,0,0.05)' : 'none' }}>This Week</button>
+                                    <button onClick={() => setTimeRange('month')} style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', background: timeRange === 'month' ? 'white' : 'transparent', color: timeRange === 'month' ? '#0f172a' : '#64748b', boxShadow: timeRange === 'month' ? '0 2px 5px rgba(0,0,0,0.05)' : 'none' }}>This Month</button>
                                 </div>
                             </div>
-                            <div className="card" style={{ background: 'linear-gradient(135deg, #ecfdf5 0%, #a7f3d0 100%)', border: 'none' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                                    <div className="icon-box-modern" style={{ background: 'white', color: '#059669', width: '50px', height: '50px', fontSize: '20px' }}><i className="fas fa-chalkboard-teacher"></i></div>
-                                    <div><h3 style={{ margin: 0, color: '#064e3b', fontSize: '16px' }}>Teachers</h3><p style={{ margin: 0, fontSize: '36px', fontWeight: '800', color: '#065f46', lineHeight: '1.2' }}>{teachersList.length}</p></div>
-                                </div>
-                            </div>
+
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={attendanceGraph} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12, fontWeight: 600 }} dy={10} />
+                                    <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                                    <Tooltip 
+                                        cursor={{ fill: '#f1f5f9' }}
+                                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                                    />
+                                    <Bar dataKey="attendance" name="Avg Attendance %" radius={[6, 6, 0, 0]} barSize={50}>
+                                        {attendanceGraph.map((entry, index) => (
+                                            <Cell key={`cell-${index}`} fill={entry.name === 'FE' ? '#3b82f6' : entry.name === 'SE' ? '#8b5cf6' : entry.name === 'TE' ? '#f59e0b' : '#10b981'} />
+                                        ))}
+                                    </Bar>
+                                </BarChart>
+                            </ResponsiveContainer>
                         </div>
                     </div>
                 )}
@@ -443,6 +612,91 @@ export default function HODDashboard() {
                     </div>
                 )}
 
+                {activeTab === 'profile' && (
+    <div className="content-section">
+        <h2 className="content-title">My Profile</h2>
+        <div className="card" style={{ padding: 0, overflow: 'hidden', maxWidth: '800px' }}>
+            
+            {/* 1. Cover Photo & Avatar Area */}
+            <div className="profile-cover">
+                <div className="profile-avatar-wrapper">
+                    <div className="profile-avatar-img">
+                        {hodInfo?.firstName?.charAt(0)}
+                    </div>
+                </div>
+                {/* Edit Button positioned on Cover */}
+                <div style={{ position: 'absolute', bottom: '-50px', right: '20px' }}>
+                    <button className="edit-btn-floating" onClick={() => setIsEditingProfile(!isEditingProfile)}>
+                        {isEditingProfile ? 'Cancel Editing' : <><i className="fas fa-pen"></i> Edit Profile</>}
+                    </button>
+                </div>
+            </div>
+
+            {/* 2. Header Info */}
+            <div className="profile-header-content">
+                <div style={{ marginTop: '10px' }}>
+                    <h2 style={{ margin: 0, fontSize: '24px', color: '#1e293b' }}>
+                        {hodInfo?.firstName} {hodInfo?.lastName}
+                    </h2>
+                    <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '14px' }}>
+                        Head of Department • {hodInfo?.department}
+                    </p>
+                </div>
+            </div>
+
+            {/* 3. Details Grid (View Mode) */}
+            {!isEditingProfile ? (
+                <div className="profile-grid">
+                    <div className="profile-field">
+                        <label>Institute</label>
+                        <div><i className="fas fa-university" style={{color:'#6366f1'}}></i> {hodInfo?.instituteName}</div>
+                    </div>
+                    <div className="profile-field">
+                        <label>Email Address</label>
+                        <div><i className="fas fa-envelope" style={{color:'#ef4444'}}></i> {hodInfo?.email}</div>
+                    </div>
+                    <div className="profile-field">
+                        <label>Qualification</label>
+                        <div><i className="fas fa-graduation-cap" style={{color:'#f59e0b'}}></i> {hodInfo?.qualification || 'Not Added'}</div>
+                    </div>
+                    <div className="profile-field">
+                        <label>Phone Number</label>
+                        <div><i className="fas fa-phone" style={{color:'#10b981'}}></i> {hodInfo?.phone || 'Not Added'}</div>
+                    </div>
+                </div>
+            ) : (
+                // 4. Edit Form
+                <form onSubmit={handleUpdateProfile} style={{ padding: '20px' }}>
+                    <div style={{display:'flex', gap:'15px', marginBottom:'15px'}}>
+                        <div className="input-group" style={{flex:1}}>
+                            <label>First Name</label>
+                            <input type="text" value={profileForm.firstName} onChange={e => setProfileForm({...profileForm, firstName: e.target.value})} className="modern-input" />
+                        </div>
+                        <div className="input-group" style={{flex:1}}>
+                            <label>Last Name</label>
+                            <input type="text" value={profileForm.lastName} onChange={e => setProfileForm({...profileForm, lastName: e.target.value})} className="modern-input" />
+                        </div>
+                    </div>
+                    
+                    <div style={{display:'flex', gap:'15px', marginBottom:'15px'}}>
+                        <div className="input-group" style={{flex:1}}>
+                            <label>Qualification</label>
+                            <input type="text" value={profileForm.qualification} onChange={e => setProfileForm({...profileForm, qualification: e.target.value})} className="modern-input" placeholder="e.g. PhD" />
+                        </div>
+                        <div className="input-group" style={{flex:1}}>
+                            <label>Phone</label>
+                            <input type="text" value={profileForm.phone} onChange={e => setProfileForm({...profileForm, phone: e.target.value})} className="modern-input" placeholder="+91..." />
+                        </div>
+                    </div>
+
+                    <button className="btn-primary" disabled={loading} style={{width:'100%'}}>
+                        {loading ? 'Saving Changes...' : 'Save Updates'}
+                    </button>
+                </form>
+            )}
+        </div>
+    </div>
+)}
                 {activeTab === 'announcements' && (
                     <div className="content-section">
                         <h2 className="content-title">📢 Announcements</h2>
@@ -452,9 +706,13 @@ export default function HODDashboard() {
                                 <form onSubmit={handlePostAnnouncement} style={{ marginTop: '15px' }}>
                                     <div className="input-group">
                                         <label>Target Audience</label>
-                                        <select value={announcementForm.targetYear} onChange={e => setAnnouncementForm({ ...announcementForm, targetYear: e.target.value })} required>
-                                            <option value="All">All Students</option>
-                                            <option value="FE">FE</option><option value="SE">SE</option><option value="TE">TE</option><option value="BE">BE</option>
+                                        <select value={announcementForm.targetYear} onChange={e => setAnnouncementForm({ ...announcementForm, targetYear: e.target.value })} required className="modern-select">
+                                            <option value="All">All Students & Teachers</option>
+                                            <option value="Teachers">Teachers Only</option>
+                                            <option value="FE">First Year (FE)</option>
+                                            <option value="SE">Second Year (SE)</option>
+                                            <option value="TE">Third Year (TE)</option>
+                                            <option value="BE">Final Year (BE)</option>
                                         </select>
                                     </div>
                                     <div className="input-group"><label>Title</label><input type="text" required value={announcementForm.title} onChange={e => setAnnouncementForm({ ...announcementForm, title: e.target.value })} /></div>
@@ -467,9 +725,12 @@ export default function HODDashboard() {
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '400px', overflowY: 'auto', marginTop: '10px' }}>
                                     {announcements.map(a => (
                                         <div key={a.id} style={{ padding: '12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', position: 'relative' }}>
-                                            <span className="status-badge-pill" style={{ fontSize: '10px', marginBottom: '5px' }}>{a.targetYear === 'All' ? 'Everyone' : a.targetYear}</span>
+                                            <span className="status-badge-pill" style={{ fontSize: '10px', marginBottom: '5px', background: a.targetYear === 'Teachers' ? '#fef3c7' : '#e0f2fe', color: a.targetYear === 'Teachers' ? '#d97706' : '#0284c7' }}>
+                                                {a.targetYear === 'All' ? 'Everyone' : a.targetYear}
+                                            </span>
                                             <h4 style={{ margin: '0 0 5px 0' }}>{a.title}</h4>
                                             <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>{a.message}</p>
+                                            <small style={{fontSize:'11px', color:'#94a3b8'}}>By: {a.teacherName}</small>
                                             <button onClick={() => handleDeleteAnnouncement(a.id)} style={{ position: 'absolute', top: '10px', right: '10px', background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}><i className="fas fa-trash"></i></button>
                                         </div>
                                     ))}
@@ -534,120 +795,122 @@ export default function HODDashboard() {
                     </div>
                 )}
 
-               {activeTab === 'manage' && (
-    <div className="content-section">
-        <h2 className="content-title">Department Users</h2>
-        
-        {/* Teachers Table */}
-        <div className="card card-full-width" style={{ marginBottom: '24px' }}>
-            <h3 style={{ margin: '0 0 10px 0' }}>Teachers ({teachersList.length})</h3>
-            <div className="table-wrapper">
-                <table className="attendance-table">
-                    <thead>
-                        <tr>
-                            <th style={{ width: '40px' }}></th>
-                            <th>Name</th>
-                            <th>Email</th>
-                            <th>Subject</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {teachersList.map(t => (
-                            <tr key={t.id}>
-                                <td>
-                                    <input 
-                                        type="checkbox" 
-                                        checked={selectedUserIds.includes(t.id)} 
-                                        onChange={() => toggleSelectUser(t.id)} 
-                                        className="custom-checkbox" 
-                                    />
-                                </td>
-                                <td>{t.firstName} {t.lastName}</td>
-                                <td>{t.email}</td>
-                                <td>
-                                    {/* ✅ UPDATED: Display multiple subjects/classes */}
-                                    <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
-                                        {t.assignedClasses && t.assignedClasses.length > 0 ? (
-                                            t.assignedClasses.map((cls, idx) => (
-                                                <span key={idx} className="status-badge-pill" style={{ fontSize: '11px', padding: '2px 8px' }}>
-                                                    {cls.year} - {cls.subject}
-                                                </span>
-                                            ))
-                                        ) : (
-                                            <span className="status-badge-pill" style={{ background: '#f1f5f9', color: '#64748b' }}>
-                                                {t.subject || 'N/A'}
-                                            </span>
-                                        )}
+                {/* ✅ DEPT USERS - Year-wise Scrollable Cards */}
+                {activeTab === 'manage' && (
+                    <div className="content-section">
+                        <h2 className="content-title">Department Users</h2>
+                        
+                        {/* Teachers Table */}
+                        <div className="card card-full-width" style={{ marginBottom: '24px' }}>
+                            <h3 style={{ margin: '0 0 10px 0' }}>Teachers ({teachersList.length})</h3>
+                            <div className="table-wrapper">
+                                <table className="attendance-table">
+                                    <thead>
+                                        <tr>
+                                            <th style={{ width: '40px' }}></th>
+                                            <th>Name</th>
+                                            <th>Email</th>
+                                            <th>Classes</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {teachersList.map(t => (
+                                            <tr key={t.id}>
+                                                <td>
+                                                    <input type="checkbox" checked={selectedUserIds.includes(t.id)} onChange={() => toggleSelectUser(t.id)} className="custom-checkbox" />
+                                                </td>
+                                                <td>{t.firstName} {t.lastName}</td>
+                                                <td>{t.email}</td>
+                                                <td>
+                                                    <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                                                        {t.assignedClasses && t.assignedClasses.length > 0 ? 
+                                                            t.assignedClasses.map((cls, idx) => (
+                                                                <span key={idx} className="status-badge-pill" style={{ fontSize: '11px', padding: '2px 8px' }}>
+                                                                    {cls.year} - {cls.subject}
+                                                                </span>
+                                                            ))
+                                                            : (
+                                                                <span className="status-badge-pill" style={{ background: '#f1f5f9', color: '#64748b' }}>
+                                                                    {t.subject || 'N/A'}
+                                                                </span>
+                                                            )
+                                                        }
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* Students Section - Year Wise Scrollable Cards */}
+                        <h3 style={{ margin: '0 0 15px 0' }}>Students ({studentsList.length})</h3>
+                        <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+                            {['FE', 'SE', 'TE', 'BE'].map(year => {
+                                const yearStudents = studentsList.filter(s => s.year === year);
+                                return (
+                                    <div key={year} className="card" style={{ display: 'flex', flexDirection: 'column', height: '350px' }}>
+                                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', borderBottom:'1px solid #e2e8f0', paddingBottom:'10px', marginBottom:'10px' }}>
+                                            <h3 style={{ margin: 0, color: '#2563eb' }}>{year} Students</h3>
+                                            <span className="nav-badge" style={{background:'#eff6ff', color:'#2563eb', fontSize:'12px'}}>{yearStudents.length}</span>
+                                        </div>
+                                        
+                                        <div className="custom-scroll" style={{ flex: 1, overflowY: 'auto' }}>
+                                            {yearStudents.length > 0 ? (
+                                                <table className="attendance-table" style={{ fontSize: '13px' }}>
+                                                    <thead><tr><th>Roll</th><th>Name</th></tr></thead>
+                                                    <tbody>
+                                                        {yearStudents.sort((a,b) => (a.rollNo || "").localeCompare(b.rollNo, undefined, {numeric:true})).map(s => (
+                                                            <tr key={s.id}>
+                                                                <td style={{fontWeight:'bold'}}>{s.rollNo}</td>
+                                                                <td>{s.firstName} {s.lastName}</td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            ) : <p style={{textAlign:'center', color:'#94a3b8', marginTop:'20px'}}>No students found.</p>}
+                                        </div>
                                     </div>
-                                </td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-        </div>
+                                );
+                            })}
+                        </div>
 
-        {/* Students Table */}
-        <div className="card card-full-width">
-            <h3 style={{ margin: '0 0 10px 0' }}>Students ({studentsList.length})</h3>
-            <div className="table-wrapper">
-                <table className="attendance-table">
-                    <thead>
-                        <tr>
-                            <th style={{ width: '40px' }}></th>
-                            <th>Roll No</th>
-                            <th>Name</th>
-                            <th>Class</th>
-                            <th>Email</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {studentsList.sort((a, b) => (a.rollNo || "").localeCompare(b.rollNo, undefined, { numeric: true })).map(s => (
-                            <tr key={s.id}>
-                                <td>
-                                    <input 
-                                        type="checkbox" 
-                                        checked={selectedUserIds.includes(s.id)} 
-                                        onChange={() => toggleSelectUser(s.id)} 
-                                        className="custom-checkbox" 
-                                    />
-                                </td>
-                                <td style={{ fontWeight: 'bold' }}>{s.rollNo}</td>
-                                <td>{s.firstName} {s.lastName}</td>
-                                <td><span className="status-badge-pill">{s.year || '-'}</span></td>
-                                <td>{s.email}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-        </div>
+                        {selectedUserIds.length > 0 && (
+                            <button className="floating-delete-btn" onClick={handleDeleteUsers}>
+                                <i className="fas fa-trash-alt"></i> Delete ({selectedUserIds.length})
+                            </button>
+                        )}
+                    </div>
+                )}
 
-        {/* Delete Button */}
-        {selectedUserIds.length > 0 && (
-            <button className="floating-delete-btn" onClick={handleDeleteUsers}>
-                <i className="fas fa-trash-alt"></i> Delete ({selectedUserIds.length})
-            </button>
-        )}
-    </div>
-)}
                 {activeTab === 'timetable' && <ManageTimetable hodInfo={hodInfo} />}
 
-                {/* ✅ UPDATED ADD TEACHER SECTION */}
                 {activeTab === 'addTeacher' && (
                     <div className="content-section">
                         <h2 className="content-title">Add New Teacher</h2>
                         <div className="card">
                             <form onSubmit={handleAddTeacher}>
-                                <div className="input-group"><label>First Name</label><input type="text" required value={teacherForm.firstName} onChange={e => setTeacherForm({ ...teacherForm, firstName: e.target.value })} /></div>
-                                <div className="input-group"><label>Last Name</label><input type="text" required value={teacherForm.lastName} onChange={e => setTeacherForm({ ...teacherForm, lastName: e.target.value })} /></div>
+                                <div style={{display:'flex', gap:'15px'}}>
+                                    <div className="input-group" style={{flex:1}}><label>First Name</label><input type="text" required value={teacherForm.firstName} onChange={e => setTeacherForm({ ...teacherForm, firstName: e.target.value })} /></div>
+                                    <div className="input-group" style={{flex:1}}><label>Last Name</label><input type="text" required value={teacherForm.lastName} onChange={e => setTeacherForm({ ...teacherForm, lastName: e.target.value })} /></div>
+                                </div>
 
                                 <div className="input-group">
                                     <label>Department</label>
                                     <input type="text" value={hodInfo?.department || ''} disabled style={{ background: '#f1f5f9', cursor: 'not-allowed' }} />
                                 </div>
 
-                                {/* ✅ YEAR & SUBJECT SELECTION */}
+                                {/* ✅ Academic Year */}
+                                <div className="input-group">
+                                    <label>Academic Year</label>
+                                    <select value={teacherForm.academicYear} onChange={e => setTeacherForm({...teacherForm, academicYear: e.target.value})} className="modern-select">
+                                        <option value="2024-2025">2024-2025</option>
+                                        <option value="2025-2026">2025-2026</option>
+                                        <option value="2026-2027">2026-2027</option>
+                                    </select>
+                                </div>
+
                                 <div className="input-group">
                                     <label>Assign Classes & Subjects</label>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
@@ -688,6 +951,9 @@ export default function HODDashboard() {
                     </div>
                 )}
             </main>
+            
+            {/* Mobile Footer Bar */}
+            <MobileFooter />
         </div>
     );
 }

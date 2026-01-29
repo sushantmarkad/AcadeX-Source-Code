@@ -1,33 +1,33 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
-import { collection, query, where, onSnapshot, getDoc, doc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import './Dashboard.css';
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
-export default function AddTasks() {
+// ✅ 1. Accept 'teacherInfo' as a prop (Passed from TeacherDashboard)
+export default function AddTasks({ teacherInfo }) {
     const [activeTab, setActiveTab] = useState('create'); 
-    const [teacher, setTeacher] = useState(null);
     const [tasks, setTasks] = useState([]);
     const [selectedTask, setSelectedTask] = useState(null); 
     const [submissions, setSubmissions] = useState([]);
     const [loading, setLoading] = useState(false);
 
     // Form State
-    const [form, setForm] = useState({ title: '', description: '', targetYear: 'All', dueDate: '' });
+    const [form, setForm] = useState({ title: '', description: '', targetYear: '', dueDate: '' });
     
     // Grading State
     const [gradingId, setGradingId] = useState(null);
     const [marks, setMarks] = useState('');
     const [feedback, setFeedback] = useState('');
 
-    useEffect(() => {
-        if (auth.currentUser) {
-            getDoc(doc(db, 'users', auth.currentUser.uid)).then(d => setTeacher(d.data()));
-        }
-    }, []);
+    // ✅ 2. Extract Assigned Years (Filter for Dropdown)
+    const assignedYears = teacherInfo?.assignedClasses 
+        ? [...new Set(teacherInfo.assignedClasses.map(c => c.year))] 
+        : [];
 
+    // Fetch Tasks Created by this Teacher
     useEffect(() => {
         if (!auth.currentUser) return;
         const q = query(collection(db, 'assignments'), where('teacherId', '==', auth.currentUser.uid));
@@ -37,35 +37,40 @@ export default function AddTasks() {
         return () => unsub();
     }, []);
 
-    // ✅ UPDATED FUNCTION: Updates local state immediately after creation
     const handleCreate = async (e) => {
         e.preventDefault();
         
-        if (!teacher || !auth.currentUser) {
-            toast.error("Profile data not fully loaded. Please wait a moment and try again.");
+        if (!teacherInfo || !auth.currentUser) {
+            toast.error("Profile data missing. Please refresh.");
             return;
+        }
+
+        if (!form.targetYear) {
+            return toast.error("Please select a target class.");
         }
         
         setLoading(true);
         const toastId = toast.loading("Assigning Task...");
+        
         try {
             if (!form.dueDate) {
-                 toast.error("Please set a due date.");
+                 toast.error("Please set a due date.", { id: toastId });
                  setLoading(false);
                  return;
             }
             if (new Date(form.dueDate) < new Date(new Date().setHours(0,0,0,0))) {
-                toast.error("Due date must be in the future.");
+                toast.error("Due date must be in the future.", { id: toastId });
                 setLoading(false);
                 return;
             }
 
-            // Prepare task data
+            // Prepare task data using teacherInfo prop
             const taskData = {
                 ...form,
                 teacherId: auth.currentUser.uid,
-                teacherName: teacher.firstName || 'Staff Teacher',
-                department: teacher.department || 'General', 
+                teacherName: teacherInfo.firstName || 'Staff Teacher',
+                department: teacherInfo.department || 'General',
+                instituteId: teacherInfo.instituteId 
             };
 
             const response = await fetch(`${BACKEND_URL}/createAssignment`, {
@@ -81,17 +86,9 @@ export default function AddTasks() {
 
             toast.success("Task Assigned!", { id: toastId });
 
-            // ✅ FIX: Manually update the tasks list immediately
-            // This ensures it shows up in "Evaluate" without waiting for the DB
-            const newTask = { 
-                id: Date.now().toString(), // Temp ID until refresh
-                ...taskData,
-                createdAt: new Date() 
-            };
-            
-            setTasks(prev => [newTask, ...prev]);
+            // Reset form
+            setForm({ title: '', description: '', targetYear: '', dueDate: '' });
 
-            setForm({ title: '', description: '', targetYear: 'All', dueDate: '' });
         } catch (err) { 
             console.error("Task creation failed:", err);
             toast.error(`Failed: ${err.message}`, { id: toastId }); 
@@ -149,18 +146,28 @@ export default function AddTasks() {
                     <form onSubmit={handleCreate} style={{marginTop:'20px'}}>
                         <div className="input-group">
                             <label>Target Audience</label>
-                            <select value={form.targetYear} onChange={e => setForm({...form, targetYear: e.target.value})}>
-                                <option value="All">All Students</option>
-                                <option value="FE">FE (First Year)</option>
-                                <option value="SE">SE (Second Year)</option>
-                                <option value="TE">TE (Third Year)</option>
-                                <option value="BE">BE (Final Year)</option>
+                            {/* ✅ UPDATED: Only shows assigned years */}
+                            <select 
+                                value={form.targetYear} 
+                                onChange={e => setForm({...form, targetYear: e.target.value})}
+                                required
+                                className="modern-select"
+                            >
+                                <option value="">Select Class</option>
+                                <option value="All">All My Classes</option>
+                                {assignedYears.length > 0 ? (
+                                    assignedYears.map(year => (
+                                        <option key={year} value={year}>{year} Year</option>
+                                    ))
+                                ) : (
+                                    <option disabled>No classes assigned</option>
+                                )}
                             </select>
                         </div>
                         <div className="input-group"><label>Title</label><input required value={form.title} onChange={e => setForm({...form, title: e.target.value})} placeholder="e.g. Write a Report on AI" /></div>
                         <div className="input-group"><label>Description</label><textarea className="modern-input" rows="4" required value={form.description} onChange={e => setForm({...form, description: e.target.value})} style={{lineHeight:'1.6'}} /></div>
                         <div className="input-group"><label>Due Date</label><input type="date" required value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} /></div>
-                        <button className="btn-primary" disabled={loading || !teacher}>{loading ? 'Assigning...' : 'Assign Task'}</button>
+                        <button className="btn-primary" disabled={loading}>{loading ? 'Assigning...' : 'Assign Task'}</button>
                     </form>
                 </div>
             )}

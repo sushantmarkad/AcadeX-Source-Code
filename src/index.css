@@ -1,9 +1,13 @@
-:root {
-  /* Capture Safe Area Environment Variables */
-  --sat: env(safe-area-inset-top);
-  --sab: env(safe-area-inset-bottom);
-  --sal: env(safe-area-inset-left);
-  --sar: env(safe-area-inset-right);
+body {
+  -webkit-user-select: none; /* Chrome/Safari */
+  user-select: none;         /* Standard */
+  -webkit-tap-highlight-color: transparent; /* Remove blue tap box */
+}
+
+/* Allow typing in text boxes */
+input, textarea {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 html, body {
@@ -11,39 +15,23 @@ html, body {
   padding: 0;
   width: 100%;
   height: 100%;
-  
-  /* Standard App Fonts */
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   
-  /* iOS Physics & Touch Config */
+  /* iOS Physics */
   overscroll-behavior-y: none;
   -webkit-tap-highlight-color: transparent;
-  
-  /* ✅ EDGE-TO-EDGE DISPLAY FIXES */
-  /* Ensures content starts below the camera notch */
-  padding-top: max(20px, var(--sat)); 
-  /* Ensures bottom navigation doesn't overlap gesture bar */
-  padding-bottom: max(10px, var(--sab));
-  /* Left/Right padding for landscape mode safety */
-  padding-left: var(--sal);
-  padding-right: var(--sar);
-  
-  /* Background Color */
-  background-color: #f8fafc; /* Matches your dashboard background */
-  
-  /* Vital for padding to not affect total width/height */
-  box-sizing: border-box;
+  background-color: #f8fafc; /* Default background */
 }
 
 #root {
   width: 100%;
   height: 100%;
   position: relative; /* Essential for absolute positioning of children */
-  overflow: hidden;   /* Prevents "bounce" scroll on the whole app */
+  overflow: hidden;
 }
 
 /* Hide scrollbar but allow scrolling */
@@ -55,16 +43,4 @@ html, body {
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
-}
-
-/* ✅ SPECIAL FIXES FOR FIXED ELEMENTS */
-
-/* Forces the header to push content down below the notch */
-.mobile-header {
-  padding-top: max(20px, var(--sat)) !important;
-}
-
-/* Ensures Sidebar (if visible) also respects the top notch */
-.sidebar {
-  padding-top: max(30px, var(--sat)) !important;
 }
