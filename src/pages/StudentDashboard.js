@@ -15,6 +15,7 @@ import { PushNotifications } from '@capacitor/push-notifications';
 import { Device } from '@capacitor/device';
 import FingerprintJS from '@fingerprintjs/fingerprintjs';
 import { useBiometricAuth } from '../components/BiometricAuth';
+// ✅ Add these imports at the top
 
 // Component Imports
 import FreePeriodTasks from './FreePeriodTasks';
@@ -23,6 +24,7 @@ import AiChatbot from './AiChatbot';
 import CareerRoadmap from './CareerRoadmap';
 import Leaderboard from './Leaderboard';
 import FreePeriodQuiz from '../components/FreePeriodQuiz';
+
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
@@ -419,6 +421,7 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
 };
 
 // --- 📱 MOBILE FOOTER COMPONENT ---
+// --- 📱 MOBILE FOOTER COMPONENT (Fixed Floating Button) ---
 const MobileFooter = ({ activePage, setActivePage, badgeCount, liveSession, onScan, onChat }) => {
     return (
         <div className="mobile-footer">
@@ -431,12 +434,16 @@ const MobileFooter = ({ activePage, setActivePage, badgeCount, liveSession, onSc
                 <span>Updates</span>
                 {badgeCount > 0 && <span className="nav-badge" style={{ position: 'absolute', top: '-5px', right: '15px', padding: '2px 6px' }}>{badgeCount}</span>}
             </button>
+
+            {/* ✅ FLOATING SCAN BUTTON */}
             <div className="scan-btn-wrapper">
                 <button className="scan-btn" onClick={onScan}>
                     <i className="fas fa-qrcode"></i>
+                    {/* Optional: Add a badge if session is live */}
                     {liveSession && <div className="scan-badge">1</div>}
                 </button>
             </div>
+
             <button className={`nav-item ${activePage === 'leaderboard' ? 'active' : ''}`} onClick={() => setActivePage('leaderboard')}>
                 <i className="fas fa-trophy"></i>
                 <span>Rank</span>
@@ -464,6 +471,8 @@ export default function StudentDashboard() {
     const [showScanner, setShowScanner] = useState(false);
     const [liveSession, setLiveSession] = useState(null);
     const [recentAttendance, setRecentAttendance] = useState([]);
+    const [zoom, setZoom] = useState(1);
+    const [zoomCap, setZoomCap] = useState(null);
 
     // ✅ GLOBAL SCHEDULE STATE
     const [currentSlot, setCurrentSlot] = useState(null);
@@ -476,6 +485,16 @@ export default function StudentDashboard() {
 
     const scannerRef = useRef(null);
     const navigate = useNavigate();
+    // ✅ NEW: Handle Zoom Slider
+    const handleZoomChange = (e) => {
+        const val = Number(e.target.value);
+        setZoom(val);
+        if (scannerRef.current) {
+            scannerRef.current.applyVideoConstraints({
+                advanced: [{ zoom: val }]
+            }).catch(err => console.log("Zoom error:", err));
+        }
+    };
 
     // 1. User Loading
     useEffect(() => {
@@ -790,23 +809,48 @@ export default function StudentDashboard() {
         }, () => toast.error("Location Required", { id: toastId }));
     };
 
+    // ✅ UPDATED: Camera Logic with Zoom Support
     useEffect(() => {
+        let html5QrCode;
         if (showScanner) {
-            const html5QrCode = new Html5Qrcode("reader");
+            html5QrCode = new Html5Qrcode("reader");
             scannerRef.current = html5QrCode;
-            const config = { fps: 10, qrbox: { width: 250, height: 250 } };
-            html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
-                .catch(err => {
-                    console.error(err);
-                    toast.error("Camera failed to start.");
-                    setShowScanner(false);
-                });
-            return () => {
-                if (html5QrCode.isScanning) {
-                    html5QrCode.stop().then(() => html5QrCode.clear()).catch(console.error);
-                }
+            
+            const config = { 
+                fps: 10, 
+                qrbox: { width: 250, height: 250 },
+                aspectRatio: 1.0 
             };
+
+            html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
+                .then(() => {
+                    // ✅ Check & Enable Zoom if supported
+                    try {
+                        const capabilities = html5QrCode.getRunningTrackCameraCapabilities();
+                        if (capabilities && capabilities.zoom) {
+                            setZoomCap(capabilities.zoom);
+                            setZoom(capabilities.zoom.min || 1);
+                        } else {
+                            setZoomCap(null);
+                        }
+                    } catch (e) {
+                        console.log("Zoom capability check failed", e);
+                    }
+                })
+                .catch(err => {
+                    if (showScanner) {
+                        console.error(err);
+                        toast.error("Camera Error: Check permissions");
+                        setShowScanner(false);
+                    }
+                });
         }
+
+        return () => {
+            if (html5QrCode && html5QrCode.isScanning) {
+                html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => {});
+            }
+        };
     }, [showScanner]);
 
     const renderContent = () => {
@@ -851,13 +895,19 @@ export default function StudentDashboard() {
 
             {isMobileNavOpen && <div className="nav-overlay" onClick={() => setIsMobileNavOpen(false)} />}
 
-            <aside className={`sidebar ${isMobileNavOpen ? 'open' : ''}`} style={{ zIndex: isMobileNavOpen ? 200 : 50 }}>
-                <div className="logo-container"><img src={logo} alt="AcadeX" className="sidebar-logo" /><span className="logo-text">Acadex</span></div>
+            {/* ✅ REVERTED TO FAST CSS SIDEBAR */}
+            {isMobileNavOpen && <div className="nav-overlay" onClick={() => setIsMobileNavOpen(false)} />}
+
+            <aside className={`sidebar ${isMobileNavOpen ? 'open' : ''}`}>
+                <div className="logo-container">
+                    <img src={logo} alt="AcadeX" className="sidebar-logo" />
+                    <span className="logo-text">Acadex</span>
+                </div>
                 {user && (
                     <div className="teacher-info" onClick={() => { setActivePage('profile'); setIsMobileNavOpen(false); }} style={{ cursor: 'pointer' }}>
                         <h4>{user.firstName} {user.lastName}</h4>
                         <p>Roll No: {user.rollNo}</p>
-                        <p style={{ fontSize: '14px', color: '#059669', fontWeight: '700', margin: '4px 0' }}>{user.xp || 0} Credits Earned</p>
+                        <p style={{ fontSize: '14px', color: '#059669', fontWeight: '700', margin: '4px 0' }}>{user.xp || 0} Credits</p>
                     </div>
                 )}
                 <ul className="menu">
@@ -871,7 +921,8 @@ export default function StudentDashboard() {
                         <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '15px' }}>
                             <i className="fas fa-bullhorn" style={{ width: '24px', textAlign: 'center' }}></i>
                             <span>Notice Board</span>
-                            {badgeCount > 0 && <span className="nav-badge" style={{ background: '#ef4444', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '12px', marginLeft: 'auto', fontWeight: 'bold' }}>{badgeCount}</span>}
+                            {/* Make sure badgeCount is defined in your main component or remove this line */}
+                            {/* <span className="nav-badge" style={{ background: '#ef4444', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '12px', marginLeft: 'auto', fontWeight: 'bold' }}>New</span> */}
                         </div>
                     </li>
                     <li className={activePage === 'tasks' ? 'active' : ''} onClick={() => { setActivePage('tasks'); setIsMobileNavOpen(false); }}>
@@ -918,25 +969,56 @@ export default function StudentDashboard() {
 
                 {renderContent()}
 
-                {showScanner && ReactDOM.createPortal(
+                {/* ✅ UPDATED: Attractive Scanner with Zoom Slider */}
+                {showScanner && (
                     <div style={{
                         position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
                         backgroundColor: 'rgba(0,0,0,0.95)', zIndex: 999999,
                         display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center'
                     }}>
-                        <div id="reader" style={{ width: '300px', height: '300px', background: 'black', borderRadius: '12px', overflow: 'hidden', border: '2px solid #2563eb' }}></div>
-                        <p style={{ color: 'white', marginTop: '20px', fontWeight: '500', fontSize: '16px' }}>Align QR Code within the frame</p>
+                        {/* Scanner Frame */}
+                        <div style={{ position: 'relative', width: '300px', height: '300px', borderRadius: '20px', overflow: 'hidden', border: '2px solid #3b82f6', boxShadow: '0 0 20px rgba(59, 130, 246, 0.5)' }}>
+                            <div id="reader" style={{ width: '100%', height: '100%' }}></div>
+                            
+                            {/* Scanning Animation Line */}
+                            <div style={{
+                                position: 'absolute', top: 0, left: 0, width: '100%', height: '2px', background: '#3b82f6',
+                                boxShadow: '0 0 4px #3b82f6', animation: 'scan 2s infinite'
+                            }}>
+                                <style>{`@keyframes scan { 0% { top: 0 } 50% { top: 100% } 100% { top: 0 } }`}</style>
+                            </div>
+                        </div>
+
+                        <p style={{ color: 'white', marginTop: '20px', fontWeight: '500' }}>Align QR Code within the frame</p>
+
+                        {/* ✅ Zoom Slider (Only shows if supported) */}
+                        {zoomCap && (
+                            <div style={{ width: '80%', maxWidth: '300px', marginTop: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <span style={{ color: 'white', fontSize: '12px' }}>1x</span>
+                                <input 
+                                    type="range" 
+                                    min={zoomCap.min} 
+                                    max={zoomCap.max} 
+                                    step={zoomCap.step} 
+                                    value={zoom} 
+                                    onChange={handleZoomChange}
+                                    style={{ flex: 1, accentColor: '#3b82f6', cursor: 'pointer' }} 
+                                />
+                                <span style={{ color: 'white', fontSize: '12px' }}>Max</span>
+                            </div>
+                        )}
+
+                        {/* Close Button */}
                         <button
                             onClick={() => setShowScanner(false)}
                             style={{
-                                marginTop: '30px', background: 'transparent', border: '1px solid white',
-                                color: 'white', padding: '10px 30px', borderRadius: '30px', cursor: 'pointer', fontSize: '14px'
+                                marginTop: '30px', background: 'rgba(255,255,255,0.2)', border: '1px solid rgba(255,255,255,0.3)',
+                                color: 'white', padding: '10px 30px', borderRadius: '30px', fontWeight: '600', backdropFilter: 'blur(5px)', cursor: 'pointer'
                             }}
                         >
                             Cancel Scan
                         </button>
-                    </div>,
-                    document.body
+                    </div>
                 )}
 
                 <MobileFooter

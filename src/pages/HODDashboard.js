@@ -413,7 +413,8 @@ export default function HODDashboard() {
     };
 
     const MobileFooter = () => (
-        <div className="mobile-footer">
+        // ✅ Updated Class Name
+        <div className="hod-mobile-footer">
             <button className={activeTab === 'dashboard' ? 'active' : ''} onClick={() => setActiveTab('dashboard')}>
                 <i className="fas fa-th-large"></i><span>Home</span>
             </button>

@@ -2,8 +2,8 @@
    HOD DASHBOARD SPECIFIC STYLES
    ========================================= */
 
-/* --- 1. Mobile Bottom Navigation Bar --- */
-.mobile-footer {
+/* --- 1. Mobile Bottom Navigation Bar (RENAMED TO AVOID CONFLICT) --- */
+.hod-mobile-footer {
     display: none; /* Hidden on Desktop */
     position: fixed;
     bottom: 0;
@@ -11,14 +11,14 @@
     width: 100%;
     background: #ffffff;
     border-top: 1px solid #e2e8f0;
-    padding: 10px 0 15px 0; /* Extra padding for bottom safe area */
+    padding: 10px 0 15px 0;
     justify-content: space-around;
     align-items: center;
     z-index: 1000;
     box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08);
 }
 
-.mobile-footer button {
+.hod-mobile-footer button {
     background: none;
     border: none;
     display: flex;
@@ -34,17 +34,17 @@
     transition: all 0.2s ease;
 }
 
-.mobile-footer button i {
+.hod-mobile-footer button i {
     font-size: 20px;
     margin-bottom: 2px;
     transition: transform 0.2s;
 }
 
-.mobile-footer button.active {
+.hod-mobile-footer button.active {
     color: #2563eb; /* Active Blue */
 }
 
-.mobile-footer button.active i {
+.hod-mobile-footer button.active i {
     transform: translateY(-2px);
 }
 
@@ -136,18 +136,9 @@
     border-radius: 20px;
 }
 
-/* --- 4. Responsive Adjustments --- */
 @media (max-width: 768px) {
-    .mobile-footer {
+    .hod-mobile-footer {
         display: flex; /* Show on Mobile */
-    }
-    
-    .sidebar {
-        display: none; /* Hide Sidebar on Mobile */
-    }
-    
-    .sidebar.open {
-        display: block; /* Show when hamburger clicked */
     }
 
     /* Adjust main content to not hide behind footer */

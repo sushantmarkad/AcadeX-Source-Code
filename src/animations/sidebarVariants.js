@@ -1,3 +1,4 @@
+// src/animations/sidebarVariants.js
 import { iosSpring } from './iosConfig';
 
 export const sidebarVariants = {
@@ -7,7 +8,8 @@ export const sidebarVariants = {
   },
   closed: {
     x: "-100%",
-    transition: { ...iosSpring, stiffness: 400, damping: 40 }
+    // ✅ FIX: Use 'iosSpring' directly for fast closing (Removed the slow override)
+    transition: iosSpring 
   }
 };
 
@@ -15,11 +17,11 @@ export const overlayVariants = {
   open: {
     opacity: 1,
     pointerEvents: "auto",
-    transition: { duration: 0.3 }
+    transition: { duration: 0.2 } // Made faster (was 0.3)
   },
   closed: {
     opacity: 0,
     pointerEvents: "none",
-    transition: { duration: 0.2 }
+    transition: { duration: 0.1 } // Made faster (was 0.2)
   }
 };

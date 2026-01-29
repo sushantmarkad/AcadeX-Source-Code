@@ -1,17 +1,17 @@
-// iOS Physics Standard
-// 'stiffness' and 'damping' mimic the physical weight of iOS UI elements
+// src/animations/iosConfig.js
+
+// ✅ UPDATED: Faster, Snappier iOS Physics
 export const iosSpring = {
   type: "spring",
-  stiffness: 500,
-  damping: 30,
-  mass: 1
+  stiffness: 1000, // Increased from 500 (Higher = Faster)
+  damping: 40,     // Adjusted to prevent bouncing
+  mass: 0.8        // Decreased from 1 (Lighter = Faster)
 };
 
 export const iosSoftSpring = {
   type: "spring",
-  stiffness: 300,
+  stiffness: 500,
   damping: 30
 };
 
-// Smooth Easing for non-spring transitions
-export const iosEase = [0.25, 0.1, 0.25, 1]; // Cubic bezier resembling iOS ease-in-out
+export const iosEase = [0.25, 0.1, 0.25, 1];

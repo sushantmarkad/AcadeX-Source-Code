@@ -124,10 +124,13 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                     return;
                 }
 
+               
+
                 toast.loading(`Uploading ${cleanStudents.length} students...`, { id: toastId });
 
                 try {
-                    // 6. Send to Backend
+                    // 6. Send to Backend with a DEFAULT PASSWORD
+                    // NOTE: Make sure your backend "bulkCreateStudents" uses this password!
                     const response = await fetch(`${BACKEND_URL}/bulkCreateStudents`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -135,8 +138,9 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                             students: cleanStudents, 
                             instituteId, 
                             instituteName,
-                            department: selectedDept, // Also passing strictly
-                            year: selectedYear
+                            department: selectedDept, 
+                            year: selectedYear,
+                            defaultPassword: "Student@123" // ✅ All students get this password initially
                         })
                     });
 
@@ -144,12 +148,7 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
 
                     if (!response.ok) throw new Error(data.error || "Upload failed");
 
-                    // 7. Send Emails to successful uploads
-                    let emailCount = 0;
-                    for (const email of data.success) {
-                        try { await sendPasswordResetEmail(auth, email); emailCount++; } 
-                        catch (e) { console.error("Email error:", e); }
-                    }
+                    
 
                     setStats({ 
                         total: cleanStudents.length, 
@@ -157,15 +156,24 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                         failed: data.errors.length 
                     });
                     
-                    toast.success(`Done! Created ${data.success.length} accounts.`, { id: toastId });
+                    // ✅ Show Success Message with Instructions
+                    toast.success(
+                        <div>
+                            Done! Created {data.success.length} accounts.<br/>
+                            <b>Default Password: Student@123</b><br/>
+                            (Share this with students)
+                        </div>, 
+                        { id: toastId, duration: 6000 }
+                    );
 
                 } catch (err) {
                     console.error(err);
                     toast.error("Server Error: " + err.message, { id: toastId });
                 } finally {
                     setLoading(false);
-                    e.target.value = null; // Reset input
+                    e.target.value = null; 
                 }
+
             },
             error: (err) => {
                 toast.error("CSV Parse Error: " + err.message, { id: toastId });
