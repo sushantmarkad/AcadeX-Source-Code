@@ -10,6 +10,8 @@ import logo from "../assets/logo.png";
 import './Dashboard.css';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
+import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
+import { BarcodeScanner } from '@capacitor-mlkit/barcode-scanning'; // ✅ NATIVE CAMERA
 
 // ✅ NEW IMPORTS FOR SECURITY
 import { Device } from '@capacitor/device';
@@ -134,6 +136,7 @@ const LeaveRequestForm = ({ user }) => {
     return (
         <div className="content-section">
             <h2 className="content-title">Request Leave</h2>
+            
             <div className="card" style={{ marginBottom: '30px' }}>
                 <form onSubmit={handleSubmit}>
                     <div className="input-group">
@@ -351,16 +354,42 @@ const AttendanceOverview = ({ user }) => {
 };
 
 // --- DASHBOARD HOME (Updated with Biometrics) ---
-const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession, recentAttendance, setShowScanner, currentSlot, onBiometricAttendance, bioLoading }) => {
+const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession, recentAttendance, setShowScanner, currentSlot, onBiometricAttendance, bioLoading, openNativeCameraForQR }) => {
 
     // ✅ NEW: Logic to extract "Sushant" from "Sushant Sukhadev"
     // If lastName exists, take the first word. Otherwise fallback to firstName.
     const displayName = user?.lastName ? user.lastName.split(' ')[0] : user?.firstName;
 
+    // ✅ FETCH TODAY'S ATTENDANCE (Full Day History)
     useEffect(() => {
         if (!auth.currentUser) return;
-        const q = query(collection(db, "attendance"), where("studentId", "==", auth.currentUser.uid), orderBy("timestamp", "desc"), limit(3));
-        const unsubscribe = onSnapshot(q, (snapshot) => setRecentAttendance(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), timestamp: doc.data().timestamp?.toDate().toLocaleDateString() }))));
+
+        // 1. Get Start of Today (Midnight)
+        const startOfDay = new Date();
+        startOfDay.setHours(0, 0, 0, 0);
+
+        // 2. Query: Filter by User + Time >= Midnight (Today)
+        const q = query(
+            collection(db, "attendance"),
+            where("studentId", "==", auth.currentUser.uid),
+            where("timestamp", ">=", startOfDay), // ✅ Shows ALL scans from today
+            orderBy("timestamp", "desc") // Newest first
+        );
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setRecentAttendance(snapshot.docs.map(doc => {
+                const data = doc.data();
+                return {
+                    id: doc.id,
+                    ...data,
+                    // ✅ Create a nice time string (e.g., "10:30 AM")
+                    timeDisplay: data.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    // ✅ Keep the date for reference if needed
+                    dateDisplay: data.timestamp?.toDate().toLocaleDateString() 
+                };
+            }));
+        });
+
         return () => unsubscribe();
     }, [setRecentAttendance]);
 
@@ -372,47 +401,156 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                 <SmartScheduleCard user={user} currentSlot={currentSlot} loading={!currentSlot} />
 
                 <AttendanceOverview user={user} />
-                <div className="card" style={{ background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)', border: 'none' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '15px' }}>
-                        <div className="icon-box-modern"><i className="fas fa-qrcode"></i></div>
-                        <h3 style={{ margin: 0, color: '#1e3a8a', fontWeight: '700' }}>Live Attendance</h3>
-                    </div>
-                    {liveSession ? (
-                        <>
-                            <div className="live-badge pulsate"><div className="dot"></div> <span>SESSION ACTIVE</span></div>
-                            <p style={{ fontWeight: 'bold', margin: '10px 0' }}>{liveSession.subject}</p>
+                {/* ✅ MODERN LIVE ATTENDANCE CARD */}
+                {/* ✨ ULTRA-MODERN ATTENDANCE CARD ✨ */}
+                <div className="card" style={{ 
+                    background: 'linear-gradient(120deg, #4f46e5 0%, #0ea5e9 100%)', // Indigo to Sky Blue
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '24px',
+                    boxShadow: '0 20px 40px -10px rgba(79, 70, 229, 0.5)', // Matching colored glow
+                    position: 'relative',
+                    overflow: 'hidden',
+                    padding: '28px'
+                }}>
+                    {/* 🎨 Abstract Background Shapes */}
+                    <div style={{ 
+                        position: 'absolute', top: '-60px', right: '-60px', 
+                        width: '220px', height: '220px', 
+                        background: 'radial-gradient(circle, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0) 70%)', 
+                        borderRadius: '50%', pointerEvents: 'none'
+                    }}></div>
+                    <div style={{ 
+                        position: 'absolute', bottom: '-40px', left: '-20px', 
+                        width: '180px', height: '180px', 
+                        background: 'rgba(255,255,255,0.1)', 
+                        borderRadius: '50%', filter: 'blur(30px)', pointerEvents: 'none'
+                    }}></div>
 
-                            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                                {/* Standard QR Button */}
-                                <button className="btn-modern-primary" onClick={() => setShowScanner(true)}>
-                                    <i className="fas fa-camera"></i> Scan QR
-                                </button>
+                    <div style={{ position: 'relative', zIndex: 10 }}>
+                        {/* Header: Label & Status */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                            <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+                                <div style={{ 
+                                    background:'rgba(255,255,255,0.2)', padding:'8px', borderRadius:'12px',
+                                    display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(4px)'
+                                }}>
+                                    <i className="fas fa-wifi" style={{ fontSize:'16px' }}></i>
+                                </div>
+                                <span style={{ fontWeight:'600', fontSize:'14px', letterSpacing:'0.5px', textTransform:'uppercase', opacity:0.9 }}>
+                                    Attendance
+                                </span>
+                            </div>
+                            
+                            {liveSession && (
+                                <div className="pulsate" style={{ 
+                                    background: 'rgba(255,255,255,0.25)', border: '1px solid rgba(255,255,255,0.4)',
+                                    padding: '6px 14px', borderRadius: '30px', 
+                                    display: 'flex', alignItems: 'center', gap: '8px',
+                                    backdropFilter: 'blur(4px)'
+                                }}>
+                                    <div style={{ width:'8px', height:'8px', background:'#bef264', borderRadius:'50%', boxShadow:'0 0 8px #bef264' }}></div> 
+                                    <span style={{ fontSize:'11px', fontWeight:'800', letterSpacing:'0.5px' }}>LIVE</span>
+                                </div>
+                            )}
+                        </div>
 
-                                {/* ✅ BIOMETRIC FALLBACK BUTTON */}
-                                <button
-                                    className="btn-modern-primary"
-                                    style={{ background: '#059669', border: '1px solid #047857' }}
-                                    onClick={onBiometricAttendance}
-                                    disabled={bioLoading}
+                        {/* Content Body */}
+                        {liveSession ? (
+                            <div>
+                                <div style={{ marginBottom: '28px' }}>
+                                    <h1 style={{ 
+                                        fontSize: '34px', fontWeight: '800', margin: '0', 
+                                        lineHeight: '1.1', textShadow: '0 4px 15px rgba(0,0,0,0.2)' 
+                                    }}>
+                                        {liveSession.subject}
+                                    </h1>
+                                    <div style={{ display:'flex', alignItems:'center', gap:'8px', marginTop:'8px', opacity:0.85 }}>
+                                        <i className="far fa-clock"></i>
+                                        <span style={{ fontSize: '14px', fontWeight:'500' }}>
+                                            Session Started • {liveSession.startTime || "Now"}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* 🚀 SMART SCAN BUTTON */}
+                                <button 
+                                    onClick={() => {
+                                        if (Capacitor.isNativePlatform()) openNativeCameraForQR(); 
+                                        else setShowScanner(true); 
+                                    }}
+                                    style={{
+                                        background: 'white',
+                                        color: '#4f46e5', // Matches the Indigo gradient
+                                        border: 'none',
+                                        width: '100%',
+                                        padding: '18px',
+                                        borderRadius: '18px',
+                                        fontSize: '16px',
+                                        fontWeight: '800',
+                                        cursor: 'pointer',
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px',
+                                        boxShadow: '0 8px 25px rgba(0,0,0,0.2)',
+                                        transition: 'transform 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
+                                        position: 'relative', overflow: 'hidden'
+                                    }}
+                                    onMouseDown={e => e.currentTarget.style.transform = 'scale(0.96)'}
+                                    onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
+                                    onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
                                 >
-                                    {bioLoading ? 'Verifying...' : <><i className="fas fa-fingerprint"></i> Use TouchID</>}
+                                    <i className="fas fa-expand" style={{ fontSize:'18px' }}></i>
+                                    {Capacitor.isNativePlatform() ? "Scan Now" : "Open Scanner"}
                                 </button>
                             </div>
-                            <small style={{ display: 'block', marginTop: '10px', color: '#64748b' }}>
-                                Use TouchID if QR code is not working.
-                            </small>
-                        </>
-                    ) : <p style={{ textAlign: 'center', color: '#64748b' }}>No active sessions.</p>}
-                </div>
-                <div className="card">
-                    <h3>Recent History</h3>
-                    <div className="recent-attendance-list">
-                        {recentAttendance.map(item => (
-                            <div key={item.id} className="history-card">
-                                <div><p className="history-subject">{item.subject}</p><p className="history-date">{item.timestamp}</p></div>
-                                <div className="status-badge-pill">Present</div>
+                        ) : (
+                            <div style={{ 
+                                background: 'rgba(255, 255, 255, 0.15)', borderRadius: '16px', padding: '25px', 
+                                textAlign: 'center', border: '1px dashed rgba(253, 253, 253, 0.3)',
+                                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px'
+                            }}>
+                                <i className="fas fa-coffee" style={{ fontSize: '28px', opacity: 0.8 }}></i>
+                                <p style={{ fontSize: '14px', fontWeight:'500', margin: 0, opacity: 0.9 }}>
+                                    No active class. Enjoy your break!
+                                </p>
                             </div>
-                        ))}
+                        )}
+                    </div>
+                </div>
+
+              {/* ✅ TODAY'S HISTORY CARD (Scrollable) */}
+                <div className="card" style={{ maxHeight: '400px', display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                        <h3 style={{ margin: 0 }}>Today's History</h3>
+                        <span style={{ fontSize: '12px', background: '#f1f5f9', padding: '4px 10px', borderRadius: '20px', color: '#64748b' }}>
+                            {recentAttendance.length} Classes
+                        </span>
+                    </div>
+
+                    <div className="recent-attendance-list" style={{ overflowY: 'auto', flex: 1, paddingRight: '5px' }}>
+                        {recentAttendance.length > 0 ? (
+                            recentAttendance.map(item => (
+                                <div key={item.id} className="history-card" style={{ padding: '12px', marginBottom: '10px', borderLeft: '4px solid #3b82f6' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                                        <div>
+                                            <p className="history-subject" style={{ fontWeight: 'bold', fontSize: '15px', margin: '0 0 4px 0' }}>
+                                                {item.subject}
+                                            </p>
+                                            <p className="history-date" style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>
+                                                <i className="far fa-clock" style={{ marginRight: '5px' }}></i>
+                                                {item.timeDisplay}
+                                            </p>
+                                        </div>
+                                        <div className="status-badge-pill" style={{ background: '#dcfce7', color: '#166534', fontSize: '11px', padding: '4px 8px' }}>
+                                            Present
+                                        </div>
+                                    </div>
+                                </div>
+                            ))
+                        ) : (
+                            <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8' }}>
+                                <p style={{ fontSize: '14px' }}>No attendance marked today.</p>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -485,17 +623,117 @@ export default function StudentDashboard() {
 
     const scannerRef = useRef(null);
     const navigate = useNavigate();
-    // ✅ NEW: Handle Zoom Slider
-    const handleZoomChange = (e) => {
-        const val = Number(e.target.value);
-        setZoom(val);
-        if (scannerRef.current) {
-            scannerRef.current.applyVideoConstraints({
-                advanced: [{ zoom: val }]
-            }).catch(err => console.log("Zoom error:", err));
+
+    // ✅ FLASHLIGHT STATE for low-light scanning
+    const [flashlightOn, setFlashlightOn] = useState(false);
+
+    // 🎯 NATIVE CAMERA QR SCANNING (Like Google Pay)
+    // 🎯 TRUE NATIVE SCANNER (Google Pay Style)
+    const openNativeCameraForQR = async () => {
+        try {
+            // 1. Check Permissions
+            const { camera } = await BarcodeScanner.requestPermissions();
+            if (camera !== 'granted' && camera !== 'limited') {
+                toast.error("Camera permission denied");
+                return;
+            }
+
+            // 2. Start Live Scanner (Opens a native camera view on top)
+            const { barcodes } = await BarcodeScanner.scan({
+                formats: [], // Scan all formats
+            });
+
+            // 3. Handle Result
+            if (barcodes.length > 0) {
+                const scannedValue = barcodes[0].rawValue;
+                await onScanSuccess(scannedValue);
+            }
+        } catch (err) {
+            console.error("Native Scan Error:", err);
+            // Fallback to web scanner if native fails
+            if (!err.message.includes('canceled')) {
+                toast.error("Native scanner failed, switching to Web Scanner");
+                setShowScanner(true);
+            }
         }
     };
 
+    // 🔍 Decode QR Code from Image Data
+    const decodeQRFromImage = async (imageDataUrl) => {
+        try {
+            // Method 1: Use Html5Qrcode static method
+            const result = await Html5Qrcode.scanFile(imageDataUrl, true);
+            return result.decodedText || result;
+        } catch (err) {
+            console.error("QR Decode Error:", err);
+            // Method 2: Try creating image and using jsQR library approach
+            try {
+                // Create image element
+                const img = new Image();
+                img.src = imageDataUrl;
+
+                await new Promise((resolve, reject) => {
+                    img.onload = resolve;
+                    img.onerror = reject;
+                });
+
+                // Create canvas and draw image
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+
+                // Get image data
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+                // Try to decode with Html5Qrcode scanner
+                const tempScanner = new Html5Qrcode("qr-reader-temp");
+                const qrResult = await tempScanner.scanFile(canvas.toDataURL(), false);
+                return qrResult.decodedText || qrResult;
+            } catch (e) {
+                console.error("Fallback decode failed:", e);
+                return null;
+            }
+        }
+    };
+
+    // ✅ Toggle Flashlight for better scanning in low light
+    const toggleFlashlight = async () => {
+        try {
+            if (scannerRef.current) {
+                await scannerRef.current.applyVideoConstraints({
+                    advanced: [{ torch: !flashlightOn }]
+                });
+                setFlashlightOn(!flashlightOn);
+            }
+        } catch (err) {
+            console.log("Flashlight not supported:", err);
+            toast.error("Flashlight not available on this device");
+        }
+    };
+
+    // ✅ NEW: Handle Zoom Slider
+    // ✅ NEW: Smart Zoom Handler (Hardware + CSS Fallback)
+    // ✅ NEW: Smart Zoom Handler (Hardware + CSS Fallback)
+    const handleZoomChange = (e) => {
+        const val = Number(e.target.value);
+        setZoom(val);
+
+        // A. Try Hardware Zoom first (Clearer)
+        if (zoomCap && scannerRef.current) {
+            scannerRef.current.applyVideoConstraints({
+                advanced: [{ zoom: val }]
+            }).catch(err => console.log("Hardware zoom failed, ignoring...", err));
+        } else {
+            // B. Fallback to CSS Zoom (Works on all devices)
+            const videoElement = document.querySelector('#reader video');
+            if (videoElement) {
+                videoElement.style.transform = `scale(${val})`;
+                videoElement.style.transformOrigin = "center center";
+            }
+        }
+    };
     // 1. User Loading
     useEffect(() => {
         const authUnsub = onAuthStateChanged(auth, (authUser) => {
@@ -728,45 +966,76 @@ export default function StudentDashboard() {
     };
 
     // ✅ 5. HANDLE QR ATTENDANCE WITH DEVICE BINDING
+    // ✅ SECURE & FAST: Parallel Data Fetching (No Caching)
     const onScanSuccess = async (decodedText) => {
+        // 1. Pause Camera Immediately (To prevent double-scanning)
         if (scannerRef.current) {
             scannerRef.current.pause(true);
         }
         setShowScanner(false);
-        const toastId = toast.loading("Verifying Identity & Device...");
 
-        // ✅ GET ROBUST DEVICE ID
-        const currentDeviceId = await getUniqueDeviceId();
+        // 2. Show Persistent Loading Toast
+        const toastId = toast.loading("Verifying Identity & Device Security...");
 
-        navigator.geolocation.getCurrentPosition(async (position) => {
-            try {
-                const token = await auth.currentUser.getIdToken();
-                const response = await fetch(`${BACKEND_URL}/markAttendance`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                    body: JSON.stringify({
-                        sessionId: decodedText,
-                        studentLocation: {
-                            latitude: position.coords.latitude,
-                            longitude: position.coords.longitude
-                        },
-                        deviceId: currentDeviceId // ✅ SENDING DEVICE ID
-                    })
-                });
-                const data = await response.json();
+        try {
+            // 🚀 PARALLEL EXECUTION: Start all security checks at the same time
+            // This cuts the waiting time in half without skipping any checks.
+            
+            // A. Get Device Fingerprint (Critical for Proxy Proof)
+            const deviceIdPromise = getUniqueDeviceId();
+            
+            // B. Get Firebase Auth Token
+            const tokenPromise = auth.currentUser.getIdToken();
+            
+            // C. Get GPS Location (Usually the slowest part)
+            const locationPromise = new Promise((resolve, reject) => {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => resolve({
+                        latitude: pos.coords.latitude,
+                        longitude: pos.coords.longitude
+                    }),
+                    (err) => reject(new Error("Location permission denied. Enable GPS."))
+                );
+            });
 
-                if (response.ok) {
-                    toast.success(data.message, { id: toastId });
-                } else {
-                    toast.error(data.error, { id: toastId });
-                }
-            } catch (error) {
-                toast.error(error.message, { id: toastId });
+            // ⏳ Wait for ALL security data to be ready
+            const [currentDeviceId, token, location] = await Promise.all([
+                deviceIdPromise, 
+                tokenPromise, 
+                locationPromise
+            ]);
+
+            // 🚀 3. Send Everything to Backend for Strict Verification
+            const response = await fetch(`${BACKEND_URL}/markAttendance`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json', 
+                    'Authorization': `Bearer ${token}` 
+                },
+                body: JSON.stringify({
+                    sessionId: decodedText,
+                    studentLocation: location,
+                    deviceId: currentDeviceId, // ✅ MANDATORY: Device ID is sent every time
+                    verificationMethod: 'qr'
+                })
+            });
+
+            const data = await response.json();
+
+            // 4. Handle Server Response
+            if (response.ok) {
+                // ✅ Success: Update Toast to Green
+                toast.success(data.message, { id: toastId, duration: 4000 });
+            } else {
+                // ❌ Error (Proxy, Location, or Duplicate): Update Toast to Red
+                toast.error(data.error, { id: toastId, duration: 5000 });
             }
-        }, (err) => {
-            toast.error("Location permission denied.", { id: toastId });
-            setShowScanner(false);
-        });
+
+        } catch (error) {
+            console.error("Attendance Error:", error);
+            // ❌ Network or GPS Error
+            toast.error(error.message || "Verification Failed", { id: toastId, duration: 4000 });
+        }
     };
 
     // ✅ 6. HANDLE BIOMETRIC ATTENDANCE
@@ -809,7 +1078,9 @@ export default function StudentDashboard() {
         }, () => toast.error("Location Required", { id: toastId }));
     };
 
-    // ✅ UPDATED: Camera Logic with Zoom Support
+    // ✅ UPGRADED: ULTRA HD Camera - Direct MediaStream Approach for Browser
+    // ✅ WEB SCANNER LOGIC (Simple Start -> HD Upgrade -> Zoom)
+   // ✅ UPDATED CAMERA LOGIC (Always Enable Zoom)
     useEffect(() => {
         let html5QrCode;
         if (showScanner) {
@@ -824,31 +1095,34 @@ export default function StudentDashboard() {
 
             html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
                 .then(() => {
-                    // ✅ Check & Enable Zoom if supported
+                    // 🔍 Check Hardware Zoom Support
                     try {
                         const capabilities = html5QrCode.getRunningTrackCameraCapabilities();
                         if (capabilities && capabilities.zoom) {
-                            setZoomCap(capabilities.zoom);
+                            // Hardware Zoom Supported!
+                            setZoomCap(capabilities.zoom); 
                             setZoom(capabilities.zoom.min || 1);
                         } else {
-                            setZoomCap(null);
+                            // Hardware Zoom NOT Supported -> Use CSS Zoom Default
+                            console.log("Hardware zoom not supported. Switching to Digital Zoom.");
+                            setZoomCap(null); 
+                            setZoom(1); 
                         }
-                    } catch (e) {
-                        console.log("Zoom capability check failed", e);
+                    } catch (e) { 
+                        console.log("Zoom check failed, using Digital Zoom", e);
+                        setZoomCap(null);
                     }
                 })
                 .catch(err => {
-                    if (showScanner) {
-                        console.error(err);
-                        toast.error("Camera Error: Check permissions");
-                        setShowScanner(false);
-                    }
+                    console.error(err);
+                    // Don't show error immediately to avoid spam, just close if critical
+                    if (showScanner) setShowScanner(false);
                 });
         }
 
         return () => {
             if (html5QrCode && html5QrCode.isScanning) {
-                html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => {});
+                html5QrCode.stop().then(() => html5QrCode.clear()).catch(console.error);
             }
         };
     }, [showScanner]);
@@ -868,6 +1142,7 @@ export default function StudentDashboard() {
                 // ✅ PASS BIOMETRIC PROPS
                 onBiometricAttendance={handleBiometricAttendance}
                 bioLoading={bioLoading}
+                openNativeCameraForQR={openNativeCameraForQR}
             />;
             case 'tasks': return <FreePeriodTasks user={user} isFreePeriod={isFreePeriod} onOpenAIWithPrompt={handleOpenAiWithPrompt} />;
             case 'profile': return <Profile user={user} />;
@@ -886,6 +1161,7 @@ export default function StudentDashboard() {
                 setShowScanner={setShowScanner}
                 onBiometricAttendance={handleBiometricAttendance}
                 bioLoading={bioLoading}
+                openNativeCameraForQR={openNativeCameraForQR}
             />;
         }
     };
@@ -969,13 +1245,23 @@ export default function StudentDashboard() {
 
                 {renderContent()}
 
-                {/* ✅ UPDATED: Attractive Scanner with Zoom Slider */}
-                {showScanner && (
+                {/* ✅ WEB SCANNER UI (Previous Style with Zoom) */}
+                {showScanner && ReactDOM.createPortal(
                     <div style={{
                         position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
                         backgroundColor: 'rgba(0,0,0,0.95)', zIndex: 999999,
                         display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center'
                     }}>
+                        {/* 🛑 CSS FIX: Forces the video to show up */}
+                        <style>{`
+                            #reader video {
+                                width: 100% !important;
+                                height: 100% !important;
+                                object-fit: cover !important;
+                                border-radius: 16px;
+                            }
+                        `}</style>
+
                         {/* Scanner Frame */}
                         <div style={{ position: 'relative', width: '300px', height: '300px', borderRadius: '20px', overflow: 'hidden', border: '2px solid #3b82f6', boxShadow: '0 0 20px rgba(59, 130, 246, 0.5)' }}>
                             <div id="reader" style={{ width: '100%', height: '100%' }}></div>
@@ -991,24 +1277,24 @@ export default function StudentDashboard() {
 
                         <p style={{ color: 'white', marginTop: '20px', fontWeight: '500' }}>Align QR Code within the frame</p>
 
-                        {/* ✅ Zoom Slider (Only shows if supported) */}
-                        {zoomCap && (
-                            <div style={{ width: '80%', maxWidth: '300px', marginTop: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <span style={{ color: 'white', fontSize: '12px' }}>1x</span>
-                                <input 
-                                    type="range" 
-                                    min={zoomCap.min} 
-                                    max={zoomCap.max} 
-                                    step={zoomCap.step} 
-                                    value={zoom} 
-                                    onChange={handleZoomChange}
-                                    style={{ flex: 1, accentColor: '#3b82f6', cursor: 'pointer' }} 
-                                />
-                                <span style={{ color: 'white', fontSize: '12px' }}>Max</span>
-                            </div>
-                        )}
+                        {/* ✅ ZOOM SLIDER (Always Visible) */}
+                        <div style={{ width: '80%', maxWidth: '300px', marginTop: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ color: 'white', fontSize: '12px', fontWeight:'bold' }}>1x</span>
+                            <input 
+                                type="range" 
+                                // If hardware zoom exists, use its limits. Otherwise default to 1x - 3x for CSS.
+                                min={zoomCap ? zoomCap.min : 1} 
+                                max={zoomCap ? zoomCap.max : 3} 
+                                step={zoomCap ? zoomCap.step : 0.1} 
+                                value={zoom} 
+                                onChange={handleZoomChange}
+                                style={{ flex: 1, accentColor: '#3b82f6', cursor: 'pointer', height:'6px' }} 
+                            />
+                            <span style={{ color: 'white', fontSize: '12px', fontWeight:'bold' }}>
+                                {zoomCap ? 'Max' : '3x'}
+                            </span>
+                        </div>
 
-                        {/* Close Button */}
                         <button
                             onClick={() => setShowScanner(false)}
                             style={{
@@ -1018,7 +1304,8 @@ export default function StudentDashboard() {
                         >
                             Cancel Scan
                         </button>
-                    </div>
+                    </div>,
+                    document.body
                 )}
 
                 <MobileFooter
@@ -1026,7 +1313,7 @@ export default function StudentDashboard() {
                     setActivePage={setActivePage}
                     badgeCount={badgeCount}
                     liveSession={liveSession}
-                    onScan={() => setShowScanner(true)}
+                    onScan={openNativeCameraForQR} // ✅ Use native camera (Google Pay style)
                     onChat={() => setIsChatOpen(true)}
                 />
             </main>
@@ -1039,6 +1326,9 @@ export default function StudentDashboard() {
                     initialMessage={chatInitialMessage}
                 />
             )}
+
+            {/* Hidden QR Reader for image decoding */}
+            <div id="qr-reader-temp" style={{ display: 'none' }}></div>
         </div>
     );
 }

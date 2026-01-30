@@ -640,7 +640,7 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                                     <i className="fas fa-user-minus" style={{ color: '#f59e0b' }}></i> Quick Absentee
                                 </h3>
                                 <input type="text" placeholder="Roll Nos (e.g. 1, 5, 12)" value={absentList} onChange={(e) => setAbsentList(e.target.value)} className="modern-input" style={{ width: '100%', padding: '10px', fontSize: '13px', border: '1px solid #fcd34d', borderRadius: '6px', background: 'white' }} />
-                                <button className="btn-modern-primary" onClick={handleInverseAttendance} style={{ background: '#fef3c7', color: '#d97706', border: '1px solid #fcd34d', marginTop: '10px', width: '100%', fontSize: '12px', padding: '8px', fontWeight: 'bold', cursor: 'pointer', borderRadius: '6px' }}>
+                                <button className="btn-modern-primary" onClick={handleInverseAttendance} style={{ background: '#f7da72', color: '#000000', border: '1px solid #edd587', marginTop: '10px', width: '100%', fontSize: '12px', padding: '8px', fontWeight: 'bold', cursor: 'pointer', borderRadius: '6px' }}>
                                     Mark Rest Present
                                 </button>
                             </div>
@@ -651,7 +651,7 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                                     <i className="fas fa-user-check" style={{ color: '#2563eb' }}></i> Manual Present
                                 </h3>
                                 <input type="number" placeholder="Single Roll No." value={manualRoll} onChange={(e) => setManualRoll(e.target.value)} className="modern-input" style={{ width: '100%', padding: '10px', fontSize: '13px', border: '1px solid #bfdbfe', borderRadius: '6px', background: 'white' }} />
-                                <button className="btn-modern-primary" onClick={handleManualMarkPresent} style={{ background: '#dbeafe', color: '#2563eb', border: '1px solid #bfdbfe', marginTop: '10px', width: '100%', fontSize: '12px', padding: '8px', fontWeight: 'bold', cursor: 'pointer', borderRadius: '6px' }}>
+                                <button className="btn-modern-primary" onClick={handleManualMarkPresent} style={{ background: '#5091e6', color: '#2563eb', border: '1px solid #bfdbfe', marginTop: '10px', width: '100%', fontSize: '12px', padding: '8px', fontWeight: 'bold', cursor: 'pointer', borderRadius: '6px' }}>
                                     Add Student
                                 </button>
                             </div>
