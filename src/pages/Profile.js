@@ -3,7 +3,7 @@ import { auth, db } from '../firebase';
 import { doc, updateDoc, onSnapshot } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import TwoFactorSetup from '../components/TwoFactorSetup'; // ✅ Import 2FA Component
-import './Dashboard.css'; 
+import './Dashboard.css';
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
@@ -28,17 +28,17 @@ const getAvatarGradient = (name) => {
 };
 
 export default function Profile({ user }) {
-    const [activeTab, setActiveTab] = useState('details'); 
+    const [activeTab, setActiveTab] = useState('details');
     const [isEditing, setIsEditing] = useState(false);
     const [profileData, setProfileData] = useState(user || null);
-    
+
     // Password State
     const [passData, setPassData] = useState({ newPass: '', confirmPass: '' });
     const [passLoading, setPassLoading] = useState(false);
 
     // Profile Form State
     const [formData, setFormData] = useState({
-        firstName: '', lastName: '', phone: '', 
+        firstName: '', lastName: '', phone: '',
         careerGoal: '', domain: '', subDomain: '', specificSkills: ''
     });
 
@@ -101,7 +101,7 @@ export default function Profile({ user }) {
             const token = await auth.currentUser.getIdToken();
             const response = await fetch(`${BACKEND_URL}/updatePassword`, {
                 method: 'POST',
-                headers: { 
+                headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
                 },
@@ -127,45 +127,47 @@ export default function Profile({ user }) {
     const avatarGradient = getAvatarGradient(profileData.firstName);
 
     return (
-        <div className="content-section" style={{maxWidth: '1100px', margin: '0 auto'}}>
-            
-            {/* --- PREMIUM HEADER CARD --- */}
-            <div className="prof-header-card">
-                <div className="prof-header-bg"></div>
-                <div className="prof-header-content">
-                    <div className="prof-avatar" style={{ background: avatarGradient }}>
-                        {profileData.firstName?.[0]}{profileData.lastName?.[0]}
-                    </div>
-                    <div className="prof-info">
-                        <h2 className="prof-name">{profileData.firstName} {profileData.lastName}</h2>
-                        <div className="prof-badges">
-                            <span className="prof-badge-role">{profileData.role?.toUpperCase()}</span>
-                            <span className="prof-badge-dept">{profileData.department}</span>
-                            {profileData.year && <span className="prof-badge-year">{profileData.year} Year</span>}
-                        </div>
-                    </div>
-                    {activeTab === 'details' && (
-                        <button 
-                            className={`prof-btn ${isEditing ? 'prof-btn-save' : 'prof-btn-edit'}`}
-                            onClick={() => isEditing ? handleSaveProfile() : setIsEditing(true)}
-                        >
-                            <i className={`fas ${isEditing ? 'fa-check' : 'fa-pen'}`}></i>
-                            {isEditing ? 'Save Changes' : 'Edit Profile'}
-                        </button>
-                    )}
-                </div>
+        <div className="content-section" style={{ maxWidth: '1100px', margin: '0 auto' }}>
+
+            {/* --- PREMIUM HEADER CARD (Sunset Violet Theme) --- */}
+<div className="prof-header-card">
+    <div className="prof-header-content">
+        {/* Avatar with Glass Effect Border */}
+        <div className="prof-avatar">
+            {profileData.firstName?.[0]}{profileData.lastName?.[0]}
+        </div>
+        
+        <div className="prof-info">
+            <h2 className="prof-name">{profileData.firstName} {profileData.lastName}</h2>
+            <div className="prof-badges">
+                <span className="prof-badge-glass">{profileData.role?.toUpperCase()}</span>
+                <span className="prof-badge-glass">{profileData.department}</span>
+                {profileData.year && <span className="prof-badge-glass">{profileData.year} Year</span>}
             </div>
+        </div>
+
+        {activeTab === 'details' && (
+            <button
+                className={`prof-btn ${isEditing ? 'prof-btn-save' : 'prof-btn-edit'}`}
+                onClick={() => isEditing ? handleSaveProfile() : setIsEditing(true)}
+            >
+                <i className={`fas ${isEditing ? 'fa-check' : 'fa-pen'}`}></i>
+                {isEditing ? 'Save Changes' : 'Edit Profile'}
+            </button>
+        )}
+    </div>
+</div>
 
             {/* --- MODERN TABS --- */}
             <div className="prof-tabs-container">
                 <div className="prof-tabs">
-                    <button 
+                    <button
                         className={`prof-tab-item ${activeTab === 'details' ? 'active' : ''}`}
                         onClick={() => setActiveTab('details')}
                     >
                         Personal Details
                     </button>
-                    <button 
+                    <button
                         className={`prof-tab-item ${activeTab === 'security' ? 'active' : ''}`}
                         onClick={() => setActiveTab('security')}
                     >
@@ -176,24 +178,24 @@ export default function Profile({ user }) {
 
             {/* --- CONTENT AREA --- */}
             <div className="prof-content-area">
-                
+
                 {/* === DETAILS TAB === */}
                 {activeTab === 'details' && (
                     <div className="prof-grid">
-                        
+
                         {/* LEFT: Basic Info */}
                         <div className="prof-card">
                             <div className="prof-card-header">
-                                <div className="prof-icon-box" style={{background:'#eff6ff', color:'#3b82f6'}}>
+                                <div className="prof-icon-box" style={{ background: '#eff6ff', color: '#3b82f6' }}>
                                     <i className="fas fa-user"></i>
                                 </div>
                                 <h3>Basic Information</h3>
                             </div>
-                            
+
                             <div className="prof-form-grid">
-                                <ProfInput label="First Name" value={formData.firstName} onChange={e => setFormData({...formData, firstName: e.target.value})} disabled={!isEditing} />
-                                <ProfInput label="Last Name" value={formData.lastName} onChange={e => setFormData({...formData, lastName: e.target.value})} disabled={!isEditing} />
-                                <ProfInput label="Phone Number" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} disabled={!isEditing} />
+                                <ProfInput label="First Name" value={formData.firstName} onChange={e => setFormData({ ...formData, firstName: e.target.value })} disabled={!isEditing} />
+                                <ProfInput label="Last Name" value={formData.lastName} onChange={e => setFormData({ ...formData, lastName: e.target.value })} disabled={!isEditing} />
+                                <ProfInput label="Phone Number" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} disabled={!isEditing} />
                                 <ProfInput label="Email Address" value={profileData.email} disabled={true} lockIcon={true} />
                                 <ProfInput label="Department" value={profileData.department} disabled={true} lockIcon={true} />
                                 {user.role === 'student' && (
@@ -202,25 +204,50 @@ export default function Profile({ user }) {
                             </div>
                         </div>
 
+                        {user.role === 'teacher' && (
+                            <ProfInput
+                                label="Academic Year"
+                                // Checks top-level first, then extras object (handling backend variations)
+                                value={profileData.academicYear || profileData.extras?.academicYear || "Not Assigned"}
+                                disabled={true}
+                                lockIcon={true}
+                            />
+                        )}
+
+                        {user.role === 'teacher' && (
+                            <>
+                                <ProfInput
+                                    label="Assigned Subjects"
+                                    value={
+                                        profileData.assignedClasses && profileData.assignedClasses.length > 0
+                                            ? profileData.assignedClasses.map(c => `${c.subject} (${c.year})`).join(', ')
+                                            : profileData.subject || "No Subject Assigned"
+                                    }
+                                    disabled={true}
+                                    lockIcon={true}
+                                />
+                            </>
+                        )}
+
                         {/* RIGHT: Career (Student Only) */}
                         {user.role === 'student' && (
                             <div className="prof-card prof-card-highlight">
                                 <div className="prof-card-header">
-                                    <div className="prof-icon-box" style={{background:'#f3e8ff', color:'#9333ea'}}>
+                                    <div className="prof-icon-box" style={{ background: '#f3e8ff', color: '#9333ea' }}>
                                         <i className="fas fa-rocket"></i>
                                     </div>
                                     <h3>Career & Skills</h3>
                                 </div>
-                                
+
                                 <div className="prof-form-stack">
                                     <div className="prof-input-group">
                                         <label className="prof-label">Interest Domain</label>
                                         <div className="prof-select-wrapper">
-                                            <select 
+                                            <select
                                                 className="prof-select"
                                                 disabled={!isEditing}
                                                 value={formData.domain}
-                                                onChange={e => setFormData({...formData, domain: e.target.value, subDomain: ''})}
+                                                onChange={e => setFormData({ ...formData, domain: e.target.value, subDomain: '' })}
                                             >
                                                 <option value="">Select Domain</option>
                                                 {Object.keys(INTEREST_DOMAINS).map(d => <option key={d} value={d}>{d}</option>)}
@@ -233,11 +260,11 @@ export default function Profile({ user }) {
                                         <div className="prof-input-group animate-fade-in">
                                             <label className="prof-label">Specialization</label>
                                             <div className="prof-select-wrapper">
-                                                <select 
+                                                <select
                                                     className="prof-select"
                                                     disabled={!isEditing}
                                                     value={formData.subDomain}
-                                                    onChange={e => setFormData({...formData, subDomain: e.target.value})}
+                                                    onChange={e => setFormData({ ...formData, subDomain: e.target.value })}
                                                 >
                                                     <option value="">Select Specialization</option>
                                                     {INTEREST_DOMAINS[formData.domain].map(s => <option key={s} value={s}>{s}</option>)}
@@ -247,8 +274,8 @@ export default function Profile({ user }) {
                                         </div>
                                     )}
 
-                                    <ProfInput label="Specific Skills" value={formData.specificSkills} onChange={e => setFormData({...formData, specificSkills: e.target.value})} disabled={!isEditing} placeholder="e.g. React, Python" />
-                                    <ProfInput label="Career Goal" value={formData.careerGoal} onChange={e => setFormData({...formData, careerGoal: e.target.value})} disabled={!isEditing} placeholder="e.g. Software Engineer at Google" />
+                                    <ProfInput label="Specific Skills" value={formData.specificSkills} onChange={e => setFormData({ ...formData, specificSkills: e.target.value })} disabled={!isEditing} placeholder="e.g. React, Python" />
+                                    <ProfInput label="Career Goal" value={formData.careerGoal} onChange={e => setFormData({ ...formData, careerGoal: e.target.value })} disabled={!isEditing} placeholder="e.g. Software Engineer at Google" />
                                 </div>
                             </div>
                         )}
@@ -258,19 +285,19 @@ export default function Profile({ user }) {
                 {/* === SECURITY TAB (With 2FA) === */}
                 {activeTab === 'security' && (
                     <div className="prof-grid">
-                        
+
                         {/* 1. 2FA SETUP (NEW) */}
-                        <div className="prof-card" style={{borderLeft: '4px solid #10b981'}}>
+                        <div className="prof-card" style={{ borderLeft: '4px solid #10b981' }}>
                             <div className="prof-card-header">
-                                <div className="prof-icon-box" style={{background:'#dcfce7', color:'#16a34a'}}>
+                                <div className="prof-icon-box" style={{ background: '#dcfce7', color: '#16a34a' }}>
                                     <i className="fas fa-shield-alt"></i>
                                 </div>
                                 <div>
-                                    <h3 style={{margin:0}}>Two-Factor Authentication</h3>
-                                    <p style={{margin:0, fontSize:'13px', color:'#64748b'}}>Secure your account with Google Authenticator.</p>
+                                    <h3 style={{ margin: 0 }}>Two-Factor Authentication</h3>
+                                    <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>Secure your account with Google Authenticator.</p>
                                 </div>
                             </div>
-                            <div style={{padding:'0 5px'}}>
+                            <div style={{ padding: '0 5px' }}>
                                 <TwoFactorSetup user={profileData} />
                             </div>
                         </div>
@@ -278,27 +305,27 @@ export default function Profile({ user }) {
                         {/* 2. CHANGE PASSWORD */}
                         <div className="prof-card">
                             <div className="prof-card-header">
-                                <div className="prof-icon-box" style={{background:'#fee2e2', color:'#ef4444'}}>
+                                <div className="prof-icon-box" style={{ background: '#fee2e2', color: '#ef4444' }}>
                                     <i className="fas fa-key"></i>
                                 </div>
                                 <h3>Change Password</h3>
                             </div>
                             <form onSubmit={handleUpdatePassword} className="prof-form-stack">
-                                <ProfInput 
-                                    label="New Password" 
-                                    type="password" 
-                                    value={passData.newPass} 
-                                    onChange={e => setPassData({...passData, newPass: e.target.value})} 
+                                <ProfInput
+                                    label="New Password"
+                                    type="password"
+                                    value={passData.newPass}
+                                    onChange={e => setPassData({ ...passData, newPass: e.target.value })}
                                     placeholder="Enter new password"
                                 />
-                                <ProfInput 
-                                    label="Confirm Password" 
-                                    type="password" 
-                                    value={passData.confirmPass} 
-                                    onChange={e => setPassData({...passData, confirmPass: e.target.value})} 
+                                <ProfInput
+                                    label="Confirm Password"
+                                    type="password"
+                                    value={passData.confirmPass}
+                                    onChange={e => setPassData({ ...passData, confirmPass: e.target.value })}
                                     placeholder="Re-enter new password"
                                 />
-                                <button className="prof-btn prof-btn-save" style={{width:'100%', justifyContent:'center', marginTop:'10px'}} disabled={passLoading}>
+                                <button className="prof-btn prof-btn-save" style={{ width: '100%', justifyContent: 'center', marginTop: '10px' }} disabled={passLoading}>
                                     {passLoading ? "Updating..." : "Update Password"}
                                 </button>
                             </form>
@@ -307,158 +334,190 @@ export default function Profile({ user }) {
                 )}
             </div>
 
-            {/* --- PREMIUM SCOPED STYLES --- */}
             <style>{`
-                /* Header Card */
-                .prof-header-card {
-                    position: relative;
-                    background: white;
-                    border-radius: 20px;
-                    box-shadow: 0 10px 30px -10px rgba(0,0,0,0.1);
-                    border: 1px solid rgba(255,255,255,0.5);
-                    overflow: hidden;
-                    margin-bottom: 30px;
-                }
-                .prof-header-bg {
-                    height: 100px;
-                    background: linear-gradient(120deg, #3b82f6 0%, #8b5cf6 100%);
-                    opacity: 0.9;
-                }
-                .prof-header-content {
-                    padding: 0 30px 30px 30px;
-                    margin-top: -50px;
-                    display: flex;
-                    align-items: flex-end;
-                    gap: 25px;
-                    position: relative;
-                }
-                .prof-avatar {
-                    width: 110px; height: 110px;
-                    border-radius: 50%;
-                    border: 5px solid white;
-                    display: flex; align-items: center; justify-content: center;
-                    color: white; font-size: 42px; font-weight: 800;
-                    box-shadow: 0 8px 20px rgba(0,0,0,0.15);
-                }
-                .prof-info { flex: 1; padding-bottom: 5px; }
-                .prof-name { margin: 0; font-size: 28px; color: #1e293b; font-weight: 800; letter-spacing: -0.5px; }
-                .prof-badges { display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
-                
-                .prof-badge-role { background: #eff6ff; color: #2563eb; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; border: 1px solid #bfdbfe; }
-                .prof-badge-dept { background: #f8fafc; color: #475569; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; border: 1px solid #e2e8f0; }
-                .prof-badge-year { background: #f0fdf4; color: #16a34a; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; border: 1px solid #bbf7d0; }
+    /* --- Full Gradient Header Card --- */
+    .prof-header-card {
+        background: linear-gradient(135deg, #7c3aed 0%, #db2777 100%); /* Sunset Violet */
+        border-radius: 20px;
+        box-shadow: 0 10px 30px rgba(219, 39, 119, 0.25);
+        overflow: hidden;
+        margin-bottom: 30px;
+        position: relative;
+        border: 1px solid rgba(255,255,255,0.2);
+    }
 
-                /* Buttons */
-                .prof-btn {
-                    padding: 10px 24px; border-radius: 12px; border: none;
-                    font-size: 14px; font-weight: 600; cursor: pointer;
-                    display: flex; align-items: center; gap: 8px;
-                    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-                    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-                }
-                .prof-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-                .prof-btn-edit { background: white; color: #334155; border: 1px solid #e2e8f0; }
-                .prof-btn-edit:hover { border-color: #cbd5e1; background: #f8fafc; }
-                .prof-btn-save { background: #2563eb; color: white; box-shadow: 0 4px 10px rgba(37, 99, 235, 0.3); }
-                .prof-btn-save:hover { background: #1d4ed8; }
+    /* Content Layout */
+    .prof-header-content {
+        padding: 40px;
+        display: flex;
+        align-items: center;
+        gap: 30px;
+    }
 
-                /* Tabs */
-                .prof-tabs-container { margin-bottom: 30px; border-bottom: 1px solid #e2e8f0; }
-                .prof-tabs { display: flex; gap: 30px; }
-                .prof-tab-item {
-                    background: none; border: none; padding: 12px 0;
-                    font-size: 15px; font-weight: 600; color: #64748b;
-                    cursor: pointer; position: relative;
-                    transition: color 0.2s;
-                }
-                .prof-tab-item:hover { color: #334155; }
-                .prof-tab-item.active { color: #2563eb; }
-                .prof-tab-item.active::after {
-                    content: ''; position: absolute; bottom: -1px; left: 0; width: 100%; height: 3px;
-                    background: #2563eb; border-radius: 3px 3px 0 0;
-                }
+    /* --- Avatar (White with Color Text) --- */
+    .prof-avatar {
+        width: 100px; height: 100px;
+        min-width: 100px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.95);
+        border: 4px solid rgba(255,255,255,0.3); /* Glass Border */
+        display: flex; align-items: center; justify-content: center;
+        color: #db2777; /* Matching Text Color */
+        font-size: 36px; font-weight: 800;
+        box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+    }
 
-                /* Grid Layout */
-                .prof-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 30px; }
-                
-                /* Cards */
-                .prof-card {
-                    background: white; border-radius: 20px; padding: 30px;
-                    border: 1px solid #f1f5f9;
-                    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02), 0 2px 4px -1px rgba(0,0,0,0.02);
-                    transition: transform 0.3s ease, box-shadow 0.3s ease;
-                }
-                .prof-card:hover { transform: translateY(-3px); box-shadow: 0 12px 25px -5px rgba(0,0,0,0.08); }
-                .prof-card-highlight { border-top: 4px solid #8b5cf6; }
+    /* --- Info Section --- */
+    .prof-info { flex: 1; }
+    
+    .prof-name { 
+        margin: 0; 
+        font-size: 32px; 
+        color: white; 
+        font-weight: 800; 
+        letter-spacing: -0.5px;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
 
-                .prof-card-header { display: flex; align-items: center; gap: 15px; margin-bottom: 25px; }
-                .prof-card-header h3 { margin: 0; font-size: 18px; color: #1e293b; font-weight: 700; }
-                .prof-icon-box {
-                    width: 40px; height: 40px; border-radius: 12px;
-                    display: flex; align-items: center; justify-content: center;
-                    font-size: 18px;
-                }
+    .prof-badges { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+    
+    /* Glass Badges */
+    .prof-badge-glass { 
+        background: rgba(255, 255, 255, 0.2); 
+        color: white; 
+        padding: 5px 14px; 
+        border-radius: 20px; 
+        font-size: 11px; 
+        font-weight: 700; 
+        text-transform: uppercase; 
+        letter-spacing: 0.5px; 
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        backdrop-filter: blur(5px);
+    }
 
-                /* Form Elements */
-                .prof-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-                .prof-form-stack { display: flex; flex-direction: column; gap: 20px; }
-                
-                .prof-input-group { position: relative; }
-                .prof-label {
-                    display: flex; justify-content: space-between; align-items: center;
-                    font-size: 12px; font-weight: 700; color: #64748b;
-                    margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.6px;
-                }
-                
-                .prof-input, .prof-select {
-                    width: 100%; padding: 12px 16px; border-radius: 12px;
-                    border: 2px solid #f1f5f9; background: #f8fafc;
-                    color: #1e293b; font-size: 14px; font-weight: 500;
-                    transition: all 0.2s; -webkit-appearance: none;
-                }
-                .prof-input:focus, .prof-select:focus {
-                    background: white; border-color: #3b82f6; outline: none;
-                    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
-                }
-                .prof-input:disabled {
-                    background: #f1f5f9; border-color: transparent; color: #64748b; cursor: not-allowed;
-                }
-                .prof-select-wrapper { position: relative; }
-                .prof-select-icon {
-                    position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
-                    color: #94a3b8; pointer-events: none; font-size: 12px;
-                }
+    /* --- Buttons (White Glass) --- */
+    .prof-btn {
+        padding: 10px 24px; border-radius: 12px; border: none;
+        font-size: 14px; font-weight: 600; cursor: pointer;
+        display: flex; align-items: center; gap: 8px;
+        transition: all 0.2s ease;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        white-space: nowrap;
+    }
+    .prof-btn:hover { transform: translateY(-2px); }
 
-                /* Mobile Responsive */
-                @media (max-width: 768px) {
-                    .prof-header-content { flex-direction: column; align-items: center; text-align: center; }
-                    .prof-grid { grid-template-columns: 1fr; }
-                    .prof-form-grid { grid-template-columns: 1fr; }
-                    .prof-badges { justify-content: center; }
-                    .prof-btn { width: 100%; justify-content: center; }
-                    .prof-tabs { width: 100%; justify-content: space-between; }
-                    .prof-tab-item { flex: 1; text-align: center; }
-                }
+    .prof-btn-edit { 
+        background: white; 
+        color: #db2777; 
+    }
+    .prof-btn-save { 
+        background: #10b981; 
+        color: white; 
+        box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+    }
 
-                .animate-fade-in { animation: fadeIn 0.3s ease-in-out; }
-                @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
-            `}</style>
+    /* --- Tabs --- */
+    .prof-tabs-container { margin-bottom: 30px; border-bottom: 1px solid #e2e8f0; }
+    .prof-tabs { display: flex; gap: 30px; overflow-x: auto; }
+    .prof-tab-item {
+        background: none; border: none; padding: 12px 0;
+        font-size: 15px; font-weight: 600; color: #64748b;
+        cursor: pointer; position: relative; transition: color 0.2s; white-space: nowrap;
+    }
+    .prof-tab-item:hover { color: #334155; }
+    .prof-tab-item.active { color: #db2777; } /* Matches Theme */
+    .prof-tab-item.active::after {
+        content: ''; position: absolute; bottom: -1px; left: 0; width: 100%; height: 3px;
+        background: #db2777; border-radius: 3px 3px 0 0;
+    }
+
+    /* --- Layout & Forms --- */
+    .prof-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 30px; }
+    
+    .prof-card {
+        background: white; border-radius: 20px; padding: 30px;
+        border: 1px solid #f1f5f9;
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02);
+        transition: transform 0.3s ease;
+    }
+    .prof-card:hover { transform: translateY(-3px); box-shadow: 0 12px 25px -5px rgba(0,0,0,0.08); }
+    .prof-card-highlight { border-top: 4px solid #d946ef; }
+
+    .prof-card-header { display: flex; align-items: center; gap: 15px; margin-bottom: 25px; }
+    .prof-card-header h3 { margin: 0; font-size: 18px; color: #1e293b; font-weight: 700; }
+    .prof-icon-box {
+        width: 40px; height: 40px; border-radius: 12px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 18px;
+    }
+
+    /* Form Grids */
+    .prof-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .prof-form-stack { display: flex; flex-direction: column; gap: 20px; }
+    
+    .prof-input-group { position: relative; }
+    .prof-label {
+        display: flex; justify-content: space-between; align-items: center;
+        font-size: 12px; font-weight: 700; color: #64748b;
+        margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.6px;
+    }
+    
+    .prof-input, .prof-select {
+        width: 100%; padding: 12px 16px; border-radius: 12px;
+        border: 2px solid #f1f5f9; background: #f8fafc;
+        color: #1e293b; font-size: 14px; font-weight: 500;
+        transition: all 0.2s; box-sizing: border-box; /* Fixes Input Width */
+    }
+    .prof-input:focus, .prof-select:focus {
+        background: white; border-color: #d946ef; outline: none;
+        box-shadow: 0 0 0 4px rgba(217, 70, 239, 0.1);
+    }
+    .prof-input:disabled { background: #f1f5f9; border-color: transparent; color: #64748b; cursor: not-allowed; }
+    
+    .prof-select-wrapper { position: relative; }
+    .prof-select-icon {
+        position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
+        color: #94a3b8; pointer-events: none; font-size: 12px;
+    }
+
+    /* --- MOBILE RESPONSIVE --- */
+    @media (max-width: 768px) {
+        .prof-header-content { 
+            flex-direction: column; 
+            text-align: center; 
+            padding: 30px;
+        }
+        .prof-avatar { width: 90px; height: 90px; font-size: 32px; }
+        .prof-name { font-size: 24px; }
+        .prof-badges { justify-content: center; }
+        .prof-btn { width: 100%; justify-content: center; margin-top: 10px; }
+        
+        /* Grid Stacking */
+        .prof-grid { grid-template-columns: 1fr; }
+        .prof-form-grid { grid-template-columns: 1fr; }
+        .prof-tabs { justify-content: space-between; }
+        .prof-tab-item { flex: 1; text-align: center; }
+    }
+
+    .animate-fade-in { animation: fadeIn 0.3s ease-in-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+`}</style>
         </div>
     );
 }
 
 // Reusable Input Component
-const ProfInput = ({ label, value, onChange, disabled, type="text", placeholder, lockIcon }) => (
+const ProfInput = ({ label, value, onChange, disabled, type = "text", placeholder, lockIcon }) => (
     <div className="prof-input-group">
         <label className="prof-label">
             {label}
-            {lockIcon && <i className="fas fa-lock" style={{fontSize:'10px', color:'#94a3b8'}}></i>}
+            {lockIcon && <i className="fas fa-lock" style={{ fontSize: '10px', color: '#94a3b8' }}></i>}
         </label>
-        <input 
-            type={type} 
+        <input
+            type={type}
             className="prof-input"
-            value={value} 
-            onChange={onChange} 
+            value={value}
+            onChange={onChange}
             disabled={disabled}
             placeholder={placeholder}
         />

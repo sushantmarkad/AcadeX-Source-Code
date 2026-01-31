@@ -199,8 +199,7 @@ const LeaveRequestForm = ({ user }) => {
     );
 };
 
-// --- COMPONENT: Notices View ---
-// --- COMPONENT: Notices View ---
+// --- COMPONENT: Notices View (Updated with File Support) ---
 const NoticesView = ({ notices }) => {
     return (
         <div className="content-section">
@@ -219,7 +218,23 @@ const NoticesView = ({ notices }) => {
                                 </div>
                                 <p className="notice-body">{n.message}</p>
 
-                                {/* ✅ ADDED: Teacher Name Display */}
+                                {/* ✅ ADDED: Attachment Button */}
+                                {n.attachmentUrl && (
+                                    <div style={{marginBottom: '12px'}}>
+                                        <a href={n.attachmentUrl} target="_blank" rel="noreferrer" 
+                                           style={{
+                                               display: 'inline-flex', alignItems: 'center', gap: '8px',
+                                               padding: '8px 12px', background: '#eff6ff', 
+                                               color: '#2563eb', borderRadius: '8px', 
+                                               textDecoration: 'none', fontSize: '13px', fontWeight: '600',
+                                               border: '1px solid #bfdbfe'
+                                           }}>
+                                            <i className="fas fa-paperclip"></i> View Attachment
+                                        </a>
+                                    </div>
+                                )}
+
+                                {/* Teacher Info */}
                                 {n.teacherName && (
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#64748b', marginBottom: '10px' }}>
                                         <i className="fas fa-user-circle" style={{ color: '#94a3b8' }}></i>

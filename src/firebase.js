@@ -1,8 +1,8 @@
 import { initializeApp } from "firebase/app";
-// Make sure sendPasswordResetEmail is included in the import from firebase/auth
 import { getAuth, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
-import { getFunctions, httpsCallable } from "firebase/functions"; // Keep this for future use if you want
+import { getFunctions, httpsCallable } from "firebase/functions"; 
+import { getStorage } from "firebase/storage";
 
 const firebaseConfig = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
@@ -19,6 +19,7 @@ const functions = getFunctions(app);
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export const storage = getStorage(app);
 export const provider = new GoogleAuthProvider();
 
 

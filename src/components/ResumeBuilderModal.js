@@ -8,64 +8,29 @@ const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
 export default function ResumeBuilderModal({ isOpen, onClose, user }) {
     const [loading, setLoading] = useState(false);
-    
-    // Form State
     const [formData, setFormData] = useState({
         skills: user?.resumeData?.skills || [],
         experience: user?.resumeData?.experience || '',
         projects: user?.resumeData?.projects || []
     });
-
     const [newSkill, setNewSkill] = useState('');
     const [newProject, setNewProject] = useState({ title: '', desc: '' });
 
-    const addSkill = () => {
-        if (newSkill.trim() && !formData.skills.includes(newSkill)) {
-            setFormData(prev => ({ ...prev, skills: [...prev.skills, newSkill] }));
-            setNewSkill('');
-        }
-    };
-
-    const removeSkill = (skillToRemove) => {
-        setFormData(prev => ({ ...prev, skills: prev.skills.filter(s => s !== skillToRemove) }));
-    };
-
-    const addProject = () => {
-        if (newProject.title && newProject.desc) {
-            setFormData(prev => ({ ...prev, projects: [...prev.projects, newProject] }));
-            setNewProject({ title: '', desc: '' });
-        }
-    };
-
-    const removeProject = (index) => {
-        setFormData(prev => ({ ...prev, projects: prev.projects.filter((_, i) => i !== index) }));
-    };
-
     const handleSave = async () => {
         setLoading(true);
-        const toastId = toast.loading("Saving Profile...");
-
+        const toastId = toast.loading("Saving Resume...");
         try {
             const token = await auth.currentUser.getIdToken();
-            const res = await fetch(`${BACKEND_URL}/updateResume`, {
+            await fetch(`${BACKEND_URL}/updateResume`, {
                 method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify({ resumeData: formData })
             });
-
-            const data = await res.json();
-            
-            if (res.ok) {
-                toast.success(data.message, { id: toastId });
-                onClose();
-            } else {
-                throw new Error(data.error);
-            }
+            toast.success("Resume Updated!", { id: toastId });
+            // Removed any XP gain logic here
+            onClose();
         } catch (err) {
-            toast.error(err.message, { id: toastId });
+            toast.error("Failed to save.", { id: toastId });
         } finally {
             setLoading(false);
         }
@@ -75,209 +40,158 @@ export default function ResumeBuilderModal({ isOpen, onClose, user }) {
 
     return ReactDOM.createPortal(
         <AnimatePresence>
-            <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                style={{
-                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
-                    zIndex: 999999,
-                    background: 'rgba(15, 23, 42, 0.6)', 
-                    backdropFilter: 'blur(12px)',
-                    display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '20px'
-                }}
-                onClick={onClose}
-            >
+            <div className="rb-overlay" onClick={onClose}>
                 <motion.div 
-                    initial={{ scale: 0.95, y: 20, opacity: 0 }} 
-                    animate={{ scale: 1, y: 0, opacity: 1 }} 
-                    exit={{ scale: 0.95, y: 20, opacity: 0 }}
+                    className="rb-modal"
+                    initial={{ y: 50, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    exit={{ y: 50, opacity: 0 }}
                     onClick={e => e.stopPropagation()}
-                    className="card"
-                    style={{ 
-                        width: '100%', maxWidth: '700px', maxHeight:'85vh', 
-                        overflowY:'auto', padding:'0', border:'none', borderRadius: '16px',
-                        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-                        background: '#ffffff'
-                    }}
                 >
                     {/* Header */}
-                    <div style={{ 
-                        background: 'linear-gradient(135deg, #4f46e5 0%, #3b82f6 100%)', 
-                        padding: '30px', color: 'white', position: 'relative', overflow: 'hidden'
-                    }}>
-                        <div style={{ position: 'relative', zIndex: 2 }}>
-                            <h2 style={{ margin: 0, fontSize: '22px', fontWeight: '700', display:'flex', alignItems:'center', gap:'10px' }}>
-                                <i className="fas fa-briefcase"></i> Resume Builder
-                            </h2>
-                            <p style={{ margin: '5px 0 0 0', opacity: 0.9, fontSize:'14px' }}>
-                                Build your professional profile to showcase your skills.
-                            </p>
-                        </div>
+                    <div className="rb-header">
+                        <h2><i className="fas fa-file-alt"></i> Resume Builder</h2>
+                        <button onClick={onClose} className="rb-close"><i className="fas fa-times"></i></button>
                     </div>
 
-                    {/* Body */}
-                    <div style={{ padding: '30px', display: 'flex', flexDirection: 'column', gap: '30px' }}>
-                        
-                        {/* Section 1: Skills */}
-                        <div>
-                            <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#1e293b', marginBottom: '8px' }}>
-                                Core Skills
-                            </label>
-                            <div style={{ background: '#f8fafc', padding: '15px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                                <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
-                                    <input 
-                                        placeholder="Add a skill (e.g. ReactJS)" 
-                                        value={newSkill} 
-                                        onChange={e => setNewSkill(e.target.value)}
-                                        onKeyPress={e => e.key === 'Enter' && addSkill()}
-                                        style={{
-                                            flex: 1, padding: '10px 14px', borderRadius: '8px', 
-                                            border: '1px solid #cbd5e1', fontSize: '14px', outline: 'none',
-                                            transition: 'border-color 0.2s', background: 'white'
-                                        }}
-                                    />
-                                    <button 
-                                        onClick={addSkill} 
-                                        style={{ 
-                                            background: '#3b82f6', color: 'white', border: 'none', 
-                                            padding: '0 20px', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' 
-                                        }}
-                                    >
-                                        Add
-                                    </button>
-                                </div>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                                    {formData.skills.length > 0 ? formData.skills.map(s => (
-                                        <span key={s} style={{ 
-                                            background: 'white', border:'1px solid #e2e8f0', color: '#334155', 
-                                            padding: '6px 12px', borderRadius: '20px', fontSize: '13px', fontWeight: '600', 
-                                            display:'flex', alignItems:'center', gap:'8px', boxShadow:'0 1px 2px rgba(0,0,0,0.05)'
-                                        }}>
-                                            {s} 
-                                            <i className="fas fa-times" style={{cursor:'pointer', color:'#ef4444'}} onClick={() => removeSkill(s)}></i>
-                                        </span>
-                                    )) : <span style={{color:'#94a3b8', fontSize:'13px', fontStyle:'italic'}}>No skills added yet.</span>}
-                                </div>
+                    {/* Content */}
+                    <div className="rb-content">
+                        {/* Skills Section */}
+                        <div className="rb-section">
+                            <label>Core Skills</label>
+                            <div className="rb-input-row">
+                                <input 
+                                    placeholder="Add a skill (e.g. Python)" 
+                                    value={newSkill} 
+                                    onChange={e => setNewSkill(e.target.value)}
+                                    className="rb-input"
+                                />
+                                <button onClick={() => {
+                                    if (newSkill.trim() && !formData.skills.includes(newSkill)) {
+                                        setFormData(prev => ({ ...prev, skills: [...prev.skills, newSkill] }));
+                                        setNewSkill('');
+                                    }
+                                }} className="rb-add-btn">Add</button>
+                            </div>
+                            <div className="rb-tags">
+                                {formData.skills.map(s => (
+                                    <span key={s} className="rb-tag">
+                                        {s} <i className="fas fa-times" onClick={() => setFormData(p => ({...p, skills: p.skills.filter(i => i!==s)}))}></i>
+                                    </span>
+                                ))}
                             </div>
                         </div>
 
-                        {/* Section 2: Summary */}
-                        <div>
-                            <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#1e293b', marginBottom: '8px' }}>
-                                Professional Summary
-                            </label>
+                        {/* Summary Section */}
+                        <div className="rb-section">
+                            <label>Professional Summary</label>
                             <textarea 
-                                rows="4" 
-                                placeholder="Write a short bio about your career goals and key strengths..."
+                                rows="3" 
+                                placeholder="Briefly describe your career goals..."
                                 value={formData.experience}
                                 onChange={e => setFormData({ ...formData, experience: e.target.value })}
-                                style={{
-                                    width: '100%', padding: '12px', borderRadius: '12px', 
-                                    border: '1px solid #e2e8f0', fontSize: '14px', fontFamily: 'inherit',
-                                    outline: 'none', background: '#f8fafc', resize: 'vertical'
-                                }}
+                                className="rb-textarea"
                             />
                         </div>
 
-                        {/* Section 3: Projects */}
-                        <div>
-                            <label style={{ display: 'block', fontSize: '14px', fontWeight: '600', color: '#1e293b', marginBottom: '8px' }}>
-                                Key Projects
-                            </label>
-                            
-                            {/* Project List */}
-                            <div style={{display:'flex', flexDirection:'column', gap:'12px', marginBottom:'20px'}}>
+                        {/* Projects Section */}
+                        <div className="rb-section">
+                            <label>Projects</label>
+                            <div className="rb-project-form">
+                                <input 
+                                    placeholder="Project Title" 
+                                    value={newProject.title} 
+                                    onChange={e => setNewProject({...newProject, title: e.target.value})}
+                                    className="rb-input" style={{marginBottom:'10px'}}
+                                />
+                                <textarea 
+                                    placeholder="Project Description..." 
+                                    value={newProject.desc} 
+                                    onChange={e => setNewProject({...newProject, desc: e.target.value})}
+                                    className="rb-textarea" style={{marginBottom:'10px'}}
+                                />
+                                <button onClick={() => {
+                                    if (newProject.title) {
+                                        setFormData(p => ({ ...p, projects: [...p.projects, newProject] }));
+                                        setNewProject({ title: '', desc: '' });
+                                    }
+                                }} className="rb-dashed-btn">+ Add Project</button>
+                            </div>
+
+                            <div className="rb-project-list">
                                 {formData.projects.map((p, i) => (
-                                    <div key={i} style={{ 
-                                        background: 'white', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0',
-                                        display: 'flex', justifyContent: 'space-between', alignItems: 'start',
-                                        boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
-                                    }}>
+                                    <div key={i} className="rb-project-card">
                                         <div>
-                                            <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '15px' }}>{p.title}</div>
-                                            <div style={{ fontSize: '13px', color: '#64748b', marginTop: '4px', lineHeight: '1.4' }}>{p.desc}</div>
+                                            <h4>{p.title}</h4>
+                                            <p>{p.desc}</p>
                                         </div>
-                                        <button onClick={() => removeProject(i)} style={{color:'#94a3b8', background:'none', border:'none', cursor:'pointer', padding:'5px'}}>
-                                            <i className="fas fa-trash hover-red"></i>
-                                        </button>
+                                        <button onClick={() => setFormData(pr => ({...pr, projects: pr.projects.filter((_, idx) => idx !== i)}))} className="rb-del-btn"><i className="fas fa-trash"></i></button>
                                     </div>
                                 ))}
                             </div>
-
-                            {/* Add New Project Form */}
-                            <div style={{ background: '#f8fafc', padding: '20px', borderRadius: '16px', border: '1px dashed #cbd5e1' }}>
-                                <h5 style={{margin:'0 0 15px 0', color:'#64748b', fontSize:'12px', textTransform:'uppercase', letterSpacing:'0.5px', fontWeight:'700'}}>Add New Project</h5>
-                                
-                                <div style={{marginBottom:'12px'}}>
-                                    <input 
-                                        placeholder="Project Title" 
-                                        value={newProject.title}
-                                        onChange={e => setNewProject({...newProject, title: e.target.value})}
-                                        style={{
-                                            width: '100%', padding: '10px 12px', borderRadius: '8px', 
-                                            border: '1px solid #cbd5e1', fontSize: '14px', outline: 'none', background:'white'
-                                        }}
-                                    />
-                                </div>
-                                <div style={{marginBottom:'15px'}}>
-                                    <textarea 
-                                        rows="2" 
-                                        placeholder="Description (Tech stack, features, role)" 
-                                        value={newProject.desc}
-                                        onChange={e => setNewProject({...newProject, desc: e.target.value})}
-                                        style={{
-                                            width: '100%', padding: '10px 12px', borderRadius: '8px', 
-                                            border: '1px solid #cbd5e1', fontSize: '14px', fontFamily: 'inherit',
-                                            outline: 'none', background:'white', minHeight:'60px'
-                                        }}
-                                    />
-                                </div>
-                                <button 
-                                    onClick={addProject} 
-                                    style={{ 
-                                        width: '100%', padding: '10px', borderRadius: '8px', border: 'none',
-                                        background: '#e0e7ff', color: '#4338ca', fontWeight: '600', 
-                                        fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
-                                    }}
-                                >
-                                    <i className="fas fa-plus"></i> Add to List
-                                </button>
-                            </div>
                         </div>
-
                     </div>
 
-                    {/* Footer Actions (Right Aligned) */}
-                    <div style={{ 
-                        display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '12px', 
-                        padding: '20px 30px', borderTop: '1px solid #f1f5f9', background: '#fff',
-                        borderBottomLeftRadius: '16px', borderBottomRightRadius: '16px'
-                    }}>
-                        <button 
-                            onClick={onClose}
-                            style={{ 
-                                background: 'transparent', border: '1px solid #e2e8f0', color: '#64748b', 
-                                padding: '10px 20px', borderRadius: '8px', fontWeight: '600', cursor: 'pointer' 
-                            }}
-                        >
-                            Cancel
-                        </button>
-                        <button 
-                            onClick={handleSave} 
-                            disabled={loading} 
-                            style={{ 
-                                background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)', 
-                                border: 'none', color: 'white', padding: '10px 24px', borderRadius: '8px', 
-                                fontWeight: '600', cursor: 'pointer', boxShadow: '0 4px 6px -1px rgba(37, 99, 235, 0.3)'
-                            }}
-                        >
-                            {loading ? 'Saving...' : 'Save & Update Profile'}
+                    {/* Footer */}
+                    <div className="rb-footer">
+                        <button onClick={onClose} className="rb-btn-cancel">Cancel</button>
+                        <button onClick={handleSave} disabled={loading} className="rb-btn-save">
+                            {loading ? 'Saving...' : 'Save Resume'}
                         </button>
                     </div>
-
                 </motion.div>
-            </motion.div>
+            </div>
+
+            <style>{`
+                .rb-overlay {
+                    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+                    background: rgba(0,0,0,0.5); backdrop-filter: blur(5px);
+                    z-index: 10000; display: flex; justify-content: center; align-items: center;
+                }
+                .rb-modal {
+                    width: 90%; max-width: 600px; max-height: 85vh; background: white;
+                    border-radius: 20px; display: flex; flex-direction: column;
+                    box-shadow: 0 10px 40px rgba(0,0,0,0.2); overflow: hidden;
+                }
+                .rb-header {
+                    padding: 20px 25px; background: white; border-bottom: 1px solid #f1f5f9;
+                    display: flex; justify-content: space-between; align-items: center;
+                }
+                .rb-header h2 { margin: 0; font-size: 18px; color: #1e293b; display: flex; align-items: center; gap: 10px; }
+                .rb-header h2 i { color: #3b82f6; }
+                .rb-close { background: none; border: none; font-size: 18px; color: #94a3b8; cursor: pointer; }
+
+                .rb-content { padding: 25px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 25px; }
+                
+                .rb-section label { display: block; font-size: 12px; font-weight: 700; color: #64748b; margin-bottom: 8px; text-transform: uppercase; }
+                
+                .rb-input, .rb-textarea {
+                    width: 100%; padding: 12px; border: 2px solid #f1f5f9; border-radius: 10px;
+                    font-size: 14px; background: #f8fafc; outline: none; transition: all 0.2s; box-sizing: border-box;
+                }
+                .rb-input:focus, .rb-textarea:focus { border-color: #3b82f6; background: white; }
+                
+                .rb-input-row { display: flex; gap: 10px; }
+                .rb-add-btn { background: #3b82f6; color: white; border: none; padding: 0 20px; border-radius: 10px; font-weight: 600; cursor: pointer; }
+                
+                .rb-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+                .rb-tag { background: #eff6ff; color: #2563eb; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; display: flex; alignItems: center; gap: 6px; }
+                .rb-tag i { cursor: pointer; opacity: 0.6; } .rb-tag i:hover { opacity: 1; }
+
+                .rb-project-form { background: #f8fafc; padding: 15px; border-radius: 12px; border: 1px dashed #cbd5e1; }
+                .rb-dashed-btn { width: 100%; padding: 10px; border: 2px dashed #cbd5e1; background: white; color: #64748b; border-radius: 8px; cursor: pointer; font-weight: 600; }
+                .rb-dashed-btn:hover { border-color: #3b82f6; color: #3b82f6; }
+
+                .rb-project-list { display: flex; flex-direction: column; gap: 10px; margin-top: 15px; }
+                .rb-project-card { background: white; border: 1px solid #f1f5f9; padding: 15px; border-radius: 10px; display: flex; justify-content: space-between; }
+                .rb-project-card h4 { margin: 0 0 5px 0; font-size: 14px; color: #1e293b; }
+                .rb-project-card p { margin: 0; font-size: 12px; color: #64748b; }
+                .rb-del-btn { background: none; border: none; color: #ef4444; cursor: pointer; opacity: 0.5; } .rb-del-btn:hover { opacity: 1; }
+
+                .rb-footer { padding: 20px; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end; gap: 10px; }
+                .rb-btn-cancel { padding: 10px 20px; border: 1px solid #e2e8f0; background: white; color: #64748b; border-radius: 10px; cursor: pointer; font-weight: 600; }
+                .rb-btn-save { padding: 10px 24px; border: none; background: #3b82f6; color: white; border-radius: 10px; cursor: pointer; font-weight: 600; box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3); }
+            `}</style>
         </AnimatePresence>,
         document.body
     );

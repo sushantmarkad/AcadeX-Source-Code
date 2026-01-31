@@ -2,14 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { auth, db, sendPasswordResetEmail } from '../firebase';
-import { collection, onSnapshot, doc, updateDoc, getDoc } from 'firebase/firestore'; // ✅ Added getDoc
+import { collection, onSnapshot, doc, updateDoc } from 'firebase/firestore'; 
 import toast, { Toaster } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion'; 
 import './Dashboard.css'; 
 import logo from "../assets/logo.png";
 
-// ✅ Import 2FA
-import TwoFactorSetup from '../components/TwoFactorSetup';
+// ✅ 2FA Imports REMOVED completely to prevent login crashes
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
@@ -38,14 +37,13 @@ export default function SuperAdminDashboard() {
     const [loading, setLoading] = useState(true);
     const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
     
-    // ✅ NEW STATE: Admin Profile & Active Tab
-    const [adminProfile, setAdminProfile] = useState(null);
-    const [activeTab, setActiveTab] = useState('applications'); // 'applications' or 'security'
+    // ✅ REMOVED adminProfile state (was causing issues)
+    const [activeTab, setActiveTab] = useState('applications'); 
 
     const [modalConfig, setModalConfig] = useState({ isOpen: false, title: '', message: '', onConfirm: null, isDanger: false });
     const navigate = useNavigate();
 
-    // 1. Fetch Applications (Existing)
+    // 1. Fetch Applications
     useEffect(() => {
         const unsubscribe = onSnapshot(collection(db, "applications"), (snap) => {
             setApplications(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -54,16 +52,7 @@ export default function SuperAdminDashboard() {
         return () => unsubscribe();
     }, []);
 
-    // 2. ✅ Fetch SUPER ADMIN PROFILE (New - for 2FA)
-    useEffect(() => {
-        const fetchMe = async () => {
-            if (auth.currentUser) {
-                const snap = await getDoc(doc(db, "users", auth.currentUser.uid));
-                if (snap.exists()) setAdminProfile(snap.data());
-            }
-        };
-        fetchMe();
-    }, []);
+    // ✅ REMOVED: The useEffect that fetched user profile for 2FA
 
     const openConfirm = (title, message, onConfirm, isDanger = false) => {
         setModalConfig({ isOpen: true, title, message, onConfirm, isDanger });
@@ -136,7 +125,6 @@ export default function SuperAdminDashboard() {
                 <div className="logo-container"><img src={logo} alt="Logo" className="sidebar-logo"/><span className="logo-text">AcadeX</span></div>
                 <div className="teacher-info"><h4>Super Admin</h4><p>Platform Manager</p></div>
                 <ul className="menu">
-                    {/* ✅ UPDATED MENU */}
                     <li className={activeTab === 'applications' ? 'active' : ''} onClick={() => { setActiveTab('applications'); setIsMobileNavOpen(false); }}>
                         <i className="fas fa-shield-alt" style={{width:'20px'}}></i><span>Applications</span>
                     </li>
@@ -154,7 +142,6 @@ export default function SuperAdminDashboard() {
                     <div style={{width:'40px'}}></div>
                 </header>
 
-                {/* ✅ RENDER CONTENT BASED ON TAB */}
                 {activeTab === 'security' ? (
                     <div className="content-section">
                         <h2 className="content-title">Super Admin Security</h2>
@@ -165,8 +152,11 @@ export default function SuperAdminDashboard() {
                                 <p><strong>Email:</strong> {auth.currentUser?.email}</p>
                                 <p><strong>Status:</strong> Active</p>
                             </div>
-                            {/* ✅ 2FA COMPONENT */}
-                            <TwoFactorSetup user={adminProfile} />
+                            {/* ✅ 2FA COMPONENT REMOVED COMPLETELY */}
+                            <div className="card" style={{opacity: 0.6}}>
+                                <h3>Security Settings</h3>
+                                <p>Two-Factor Authentication is currently disabled for maintenance.</p>
+                            </div>
                         </div>
                     </div>
                 ) : (
