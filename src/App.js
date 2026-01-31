@@ -1,17 +1,16 @@
 import React, { Suspense, lazy, useState, useEffect } from "react";
 import { Routes, Route, useLocation, Navigate } from "react-router-dom";
 import { AnimatePresence } from "framer-motion";
-import { Toaster } from 'react-hot-toast';
-import { onAuthStateChanged } from 'firebase/auth';
+import { Toaster, toast } from 'react-hot-toast';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from './firebase'; 
 import { usePushNotifications } from './hooks/usePushNotifications';
 import IOSSplashScreen from "./components/IOSSplashScreen";
 import logo from "./assets/logo.png"; 
-import Onboarding from './pages/Onboarding'; // ✅ Standard import for fast load
-
-// Import the Skeleton Component
+import Onboarding from './pages/Onboarding'; 
 import DashboardSkeleton from "./components/DashboardSkeleton";
+import TwoFactorVerifyModal from "./components/TwoFactorVerifyModal"; // ✅ Import Modal
 
 // Lazy load components
 const Login = lazy(() => import("./pages/Login"));
@@ -20,21 +19,19 @@ const StudentRegister = lazy(() => import("./pages/StudentRegister"));
 const InstituteApplication = lazy(() => import("./pages/InstituteApplication"));
 const CheckStatus = lazy(() => import("./pages/CheckStatus"));
 
-// ROLE-BASED DASHBOARDS
 const StudentDashboard = lazy(() => import("./pages/StudentDashboard"));
 const TeacherDashboard = lazy(() => import("./pages/TeacherDashboard"));
 const InstituteAdminDashboard = lazy(() => import("./pages/InstituteAdminDashboard"));
 const SuperAdminDashboard = lazy(() => import("./pages/SuperAdminDashboard"));
-
-// ✅ NEW: Bulk Student Upload Page
 const BulkAddStudents = lazy(() => import("./pages/BulkAddStudents"));
 
-// Legacy/Shared Pages
 const Attendance = lazy(() => import("./pages/Attendance"));
 const FreeTime = lazy(() => import("./pages/FreeTime"));
 const Goals = lazy(() => import("./pages/Goals"));
 const Dashboard = lazy(() => import("./pages/Dashboard")); 
 const AiChatbot = lazy(() => import("./pages/AiChatbot")); 
+
+const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
 function App() {
   
@@ -42,37 +39,96 @@ function App() {
   const location = useLocation();
   const [showSplash, setShowSplash] = useState(true);
   
-  // Auth State Management
   const [user, setUser] = useState(null);
   const [userRole, setUserRole] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  
-  // 1. Persistent Login Logic
+
+  // 🔐 2FA GLOBAL STATES
+  const [is2FARequired, setIs2FARequired] = useState(false);
+  const [is2FAVerified, setIs2FAVerified] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
-        // Fetch role to know where to redirect
+        
         try {
             const userDoc = await getDoc(doc(db, "users", currentUser.uid));
             if (userDoc.exists()) {
-                setUserRole(userDoc.data().role);
+                const data = userDoc.data();
+                setUserRole(data.role);
+
+                // --- 🔐 GLOBAL 2FA CHECK ---
+                if (data.is2FAEnabled) {
+                    // Check if already verified in this session (Tab)
+                    const sessionVerified = sessionStorage.getItem('is2FAVerified');
+                    if (sessionVerified === 'true') {
+                        setIs2FAVerified(true);
+                        setIs2FARequired(false);
+                    } else {
+                        // 🛑 BLOCK ACCESS: Require 2FA
+                        setIs2FARequired(true); 
+                        setIs2FAVerified(false);
+                    }
+                } else {
+                    // No 2FA enabled, allow access
+                    setIs2FARequired(false);
+                    setIs2FAVerified(true); 
+                }
             }
         } catch (error) {
-            console.error("Error fetching role:", error);
+            console.error("Error fetching user data:", error);
         }
       } else {
+        // Logged out
         setUser(null);
         setUserRole(null);
+        setIs2FARequired(false);
+        setIs2FAVerified(false);
+        sessionStorage.removeItem('is2FAVerified'); 
       }
-      // Stop loading once we know the status
       setAuthLoading(false); 
     });
 
     return () => unsubscribe();
   }, []);
 
-  // Helper to determine dashboard based on role
+  // --- 🔐 HANDLE 2FA VERIFICATION ---
+  const handleVerify2FA = async (code) => {
+      setVerifying(true);
+      try {
+          const token = await user.getIdToken();
+          const res = await fetch(`${BACKEND_URL}/verify2FA`, {
+              method: 'POST',
+              headers: { 
+                  'Content-Type': 'application/json', 
+                  'Authorization': `Bearer ${token}` 
+              },
+              body: JSON.stringify({ token: code, isLogin: true })
+          });
+          const data = await res.json();
+          
+          if (data.success) {
+              toast.success("Identity Verified");
+              sessionStorage.setItem('is2FAVerified', 'true'); // Persist for this tab
+              setIs2FAVerified(true);
+              setIs2FARequired(false); // Close Modal & Allow Routes
+          } else {
+              toast.error("Invalid Code");
+          }
+      } catch (err) {
+          toast.error("Verification Error");
+      } finally {
+          setVerifying(false);
+      }
+  };
+
+  const handleLogout = () => {
+      signOut(auth);
+      setIs2FARequired(false);
+  };
+
   const getDashboardRoute = () => {
     if (userRole === 'student') return '/student-dashboard';
     if (userRole === 'teacher') return '/teacher-dashboard';
@@ -81,86 +137,66 @@ function App() {
     return '/dashboard';
   };
 
-  // ✅ Check Onboarding Status from Local Storage
   const hasSeenOnboarding = localStorage.getItem('hasSeenOnboarding');
 
-  // 2. Show App Logo Splash Screen FIRST
   if (showSplash) {
-    return (
-      <IOSSplashScreen 
-        logoSrc={logo} 
-        onComplete={() => setShowSplash(false)} 
-      />
-    );
+    return <IOSSplashScreen logoSrc={logo} onComplete={() => setShowSplash(false)} />;
   }
 
-  // 3. If Splash is done but Auth is still checking, keep showing Skeleton
   if (authLoading) {
     return <DashboardSkeleton />;
   }
 
   return (
-    // 4. Main App Render
     <Suspense fallback={<DashboardSkeleton />}>
-      {/* ✅ GLOBAL TOASTER CONFIGURATION */}
-      <Toaster 
-          position="bottom-center" 
-          reverseOrder={false}
-          toastOptions={{ 
-              duration: 4000, 
-              style: { 
-                  background: '#1e293b', 
-                  color: '#fff', 
-                  marginBottom: '20px', 
-                  zIndex: 99999 
-              } 
-          }} 
-      />
+      <Toaster position="bottom-center" toastOptions={{ style: { background: '#1e293b', color: '#fff' } }} />
       
-      <AnimatePresence mode="wait">
-        <Routes location={location} key={location.pathname}>
-          
-          {/* ✅ UPDATED ROOT ROUTE LOGIC */}
-          <Route path="/" element={
-            user ? (
-                // A. If Logged In -> Go to Dashboard
-                <Navigate to={getDashboardRoute()} />
-            ) : (
-                // B. If Not Logged In -> Check Onboarding
-                !hasSeenOnboarding ? <Onboarding /> : <Navigate to="/login" />
-            )
-          } />
+      {/* 🔐 GLOBAL 2FA LOCK SCREEN */}
+      {/* This modal blocks everything else if is2FARequired is true */}
+      <TwoFactorVerifyModal 
+          isOpen={is2FARequired} 
+          isLoading={verifying}
+          onClose={handleLogout} 
+          onVerify={handleVerify2FA}
+      />
 
-          <Route path="/login" element={
-            !user ? <Login /> : <Navigate to={getDashboardRoute()} />
-          } />
+      {/* ✅ ONLY RENDER ROUTES IF 2FA IS NOT REQUIRED (OR VERIFIED) */}
+      {!is2FARequired && (
+        <AnimatePresence mode="wait">
+            <Routes location={location} key={location.pathname}>
+            
+            <Route path="/" element={
+                user ? <Navigate to={getDashboardRoute()} /> : (!hasSeenOnboarding ? <Onboarding /> : <Navigate to="/login" />)
+            } />
 
-          <Route path="/signup" element={<Signup />} />
-          <Route path="/apply" element={<InstituteApplication />} />
-          <Route path="/check-status" element={<CheckStatus />} />
-          <Route path="/student-register" element={<StudentRegister />} />
-          
-          {/* ROLE-BASED DASHBOARDS */}
-          <Route path="/student-dashboard" element={user ? <StudentDashboard /> : <Navigate to="/" />} />
-          <Route path="/teacher-dashboard" element={user ? <TeacherDashboard /> : <Navigate to="/" />} />
-          <Route path="/admin-dashboard" element={user ? <InstituteAdminDashboard /> : <Navigate to="/" />} />
-          <Route path="/super-admin" element={user ? <SuperAdminDashboard /> : <Navigate to="/" />} />
+            <Route path="/login" element={
+                !user ? <Login /> : <Navigate to={getDashboardRoute()} />
+            } />
 
-          {/* Bulk Upload Route */}
-          <Route path="/bulk-add-students" element={user ? <BulkAddStudents /> : <Navigate to="/" />} />
+            <Route path="/signup" element={<Signup />} />
+            <Route path="/apply" element={<InstituteApplication />} />
+            <Route path="/check-status" element={<CheckStatus />} />
+            <Route path="/student-register" element={<StudentRegister />} />
+            
+            {/* ROLE-BASED DASHBOARDS */}
+            <Route path="/student-dashboard" element={user ? <StudentDashboard /> : <Navigate to="/" />} />
+            <Route path="/teacher-dashboard" element={user ? <TeacherDashboard /> : <Navigate to="/" />} />
+            <Route path="/admin-dashboard" element={user ? <InstituteAdminDashboard /> : <Navigate to="/" />} />
+            <Route path="/super-admin" element={user ? <SuperAdminDashboard /> : <Navigate to="/" />} />
+            <Route path="/bulk-add-students" element={user ? <BulkAddStudents /> : <Navigate to="/" />} />
 
-          {/* Legacy/Shared Routes */}
-          <Route path="/dashboard" element={user ? <Dashboard /> : <Navigate to="/" />} />
-          <Route path="/attendance" element={user ? <Attendance /> : <Navigate to="/" />} />
-          <Route path="/free-time" element={user ? <FreeTime /> : <Navigate to="/" />} />
-          <Route path="/goals" element={user ? <Goals /> : <Navigate to="/" />} />
-          <Route path="/ai-chatbot" element={user ? <AiChatbot /> : <Navigate to="/" />} />
-          
-          {/* Fallback */}
-          <Route path="*" element={<Navigate to={user ? getDashboardRoute() : "/"} />} />
+            {/* Legacy/Shared Routes */}
+            <Route path="/dashboard" element={user ? <Dashboard /> : <Navigate to="/" />} />
+            <Route path="/attendance" element={user ? <Attendance /> : <Navigate to="/" />} />
+            <Route path="/free-time" element={user ? <FreeTime /> : <Navigate to="/" />} />
+            <Route path="/goals" element={user ? <Goals /> : <Navigate to="/" />} />
+            <Route path="/ai-chatbot" element={user ? <AiChatbot /> : <Navigate to="/" />} />
+            
+            <Route path="*" element={<Navigate to={user ? getDashboardRoute() : "/"} />} />
 
-        </Routes>
-      </AnimatePresence>
+            </Routes>
+        </AnimatePresence>
+      )}
     </Suspense>
   );
 }

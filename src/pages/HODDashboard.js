@@ -12,6 +12,7 @@ import { Timestamp } from 'firebase/firestore';
 import logo from "../assets/logo.png";
 import './Dashboard.css';
 import './HODDashboard.css'; 
+import TwoFactorSetup from '../components/TwoFactorSetup'; // ✅ Add this import
 
 import ManageTimetable from './ManageTimetable';
 
@@ -612,89 +613,111 @@ export default function HODDashboard() {
                         </div>
                     </div>
                 )}
-
-                {activeTab === 'profile' && (
+{activeTab === 'profile' && (
     <div className="content-section">
         <h2 className="content-title">My Profile</h2>
-        <div className="card" style={{ padding: 0, overflow: 'hidden', maxWidth: '800px' }}>
-            
-            {/* 1. Cover Photo & Avatar Area */}
-            <div className="profile-cover">
-                <div className="profile-avatar-wrapper">
-                    <div className="profile-avatar-img">
-                        {hodInfo?.firstName?.charAt(0)}
-                    </div>
-                </div>
-                {/* Edit Button positioned on Cover */}
-                <div style={{ position: 'absolute', bottom: '-50px', right: '20px' }}>
-                    <button className="edit-btn-floating" onClick={() => setIsEditingProfile(!isEditingProfile)}>
-                        {isEditingProfile ? 'Cancel Editing' : <><i className="fas fa-pen"></i> Edit Profile</>}
-                    </button>
-                </div>
-            </div>
+        
+        {/* Container to stack Profile and Security cards */}
+        <div className="cards-grid" style={{ gridTemplateColumns: '1fr' }}>
 
-            {/* 2. Header Info */}
-            <div className="profile-header-content">
-                <div style={{ marginTop: '10px' }}>
-                    <h2 style={{ margin: 0, fontSize: '24px', color: '#1e293b' }}>
-                        {hodInfo?.firstName} {hodInfo?.lastName}
-                    </h2>
-                    <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '14px' }}>
-                        Head of Department • {hodInfo?.department}
-                    </p>
-                </div>
-            </div>
-
-            {/* 3. Details Grid (View Mode) */}
-            {!isEditingProfile ? (
-                <div className="profile-grid">
-                    <div className="profile-field">
-                        <label>Institute</label>
-                        <div><i className="fas fa-university" style={{color:'#6366f1'}}></i> {hodInfo?.instituteName}</div>
-                    </div>
-                    <div className="profile-field">
-                        <label>Email Address</label>
-                        <div><i className="fas fa-envelope" style={{color:'#ef4444'}}></i> {hodInfo?.email}</div>
-                    </div>
-                    <div className="profile-field">
-                        <label>Qualification</label>
-                        <div><i className="fas fa-graduation-cap" style={{color:'#f59e0b'}}></i> {hodInfo?.qualification || 'Not Added'}</div>
-                    </div>
-                    <div className="profile-field">
-                        <label>Phone Number</label>
-                        <div><i className="fas fa-phone" style={{color:'#10b981'}}></i> {hodInfo?.phone || 'Not Added'}</div>
-                    </div>
-                </div>
-            ) : (
-                // 4. Edit Form
-                <form onSubmit={handleUpdateProfile} style={{ padding: '20px' }}>
-                    <div style={{display:'flex', gap:'15px', marginBottom:'15px'}}>
-                        <div className="input-group" style={{flex:1}}>
-                            <label>First Name</label>
-                            <input type="text" value={profileForm.firstName} onChange={e => setProfileForm({...profileForm, firstName: e.target.value})} className="modern-input" />
-                        </div>
-                        <div className="input-group" style={{flex:1}}>
-                            <label>Last Name</label>
-                            <input type="text" value={profileForm.lastName} onChange={e => setProfileForm({...profileForm, lastName: e.target.value})} className="modern-input" />
+            {/* 1. EXISTING PROFILE CARD */}
+            <div className="card" style={{ padding: 0, overflow: 'hidden', maxWidth: '800px', margin: '0 auto' }}>
+                
+                {/* Cover Photo & Avatar Area */}
+                <div className="profile-cover">
+                    <div className="profile-avatar-wrapper">
+                        <div className="profile-avatar-img">
+                            {hodInfo?.firstName?.charAt(0)}
                         </div>
                     </div>
-                    
-                    <div style={{display:'flex', gap:'15px', marginBottom:'15px'}}>
-                        <div className="input-group" style={{flex:1}}>
+                    {/* Edit Button positioned on Cover */}
+                    <div style={{ position: 'absolute', bottom: '-50px', right: '20px' }}>
+                        <button className="edit-btn-floating" onClick={() => setIsEditingProfile(!isEditingProfile)}>
+                            {isEditingProfile ? 'Cancel Editing' : <><i className="fas fa-pen"></i> Edit Profile</>}
+                        </button>
+                    </div>
+                </div>
+
+                {/* Header Info */}
+                <div className="profile-header-content">
+                    <div style={{ marginTop: '10px' }}>
+                        <h2 style={{ margin: 0, fontSize: '24px', color: '#1e293b' }}>
+                            {hodInfo?.firstName} {hodInfo?.lastName}
+                        </h2>
+                        <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '14px' }}>
+                            Head of Department • {hodInfo?.department}
+                        </p>
+                    </div>
+                </div>
+
+                {/* Details Grid (View Mode) */}
+                {!isEditingProfile ? (
+                    <div className="profile-grid">
+                        <div className="profile-field">
+                            <label>Institute</label>
+                            <div><i className="fas fa-university" style={{color:'#6366f1'}}></i> {hodInfo?.instituteName}</div>
+                        </div>
+                        <div className="profile-field">
+                            <label>Email Address</label>
+                            <div><i className="fas fa-envelope" style={{color:'#ef4444'}}></i> {hodInfo?.email}</div>
+                        </div>
+                        <div className="profile-field">
                             <label>Qualification</label>
-                            <input type="text" value={profileForm.qualification} onChange={e => setProfileForm({...profileForm, qualification: e.target.value})} className="modern-input" placeholder="e.g. PhD" />
+                            <div><i className="fas fa-graduation-cap" style={{color:'#f59e0b'}}></i> {hodInfo?.qualification || 'Not Added'}</div>
                         </div>
-                        <div className="input-group" style={{flex:1}}>
-                            <label>Phone</label>
-                            <input type="text" value={profileForm.phone} onChange={e => setProfileForm({...profileForm, phone: e.target.value})} className="modern-input" placeholder="+91..." />
+                        <div className="profile-field">
+                            <label>Phone Number</label>
+                            <div><i className="fas fa-phone" style={{color:'#10b981'}}></i> {hodInfo?.phone || 'Not Added'}</div>
                         </div>
                     </div>
+                ) : (
+                    // Edit Form
+                    <form onSubmit={handleUpdateProfile} style={{ padding: '20px' }}>
+                        <div style={{display:'flex', gap:'15px', marginBottom:'15px'}}>
+                            <div className="input-group" style={{flex:1}}>
+                                <label>First Name</label>
+                                <input type="text" value={profileForm.firstName} onChange={e => setProfileForm({...profileForm, firstName: e.target.value})} className="modern-input" />
+                            </div>
+                            <div className="input-group" style={{flex:1}}>
+                                <label>Last Name</label>
+                                <input type="text" value={profileForm.lastName} onChange={e => setProfileForm({...profileForm, lastName: e.target.value})} className="modern-input" />
+                            </div>
+                        </div>
+                        
+                        <div style={{display:'flex', gap:'15px', marginBottom:'15px'}}>
+                            <div className="input-group" style={{flex:1}}>
+                                <label>Qualification</label>
+                                <input type="text" value={profileForm.qualification} onChange={e => setProfileForm({...profileForm, qualification: e.target.value})} className="modern-input" placeholder="e.g. PhD" />
+                            </div>
+                            <div className="input-group" style={{flex:1}}>
+                                <label>Phone</label>
+                                <input type="text" value={profileForm.phone} onChange={e => setProfileForm({...profileForm, phone: e.target.value})} className="modern-input" placeholder="+91..." />
+                            </div>
+                        </div>
 
-                    <button className="btn-primary" disabled={loading} style={{width:'100%'}}>
-                        {loading ? 'Saving Changes...' : 'Save Updates'}
-                    </button>
-                </form>
-            )}
+                        <button className="btn-primary" disabled={loading} style={{width:'100%'}}>
+                            {loading ? 'Saving Changes...' : 'Save Updates'}
+                        </button>
+                    </form>
+                )}
+            </div>
+
+            {/* 2. ✅ NEW 2FA SECTION FOR HOD */}
+            <div className="card" style={{ borderLeft: '4px solid #10b981', maxWidth: '800px', margin: '0 auto', width: '100%' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px', paddingBottom: '15px', borderBottom: '1px solid #f1f5f9' }}>
+                    <div style={{ width: '50px', height: '50px', borderRadius: '12px', background: '#ecfdf5', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }}>
+                        <i className="fas fa-shield-alt"></i>
+                    </div>
+                    <div>
+                        <h3 style={{ margin: 0, fontSize: '18px', color: '#1e293b' }}>Two-Factor Authentication</h3>
+                        <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>Protect your Department Head account.</p>
+                    </div>
+                </div>
+                
+                {/* 2FA Component */}
+                <TwoFactorSetup user={hodInfo} />
+            </div>
+
         </div>
     </div>
 )}

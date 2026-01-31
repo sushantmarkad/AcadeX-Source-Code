@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom'; 
 import toast from 'react-hot-toast';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion'; 
 import { db, auth } from '../firebase';
 import { collection, query, where, onSnapshot, doc, updateDoc, increment } from 'firebase/firestore';
 import './Dashboard.css';
@@ -11,7 +11,6 @@ import ResumeBuilderModal from '../components/ResumeBuilderModal';
 import CodingChallengeModal from '../components/CodingChallengeModal';
 import TypingTestModal from '../components/TypingTestModal';
 import FlashCardModal from '../components/FlashCardModal';
-import FreePeriodQuiz from '../components/FreePeriodQuiz';
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
@@ -27,12 +26,9 @@ const ALL_ACTIVITIES = [
 export default function FreePeriodTasks({ user, isFreePeriod }) {
     const [activeTab, setActiveTab] = useState('assignments'); 
     
-    useEffect(() => { 
-        if (isFreePeriod) setActiveTab('gamified'); 
-    }, [isFreePeriod]);
-
     // Data States
     const [assignments, setAssignments] = useState([]);
+    const [loading, setLoading] = useState(true);
     const [submissions, setSubmissions] = useState({}); 
     const [recommendedTasks, setRecommendedTasks] = useState([]);
     
@@ -41,7 +37,7 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
     const [file, setFile] = useState(null);
     const [uploading, setUploading] = useState(false);
     
-    // Modals State
+    // Modals
     const [isResumeModalOpen, setIsResumeModalOpen] = useState(false);
     const [showCodingModal, setShowCodingModal] = useState(false);
     const [showTypingModal, setShowTypingModal] = useState(false);
@@ -51,15 +47,32 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
     useEffect(() => { if (user?.xp !== undefined) setCredits(user.xp); }, [user?.xp]);
     const cgpaBoost = (credits / 5000).toFixed(2);
 
-    // --- FETCH ASSIGNMENTS (Fixed: No Double Toasts) ---
+    // --- ANIMATION VARIANTS (Only for Quick Picks now) ---
+    const containerVariants = {
+        hidden: { opacity: 0 },
+        show: { opacity: 1, transition: { staggerChildren: 0.05 } }
+    };
+
+    const cardVariants = {
+        hidden: { opacity: 0, y: 15 },
+        show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 200, damping: 20 } }
+    };
+
+    // --- FETCH DATA (Instant Cache) ---
     useEffect(() => {
         const fetchAssignments = async () => {
             if (!user) return;
             
-            // ✅ FIX: Use a unique ID so it doesn't duplicate
-            const toastId = 'fetch-assignments-toast';
-            toast.loading("Fetching Assignments...", { id: toastId });
+            const cacheKey = `assignments_${user.department || 'gen'}_${user.year || 'all'}`;
+            const cachedData = localStorage.getItem(cacheKey);
             
+            if (cachedData) {
+                setAssignments(JSON.parse(cachedData));
+                setLoading(false);
+            } else {
+                setLoading(true);
+            }
+
             try {
                 const res = await fetch(`${BACKEND_URL}/getAssignments`, {
                     method: 'POST',
@@ -67,39 +80,33 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
                     body: JSON.stringify({ department: user.department, year: user.year || 'All' })
                 });
                 
-                const data = await res.json();
-                setAssignments(data.tasks || []);
-                
-                // Dismiss ONLY this specific toast
-                toast.dismiss(toastId);
-                
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.tasks && JSON.stringify(data.tasks) !== cachedData) {
+                        setAssignments(data.tasks);
+                        localStorage.setItem(cacheKey, JSON.stringify(data.tasks));
+                    }
+                }
             } catch (err) { 
-                console.error(err);
-                toast.error("Failed to load assignments", { id: toastId });
+                console.error("Background sync failed:", err);
+            } finally {
+                setLoading(false);
             }
         };
-        
-        // Prevent re-fetching if we already have data (Optional optimization)
-        if (assignments.length === 0) {
-            fetchAssignments();
-        }
-    }, [user]); // Removed 'assignments.length' dependency to allow refresh on user change
+        fetchAssignments();
+    }, [user?.department, user?.year]);
 
     useEffect(() => {
         if (!auth.currentUser) return;
         const q = query(collection(db, 'submissions'), where('studentId', '==', auth.currentUser.uid));
         const unsub = onSnapshot(q, (snap) => {
             const subMap = {};
-            snap.docs.forEach(doc => { 
-                const data = doc.data(); 
-                subMap[data.assignmentId] = data; 
-            });
+            snap.docs.forEach(doc => { subMap[doc.data().assignmentId] = doc.data(); });
             setSubmissions(subMap);
         });
         return () => unsub();
     }, []);
 
-    // --- RECOMMENDATION LOGIC ---
     useEffect(() => {
         if (!user) return;
         const interestString = `${user.department || ''} ${user.domain || ''}`.toLowerCase();
@@ -110,10 +117,8 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
         setRecommendedTasks(strictMatches.slice(0, 8));
     }, [user]);
 
-    // --- START TASK HANDLER ---
     const startTask = (task) => {
         if (task.title === 'Update Resume') { setIsResumeModalOpen(true); return; }
-        
         if (task.type === 'Coding') setShowCodingModal(true);
         else if (task.type === 'Typing') setShowTypingModal(true);
         else if (task.type === 'FlashCard') setShowFlashCardModal(true);
@@ -127,16 +132,12 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
             await updateDoc(userRef, { xp: increment(earnedCredits) });
             setCredits(prev => prev + earnedCredits);
         }
-        setShowCodingModal(false);
-        setShowTypingModal(false);
-        setShowFlashCardModal(false);
+        setShowCodingModal(false); setShowTypingModal(false); setShowFlashCardModal(false);
     };
 
     const handleSubmitFile = async () => {
         if (!file || !submitModal.taskId) return toast.error("Please select a file.");
         setUploading(true);
-        
-        // ✅ Unique ID for upload toast
         const toastId = 'upload-toast'; 
         toast.loading("Uploading...", { id: toastId });
 
@@ -156,175 +157,144 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
                 ...prev,
                 [submitModal.taskId]: { status: 'Pending', submittedAt: new Date(), documentUrl: URL.createObjectURL(file) } 
             }));
-            setSubmitModal({ open: false, taskId: null }); 
-            setFile(null);
-        } catch (error) { 
-            toast.error("Error submitting", { id: toastId }); 
-        } finally { 
-            setUploading(false); 
-        }
+            setSubmitModal({ open: false, taskId: null }); setFile(null);
+        } catch (error) { toast.error("Error submitting", { id: toastId }); } 
+        finally { setUploading(false); }
     };
 
     return (
-        <div className="content-section">
-            <div className="tasks-header">
-                <div>
-                    <h2 className="content-title">My Tasks</h2>
-                    <p className="content-subtitle">Earn <span className="highlight-text">Academic Credits</span>.</p>
+        <div className="fp-container">
+            {/* Header */}
+            <div className="fp-header-row">
+                <div className="fp-header-text">
+                    <h2 className="fp-title">My Tasks</h2>
+                    <p className="fp-subtitle">Complete tasks to earn <span className="fp-gradient-text">Academic Credits</span>.</p>
                 </div>
-                <div className="credits-display">
-                    <div className="credits-count">{credits} <span>XP</span></div>
-                    <div className="cgpa-pill">📈 +{cgpaBoost} Projected CGPA</div>
+                <div className="fp-stats-card">
+                    <div className="fp-xp-count">{credits} <span className="fp-unit">XP</span></div>
+                    <div className="fp-cgpa-badge">📈 +{cgpaBoost} Projected CGPA</div>
                 </div>
             </div>
             
-            <div className="glass-tabs">
-                <button className={`glass-tab ${activeTab === 'assignments' ? 'active' : ''}`} onClick={() => setActiveTab('assignments')}>
-                    <i className="fas fa-book"></i> Assignments
+            {/* Navigation Tabs */}
+            <div className="fp-nav-tabs">
+                <button 
+                    className={`fp-tab ${activeTab === 'assignments' ? 'active' : ''}`} 
+                    onClick={() => setActiveTab('assignments')}
+                >
+                    <i className="fas fa-book-open"></i> Assignments
                 </button>
-                <button className={`glass-tab ${activeTab === 'gamified' ? 'active' : ''}`} onClick={() => setActiveTab('gamified')}>
+                <button 
+                    className={`fp-tab ${activeTab === 'gamified' ? 'active' : ''}`} 
+                    onClick={() => setActiveTab('gamified')}
+                >
                     <i className="fas fa-rocket"></i> Quick Picks
-                    {isFreePeriod && <span className="tab-badge pulse">LIVE</span>}
+                    {isFreePeriod && <span className="fp-live-badge">LIVE</span>}
                 </button>
             </div>
 
-            {/* TAB 1: ASSIGNMENTS */}
-            {activeTab === 'assignments' && (
-                <div className="tasks-grid">
-                    <AnimatePresence>
-                        {assignments.length > 0 ? assignments.map((task, index) => {
-                            const sub = submissions[task.id]; 
-                            const isSubmitted = !!sub;
-                            const isGraded = sub?.status === 'Graded';
-                            let statusText = isGraded ? `${sub.marks}/100` : isSubmitted ? 'Submitted' : 'Pending';
-                            let statusClass = isGraded ? 'status-graded' : isSubmitted ? 'status-submitted' : 'status-pending';
-
+            {/* CONTENT AREA */}
+            {activeTab === 'assignments' ? (
+                // ✅ NO MOTION - Pure Divs for Speed
+                <div className="fp-grid">
+                    {loading ? (
+                        <div className="fp-full-width" style={{textAlign:'center', padding:'40px', color:'#94a3b8'}}>
+                            <i className="fas fa-circle-notch fa-spin" style={{fontSize:'30px', marginBottom:'10px'}}></i>
+                            <p>Loading...</p>
+                        </div>
+                    ) : assignments.length > 0 ? (
+                        assignments.map((task) => {
+                            const sub = submissions[task.id];
                             return (
-                                <motion.div key={task.id} className="task-card-modern" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.1 }}>
-                                    <div className="card-header-row">
-                                        <div className="task-icon-circle"><i className="fas fa-book-open"></i></div>
-                                        <span className={`modern-status-pill ${statusClass}`}>{statusText}</span>
+                                <div key={task.id} className="fp-card">
+                                    <div className="fp-card-top">
+                                        <div className="fp-icon-square"><i className="fas fa-book"></i></div>
+                                        <span className={`fp-status-pill ${sub?.status?.toLowerCase() || 'pending'}`}>
+                                            {sub?.status || 'Pending'}
+                                        </span>
                                     </div>
-                                    <div>
-                                        <h3 className="modern-title">{task.title}</h3>
-                                        <div className="modern-meta"><i className="far fa-calendar-alt"></i> Due: {new Date(task.dueDate).toLocaleDateString()}</div>
-                                        <p className="modern-desc">{task.description}</p>
+                                    <h3 className="fp-card-heading">{task.title}</h3>
+                                    <div className="fp-date"><i className="far fa-calendar"></i> {new Date(task.dueDate).toLocaleDateString()}</div>
+                                    <p className="fp-desc">{task.description}</p>
+                                    
+                                    <div className="fp-action-row">
+                                        {sub ? (
+                                            <div className={`fp-result-box ${sub.status === 'Graded' ? 'graded' : 'submitted'}`}>
+                                                {sub.status === 'Graded' ? 
+                                                    <><i className="fas fa-star"></i> {sub.marks}/100</> : 
+                                                    <><i className="fas fa-check-circle"></i> Submitted</>
+                                                }
+                                            </div>
+                                        ) : (
+                                            <button className="fp-btn-primary" onClick={() => setSubmitModal({ open: true, taskId: task.id })}>
+                                                Upload Work
+                                            </button>
+                                        )}
                                     </div>
-                                    <div className="action-area">
-                                        {isGraded ? <div className="submitted-area"><i className="fas fa-star"></i> Feedback: "{sub.feedback}"</div> :
-                                         isSubmitted ? <div className="submitted-area"><i className="fas fa-check-circle"></i> Done</div> : 
-                                        <button className="btn-upload-glow" onClick={() => setSubmitModal({ open: true, taskId: task.id })}><i className="fas fa-cloud-upload-alt"></i> Upload</button>}
-                                    </div>
-                                </motion.div>
+                                </div>
                             );
-                        }) : <div className="empty-state-glass"><h3>No Assignments</h3></div>}
-                    </AnimatePresence>
+                        })
+                    ) : (
+                        <div className="fp-empty"><h3>🎉 No pending assignments!</h3></div>
+                    )}
                 </div>
-            )}
-
-            {/* TAB 2: QUICK PICKS */}
-            {activeTab === 'gamified' && (
-                <div>
-                    <FreePeriodQuiz user={user} isFree={isFreePeriod} />
-
-                    <h3 className="section-heading" style={{marginTop:'20px'}}>Quick Picks</h3>
-                    <div className="tasks-grid">
+            ) : (
+                // ✅ QUICK PICKS - Keeps Motion
+                <div className="fp-full-width">
+                     <motion.div 
+                        className="fp-grid"
+                        variants={containerVariants}
+                        initial="hidden"
+                        animate="show"
+                     >
                         {recommendedTasks.map((task) => (
-                            <motion.div key={task.id} className="task-card-modern" whileHover={{ y: -5 }} onClick={() => startTask(task)} style={{cursor: 'pointer'}}>
-                                <div className="card-header-row">
-                                    <div className="task-icon-circle" style={{background: `${task.color}15`, color: task.color}}><i className={`fas ${task.icon}`}></i></div>
-                                    <span className="xp-badge">+{task.xp} XP</span>
+                            <motion.div 
+                                key={task.id} 
+                                variants={cardVariants} 
+                                whileHover={{ y: -5 }} 
+                                whileTap={{ scale: 0.98 }}
+                                onClick={() => startTask(task)} 
+                                className="fp-card clickable"
+                            >
+                                <div className="fp-card-top">
+                                    <div className="fp-icon-square" style={{background: `${task.color}15`, color: task.color}}>
+                                        <i className={`fas ${task.icon}`}></i>
+                                    </div>
+                                    <span className="fp-xp-pill">+{task.xp} XP</span>
                                 </div>
-                                <div>
-                                    <h3 className="modern-title">{task.title}</h3>
-                                    <div className="tags">{task.tags.slice(0,2).map(t => <span key={t} className="tiny-tag">#{t}</span>)}</div>
+                                <h3 className="fp-card-heading">{task.title}</h3>
+                                <div className="fp-tags">
+                                    {task.tags.slice(0,2).map(t => <span key={t}>#{t}</span>)}
                                 </div>
-                                <button className="btn-modern-outline" style={{marginTop:'auto'}}>Start Activity</button>
+                                <button className="fp-btn-outline">Start</button>
                             </motion.div>
                         ))}
-                    </div>
+                    </motion.div>
                 </div>
             )}
 
-            {/* --- MODALS (Uses Portal) --- */}
+            {/* Upload Modal */}
             {submitModal.open && ReactDOM.createPortal(
-                <div className="custom-modal-overlay" style={{ 
-                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
-                    backgroundColor: 'rgba(0, 0, 0, 0.7)', zIndex: 99999, 
-                    display: 'flex', justifyContent: 'center', alignItems: 'center',
-                    backdropFilter: 'blur(5px)'
-                }}>
-                    <div className="custom-modal-box glass-modal" style={{ maxWidth: '500px', width: '90%', padding: '30px' }}>
-                        <h3 style={{ marginBottom: '20px', color: '#1e293b', textAlign: 'center', fontSize: '20px' }}>
-                            Submit Assignment
-                        </h3>
-                        
-                        <div style={{ 
-                            border: '2px dashed #cbd5e1', 
-                            borderRadius: '16px', 
-                            padding: '40px 20px', 
-                            textAlign: 'center',
-                            backgroundColor: '#f8fafc',
-                            cursor: 'pointer',
-                            position: 'relative',
-                            transition: 'all 0.2s'
-                        }}>
-                            <input 
-                                type="file" 
-                                onChange={(e) => setFile(e.target.files[0])} 
-                                style={{ 
-                                    opacity: 0, 
-                                    position: 'absolute', 
-                                    top: 0, left: 0, right: 0, bottom: 0, 
-                                    width: '100%', height: '100%', 
-                                    cursor: 'pointer' 
-                                }} 
-                            />
-                            <div style={{ pointerEvents: 'none' }}>
-                                <div style={{ 
-                                    width: '50px', height: '50px', background: '#eff6ff', 
-                                    borderRadius: '50%', display: 'flex', alignItems: 'center', 
-                                    justifyContent: 'center', margin: '0 auto 15px auto' 
-                                }}>
-                                    <i className="fas fa-cloud-upload-alt" style={{ fontSize: '24px', color: '#3b82f6' }}></i>
-                                </div>
-                                
-                                {file ? (
-                                    <div>
-                                        <p style={{ margin: 0, fontWeight: 'bold', color: '#059669', fontSize: '16px' }}>{file.name}</p>
-                                        <p style={{ margin: '5px 0 0 0', fontSize: '13px', color: '#64748b' }}>{(file.size / 1024 / 1024).toFixed(2)} MB</p>
-                                    </div>
-                                ) : (
-                                    <div>
-                                        <p style={{ margin: 0, fontWeight: '600', color: '#475569', fontSize: '16px' }}>Click to Upload File</p>
-                                        <p style={{ margin: '8px 0 0 0', fontSize: '13px', color: '#94a3b8' }}>PDF, Word, or Images allowed</p>
-                                    </div>
-                                )}
-                            </div>
+                <div className="fp-modal-overlay">
+                    <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="fp-modal">
+                        <h3>Submit Assignment</h3>
+                        <div className="fp-upload-box">
+                            <input type="file" onChange={(e) => setFile(e.target.files[0])} />
+                            <i className="fas fa-cloud-upload-alt"></i>
+                            <p>{file ? file.name : "Tap to select file"}</p>
                         </div>
-
-                        <div className="modal-actions" style={{ marginTop: '25px', display: 'flex', gap: '15px' }}>
-                            <button 
-                                onClick={() => { setSubmitModal({ open: false, taskId: null }); setFile(null); }} 
-                                className="btn-ghost"
-                                style={{ flex: 1, padding: '12px', justifyContent: 'center', border: '1px solid #e2e8f0', cursor: 'pointer' }}
-                            >
-                                Cancel
-                            </button>
-                            <button 
-                                className="btn-primary" 
-                                onClick={handleSubmitFile} 
-                                disabled={uploading}
-                                style={{ flex: 1, padding: '12px', justifyContent: 'center', opacity: uploading ? 0.7 : 1, cursor: 'pointer' }}
-                            >
-                                {uploading ? <><i className="fas fa-spinner fa-spin"></i> Uploading...</> : 'Submit Assignment'}
+                        <div className="fp-modal-btns">
+                            <button onClick={() => setSubmitModal({ open: false })} className="fp-btn-ghost">Cancel</button>
+                            <button onClick={handleSubmitFile} disabled={uploading} className="fp-btn-primary">
+                                {uploading ? 'Uploading...' : 'Submit'}
                             </button>
                         </div>
-                    </div>
+                    </motion.div>
                 </div>,
                 document.body
             )}
 
+            {/* Sub-Modals */}
             <ResumeBuilderModal isOpen={isResumeModalOpen} onClose={() => setIsResumeModalOpen(false)} user={user} />
             <CodingChallengeModal isOpen={showCodingModal} onClose={() => setShowCodingModal(false)} user={user} onComplete={handleTaskComplete} />
             <TypingTestModal isOpen={showTypingModal} onClose={() => setShowTypingModal(false)} onComplete={handleTaskComplete} />

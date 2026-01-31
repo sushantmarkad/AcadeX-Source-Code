@@ -508,8 +508,10 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                                 textAlign: 'center', border: '1px dashed rgba(253, 253, 253, 0.3)',
                                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px'
                             }}>
-                                <i className="fas fa-coffee" style={{ fontSize: '28px', opacity: 0.8 }}></i>
-                                <p style={{ fontSize: '14px', fontWeight:'500', margin: 0, opacity: 0.9 }}>
+                                {/* ✅ FIX: Explicitly added color: 'white' */}
+                                <i className="fas fa-coffee" style={{ fontSize: '28px', opacity: 0.8, color: 'white' }}></i>
+                                
+                                <p style={{ fontSize: '14px', fontWeight:'500', margin: 0, opacity: 0.9, color: 'white' }}>
                                     No active class. Enjoy your break!
                                 </p>
                             </div>

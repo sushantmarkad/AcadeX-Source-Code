@@ -470,39 +470,28 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
     };
 
     // --- LOGIC: Manual Present (Calls Backend) ---
+    // --- LOGIC: Manual Present (Updated for New Backend Route) ---
     const handleManualMarkPresent = async () => {
         if (!manualRoll) return toast.error("Enter a Roll Number");
         const toastId = toast.loading(`Marking Roll ${manualRoll}...`);
 
         try {
-            // 1. Find Student ID (Read-only allowed)
-            const q = query(
-                collection(db, 'users'),
-                where('instituteId', '==', teacherInfo.instituteId),
-                where('department', '==', teacherInfo.department),
-                where('year', '==', selectedYear),
-                where('rollNo', '==', manualRoll.toString().trim())
-            );
-            const studentSnap = await getDocs(q);
-
-            if (studentSnap.empty) {
-                toast.error(`Roll No. ${manualRoll} not found.`, { id: toastId });
-                return;
-            }
-
-            const studentDoc = studentSnap.docs[0];
-
-            // 2. Call Backend to Write Data
-            const response = await fetch(`${BACKEND_URL}/manualMarkAttendance`, {
+            // No need to query Firestore here anymore! The backend does it.
+            
+            const response = await fetch(`${BACKEND_URL}/markManualAttendance`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    sessionId: activeSession.sessionId,
-                    studentId: studentDoc.id,
-                    subject: currentSubject,
+                    // 1. Send Roll No directly
+                    rollNo: manualRoll.toString().trim(), 
+                    
+                    // 2. Send Context Data required for the lookup
+                    department: teacherInfo.department,
+                    year: selectedYear,
                     instituteId: teacherInfo.instituteId,
-                    type: activeSession.type || 'theory',
-                    batch: activeSession.batch || 'All'
+                    sessionId: activeSession.sessionId,
+                    subject: currentSubject,
+                    teacherId: auth.currentUser.uid
                 })
             });
 
@@ -510,7 +499,7 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
 
             if (response.ok) {
                 toast.success(data.message, { id: toastId });
-                setManualRoll("");
+                setManualRoll(""); // Clear input
             } else {
                 toast.error("Failed: " + data.error, { id: toastId });
             }
@@ -588,8 +577,8 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                                                 </select>
                                             </div>
                                             <div style={{ display: 'flex', gap: '5px' }}>
-                                                <input type="number" value={rollStart} onChange={(e) => setRollStart(e.target.value)} placeholder="Start" style={{ flex: 1, padding: '6px', borderRadius: '6px', border: '1px solid #bfdbfe' }} />
-                                                <input type="number" value={rollEnd} onChange={(e) => setRollEnd(e.target.value)} placeholder="End" style={{ flex: 1, padding: '6px', borderRadius: '6px', border: '1px solid #bfdbfe' }} />
+                                                <input type="number" value={rollStart} onChange={(e) => setRollStart(e.target.value)} placeholder="Start" style={{ flex: 1,minWidth: 0, padding: '6px', borderRadius: '6px', border: '1px solid #bfdbfe' }} />
+                                                <input type="number" value={rollEnd} onChange={(e) => setRollEnd(e.target.value)} placeholder="End" style={{ flex: 1,minWidth: 0, padding: '6px', borderRadius: '6px', border: '1px solid #bfdbfe' }} />
                                             </div>
                                         </div>
                                     )}

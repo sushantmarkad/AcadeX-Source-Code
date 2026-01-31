@@ -22,7 +22,7 @@ import { buttonTap } from "../animations/interactionVariants";
 // ✅ Import the New Modal
 import TwoFactorVerifyModal from "../components/TwoFactorVerifyModal";
 
-// ✅ Import Biometric Hook
+// ✅ Import Biometric Hook (Ensure this path matches where you saved BiometricAuth.js)
 import { useBiometricAuth } from '../components/BiometricAuth';
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import './ActivityModals.css'; 
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
@@ -61,15 +61,21 @@ export default function FlashCardModal({ isOpen, onClose, user, onComplete }) {
         }, 200);
     };
 
+    const handleKeyDown = (e) => {
+        if (e.key === 'Enter' && topic.trim()) {
+            handleGenerate();
+        }
+    };
+
     if (!isOpen) return null;
 
     return ReactDOM.createPortal(
         <div className="activity-modal-overlay">
             <motion.div 
                 className="activity-modal-card flashcard-modal-size"
-                initial={{ opacity: 0, scale: 0.9 }}
+                initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.9 }}
+                exit={{ opacity: 0, scale: 0.95 }}
             >
                 <div className="modal-header">
                     <h3>📚 Rapid Revision</h3>
@@ -83,14 +89,16 @@ export default function FlashCardModal({ isOpen, onClose, user, onComplete }) {
                             <p>Enter a topic, and AI will generate flashcards instantly.</p>
                             <input 
                                 type="text" 
-                                placeholder="e.g. React Hooks, Thermodynamics, History of India..." 
+                                placeholder="e.g. React Hooks, Thermodynamics..." 
                                 value={topic}
                                 onChange={(e) => setTopic(e.target.value)}
+                                onKeyDown={handleKeyDown}
                                 className="topic-input"
                                 autoFocus
+                                enterKeyHint="go"
                             />
                             <button 
-                                className="btn-submit" 
+                                className="btn-submit full-width-mobile" 
                                 onClick={handleGenerate}
                                 disabled={!topic.trim()}
                             >
@@ -102,7 +110,7 @@ export default function FlashCardModal({ isOpen, onClose, user, onComplete }) {
                     {step === 'loading' && (
                         <div className="loading-container">
                             <div className="spinner"></div>
-                            <p>Generating smart flashcards for <b>"{topic}"</b>...</p>
+                            <p>Generating smart flashcards for <br/><b>"{topic}"</b>...</p>
                         </div>
                     )}
 
@@ -113,26 +121,30 @@ export default function FlashCardModal({ isOpen, onClose, user, onComplete }) {
                                     className="flashcard-inner"
                                     initial={false}
                                     animate={{ rotateY: isFlipped ? 180 : 0 }}
-                                    transition={{ duration: 0.6, type: "spring", stiffness: 260, damping: 20 }}
+                                    transition={{ duration: 0.4 }}
                                 >
                                     {/* FRONT */}
                                     <div className="flashcard-face flashcard-front">
                                         <span className="card-label">QUESTION</span>
-                                        <p>{cards[currentIndex]?.front}</p>
+                                        <div className="card-content-scroll">
+                                            <p>{cards[currentIndex]?.front}</p>
+                                        </div>
                                         <div className="tap-hint">Tap to Flip 👆</div>
                                     </div>
 
                                     {/* BACK */}
                                     <div className="flashcard-face flashcard-back">
                                         <span className="card-label">ANSWER</span>
-                                        <p>{cards[currentIndex]?.back}</p>
+                                        <div className="card-content-scroll">
+                                            <p>{cards[currentIndex]?.back}</p>
+                                        </div>
                                     </div>
                                 </motion.div>
                             </div>
 
                             <div className="flashcard-controls">
                                 <span className="progress-text">Card {currentIndex + 1} / {cards.length}</span>
-                                <button className="btn-submit" onClick={(e) => { e.stopPropagation(); handleNext(); }}>
+                                <button className="btn-submit full-width-mobile" onClick={(e) => { e.stopPropagation(); handleNext(); }}>
                                     {currentIndex === cards.length - 1 ? 'Finish Set' : 'Next Card'}
                                 </button>
                             </div>

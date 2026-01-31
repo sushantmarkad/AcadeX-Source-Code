@@ -96,7 +96,7 @@ export default function ResumeBuilderModal({ isOpen, onClose, user }) {
                     className="card"
                     style={{ 
                         width: '100%', maxWidth: '700px', maxHeight:'85vh', 
-                        overflowY:'auto', padding:'0', border:'none',
+                        overflowY:'auto', padding:'0', border:'none', borderRadius: '16px',
                         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
                         background: '#ffffff'
                     }}
