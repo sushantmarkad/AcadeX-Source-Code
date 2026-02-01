@@ -22,10 +22,8 @@ import { buttonTap } from "../animations/interactionVariants";
 // ✅ Import the New Modal
 import TwoFactorVerifyModal from "../components/TwoFactorVerifyModal";
 
-// ✅ Import Biometric Hook (Ensure this path matches where you saved BiometricAuth.js)
+// ✅ Import Biometric Hook
 import { useBiometricAuth } from '../components/BiometricAuth';
-
-const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
 export default function Login() {
   const [form, setForm] = useState({ email: "", password: "" });
@@ -59,7 +57,7 @@ export default function Login() {
     return () => unsubscribe();
   }, [navigate]);
 
-  // ✅ HELPER: Centralized Auth Handler (Fixes 2FA Bypass)
+  // ✅ HELPER: Centralized Auth Handler
   const handleUserAuth = async (user) => {
       try {
           const userDoc = await getDoc(doc(db, "users", user.uid));
@@ -69,6 +67,7 @@ export default function Login() {
           
           console.log("Checking 2FA for:", userData.firstName, "Enabled:", userData.is2FAEnabled);
 
+          // 🔐 CHECK IF 2FA IS ENABLED
           if (userData.is2FAEnabled) {
               // 🛑 STOP! Show Custom 2FA Modal
               setTempUser(user); 
@@ -103,14 +102,8 @@ export default function Login() {
       // Save ID for next time
       localStorage.setItem('last_userId', user.uid);
 
-      // 🚨 Super Admin Bypass
-      if (user.email === "scheduplan1@gmail.com") {
-          playSound('success');
-          navigate('/super-admin');
-          return;
-      }
-
-      // ✅ Use Helper to Check 2FA
+      // ✅ 2FA CHECK (Bypass Removed)
+      // This will now properly check database for ALL users, including Super Admin
       await handleUserAuth(user);
 
     } catch (error) {
@@ -127,7 +120,6 @@ export default function Login() {
         toast.success("Biometric Verified!");
         
         // Mock a user object since bio doesn't return full firebase user immediately
-        // If triggered from 2FA modal, we might already have tempUser, but this handles primary login too.
         const mockUser = { uid: userId, getIdToken: async () => "BIO_TOKEN" };
         
         // ✅ Check 2FA (or if already in 2FA modal, this acts as the verification)
@@ -174,7 +166,7 @@ export default function Login() {
       try {
           const token = tempUser.getIdToken ? await tempUser.getIdToken() : "BIO_TOKEN";
           
-          const verifyRes = await fetch(`${BACKEND_URL}/verify2FA`, {
+          const verifyRes = await fetch('https://acadex-backend-n2wh.onrender.com/verify2FA', {
               method: 'POST',
               headers: { 
                   'Content-Type': 'application/json', 
@@ -233,7 +225,7 @@ export default function Login() {
       const provider = new GoogleAuthProvider();
       const res = await signInWithPopup(auth, provider);
       
-      localStorage.setItem('last_userId', res.user.uid); // Save for bio
+      localStorage.setItem('last_userId', res.user.uid); 
 
       // ✅ FIX: Use Helper to Check 2FA for Google Users too
       await handleUserAuth(res.user);
@@ -254,7 +246,6 @@ export default function Login() {
           isLoading={verifying2FA}
           onClose={() => { setShow2FAModal(false); auth.signOut(); }} 
           onVerify={onVerify2FA}
-          // ✅ THIS LINE ADDS THE BIOMETRIC BUTTON TO THE MODAL
           onBiometricAuth={showBioLogin ? triggerBiometricLogin : null}
       />
 
@@ -265,7 +256,6 @@ export default function Login() {
             <h1>Sign in to <span className="highlight">AcadeX</span></h1>
           </div>
 
-          {/* 👆 BIOMETRIC LOGIN BUTTON (Only shows if enabled) */}
           {showBioLogin && (
               <motion.button 
                   className="btn-primary"

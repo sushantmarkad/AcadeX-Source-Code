@@ -59,7 +59,7 @@ function App() {
                 const data = userDoc.data();
                 setUserRole(data.role);
 
-                // --- 🔐 GLOBAL 2FA CHECK ---
+                // --- 🔐 GLOBAL 2FA CHECK (RESTORED) ---
                 if (data.is2FAEnabled) {
                     // Check if already verified in this session (Tab)
                     const sessionVerified = sessionStorage.getItem('is2FAVerified');
@@ -151,8 +151,7 @@ function App() {
     <Suspense fallback={<DashboardSkeleton />}>
       <Toaster position="bottom-center" toastOptions={{ style: { background: '#1e293b', color: '#fff' } }} />
       
-      {/* 🔐 GLOBAL 2FA LOCK SCREEN */}
-      {/* This modal blocks everything else if is2FARequired is true */}
+      {/* 🔐 GLOBAL 2FA LOCK SCREEN - RESTORED */}
       <TwoFactorVerifyModal 
           isOpen={is2FARequired} 
           isLoading={verifying}

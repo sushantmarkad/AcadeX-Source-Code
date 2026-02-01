@@ -196,35 +196,25 @@ export default function TypingTestModal({ isOpen, onClose, task, user, onComplet
         }
     };
 
-    const handleKeyDown = (e) => {
+    // ✅ FIXED FOR MOBILE: Use onChange instead of onKeyDown
+    const handleChange = (e) => {
         if (isFinished || !isOpen || loading) return;
 
-        inputRef.current?.focus();
-        const { key } = e;
+        const val = e.target.value;
 
-        // Start Timer on first valid char
-        if (!startTime && key.length === 1) {
+        // Start Timer on first character
+        if (!startTime && val.length === 1) {
             setStartTime(Date.now());
         }
 
-        if (key === 'Backspace') {
-            setUserInput(prev => {
-                const updated = prev.slice(0, -1);
-                calculateAccuracy(updated);
-                return updated;
-            });
-            return;
-        }
+        // Only allow typing up to the target length
+        if (val.length <= targetText.length) {
+            setUserInput(val);
+            calculateAccuracy(val);
 
-        if (key.length > 1) return;
-
-        if (userInput.length < targetText.length) {
-            const newInput = userInput + key;
-            setUserInput(newInput);
-            calculateAccuracy(newInput);
-
-            if (newInput.length === targetText.length) {
-                finishTest(newInput);
+            // Finish Test
+            if (val.length === targetText.length) {
+                finishTest(val);
             }
         }
     };
@@ -249,7 +239,7 @@ export default function TypingTestModal({ isOpen, onClose, task, user, onComplet
         const durationInMinutes = (endTime - startTime) / 60000;
 
         // Final Precise Calculation
-        const grossWpm = Math.round((finalInput.length / 5) / durationInMinutes);
+        const grossWpm = durationInMinutes > 0 ? Math.round((finalInput.length / 5) / durationInMinutes) : 0;
         setWpm(grossWpm);
 
         let earnedXp = 10;
@@ -315,10 +305,21 @@ export default function TypingTestModal({ isOpen, onClose, task, user, onComplet
                 ref={inputRef}
                 type="text"
                 value={userInput}
-                onChange={() => {}} 
-                onKeyDown={handleKeyDown}
-                style={{opacity: 0, position: 'absolute', top: 0}}
+                onChange={handleChange} 
+                style={{
+                    opacity: 0, 
+                    position: 'absolute', 
+                    top: 0, 
+                    left: 0, 
+                    height: '100%', 
+                    width: '100%',
+                    fontSize: '16px' // 🚀 Prevents iOS Zoom
+                }}
                 autoFocus
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck="false"
             />
 
             <div 

@@ -4,6 +4,7 @@ import { doc, updateDoc, onSnapshot } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import TwoFactorSetup from '../components/TwoFactorSetup'; // ✅ Import 2FA Component
 import './Dashboard.css';
+import ResumeBuilderModal from '../components/ResumeBuilderModal';
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
@@ -27,7 +28,149 @@ const getAvatarGradient = (name) => {
     return gradients[(name?.length || 0) % gradients.length];
 };
 
+// --- PDF DOWNLOAD HELPER (Blue Links for Visibility) ---
+const downloadResumePDF = (user) => {
+    const resume = user.resumeData || {};
+    
+    // 1. Create a hidden iframe
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+
+    // 2. Generate Content
+    const doc = iframe.contentWindow.document;
+    const htmlContent = `
+        <html>
+        <head>
+            <title>${user.firstName}_Resume</title>
+            <style>
+                @page { size: A4; margin: 0.5in; }
+                body { 
+                    font-family: 'Times New Roman', serif; 
+                    color: #000; 
+                    line-height: 1.4; 
+                    margin: 0; 
+                    padding: 20px;
+                }
+                
+                /* HEADER */
+                .header { text-align: center; margin-bottom: 20px; border-bottom: 1px solid #000; padding-bottom: 10px; }
+                h1 { margin: 0; font-size: 24pt; text-transform: uppercase; font-weight: bold; }
+                .contact { font-size: 10pt; margin-top: 5px; }
+                
+                /* LINK STYLING (BLUE) */
+                .contact a { 
+                    color: #2563eb; /* Professional Blue */
+                    text-decoration: none; 
+                    font-weight: bold;
+                }
+                .contact a:hover { text-decoration: underline; }
+                
+                /* SECTIONS */
+                h2 { 
+                    font-size: 12pt; font-weight: bold; text-transform: uppercase; 
+                    border-bottom: 1px solid #000; margin-top: 15px; margin-bottom: 5px; 
+                    padding-bottom: 2px;
+                }
+
+                /* CONTENT */
+                p { margin: 0 0 5px 0; text-align: justify; font-size: 11pt; }
+                ul { margin: 0; padding-left: 20px; font-size: 11pt; }
+                li { margin-bottom: 2px; }
+
+                /* ITEMS */
+                .item { margin-bottom: 8px; }
+                .item-head { display: flex; justify-content: space-between; font-weight: bold; font-size: 11pt; }
+                .item-sub { font-style: italic; font-size: 11pt; }
+                .item-desc { font-size: 11pt; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>${user.firstName} ${user.lastName}</h1>
+                <div class="contact">
+                    <a href="mailto:${user.email}">${user.email}</a> 
+                    
+                    ${user.phone ? ` | ${user.phone}` : ''} 
+                    
+                    ${resume.links?.linkedin ? ` | <a href="${resume.links.linkedin}" target="_blank">LinkedIn</a>` : ''} 
+                    ${resume.links?.portfolio ? ` | <a href="${resume.links.portfolio}" target="_blank">Portfolio</a>` : ''} 
+                    ${resume.links?.github ? ` | <a href="${resume.links.github}" target="_blank">GitHub</a>` : ''}
+                </div>
+            </div>
+
+            ${resume.summary ? `
+                <h2>Professional Summary</h2>
+                <p>${resume.summary}</p>
+            ` : ''}
+
+            ${resume.achievements?.length ? `
+                <h2>Key Achievements</h2>
+                <ul>
+                    ${resume.achievements.map(ach => `<li>${ach}</li>`).join('')}
+                </ul>
+            ` : ''}
+
+            ${resume.skills?.length ? `
+                <h2>Technical Skills</h2>
+                <p><strong>Core Skills:</strong> ${resume.skills.join(' • ')}</p>
+            ` : ''}
+
+            ${resume.projects?.length ? `
+                <h2>Projects</h2>
+                ${resume.projects.map(p => `
+                    <div class="item">
+                        <div class="item-head"><span>${p.title}</span></div>
+                        <div class="item-desc">${p.desc}</div>
+                        ${p.tech ? `<div style="font-size: 10pt; font-style: italic;">Stack: ${p.tech}</div>` : ''}
+                    </div>
+                `).join('')}
+            ` : ''}
+
+            ${resume.experience?.length ? `
+                <h2>Experience</h2>
+                ${resume.experience.map(exp => `
+                    <div class="item">
+                        <div class="item-head"><span>${exp.company}</span> <span>${exp.duration}</span></div>
+                        <div class="item-sub">${exp.role}</div>
+                        <div class="item-desc">${exp.desc}</div>
+                    </div>
+                `).join('')}
+            ` : ''}
+
+            ${resume.education?.length ? `
+                <h2>Education</h2>
+                ${resume.education.map(edu => `
+                    <div class="item">
+                        <div class="item-head"><span>${edu.degree}</span> <span>${edu.year}</span></div>
+                        <div class="item-sub">${edu.school} ${edu.score ? `| ${edu.score}` : ''}</div>
+                    </div>
+                `).join('')}
+            ` : ''}
+        </body>
+        </html>
+    `;
+
+    doc.open();
+    doc.write(htmlContent);
+    doc.close();
+
+    // 3. Trigger Print
+    setTimeout(() => {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+        setTimeout(() => {
+            document.body.removeChild(iframe);
+        }, 1000);
+    }, 500);
+};
 export default function Profile({ user }) {
+    const [isResumeModalOpen, setIsResumeModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState('details');
     const [isEditing, setIsEditing] = useState(false);
     const [profileData, setProfileData] = useState(user || null);
@@ -35,6 +178,7 @@ export default function Profile({ user }) {
     // Password State
     const [passData, setPassData] = useState({ newPass: '', confirmPass: '' });
     const [passLoading, setPassLoading] = useState(false);
+
 
     // Profile Form State
     const [formData, setFormData] = useState({
@@ -124,39 +268,59 @@ export default function Profile({ user }) {
 
     if (!profileData) return <div className="content-section">Loading...</div>;
 
-    const avatarGradient = getAvatarGradient(profileData.firstName);
-
     return (
         <div className="content-section" style={{ maxWidth: '1100px', margin: '0 auto' }}>
 
             {/* --- PREMIUM HEADER CARD (Sunset Violet Theme) --- */}
-<div className="prof-header-card">
-    <div className="prof-header-content">
-        {/* Avatar with Glass Effect Border */}
-        <div className="prof-avatar">
-            {profileData.firstName?.[0]}{profileData.lastName?.[0]}
-        </div>
-        
-        <div className="prof-info">
-            <h2 className="prof-name">{profileData.firstName} {profileData.lastName}</h2>
-            <div className="prof-badges">
-                <span className="prof-badge-glass">{profileData.role?.toUpperCase()}</span>
-                <span className="prof-badge-glass">{profileData.department}</span>
-                {profileData.year && <span className="prof-badge-glass">{profileData.year} Year</span>}
-            </div>
-        </div>
+            <div className="prof-header-card">
+                <div className="prof-header-content">
+                    {/* Avatar with Glass Effect Border */}
+                    <div className="prof-avatar">
+                        {profileData.firstName?.[0]}{profileData.lastName?.[0]}
+                    </div>
 
-        {activeTab === 'details' && (
-            <button
-                className={`prof-btn ${isEditing ? 'prof-btn-save' : 'prof-btn-edit'}`}
-                onClick={() => isEditing ? handleSaveProfile() : setIsEditing(true)}
-            >
-                <i className={`fas ${isEditing ? 'fa-check' : 'fa-pen'}`}></i>
-                {isEditing ? 'Save Changes' : 'Edit Profile'}
-            </button>
-        )}
-    </div>
-</div>
+                    <div className="prof-info">
+                        <h2 className="prof-name">{profileData.firstName} {profileData.lastName}</h2>
+                        <div className="prof-badges">
+                            <span className="prof-badge-glass">{profileData.role?.toUpperCase()}</span>
+                            <span className="prof-badge-glass">{profileData.department}</span>
+                            {profileData.year && <span className="prof-badge-glass">{profileData.year} Year</span>}
+                        </div>
+                    </div>
+
+                    {/* ✅ FIXED BUTTON GROUP */}
+                    {/* ✅ RESUME & EDIT BUTTONS */}
+                    {activeTab === 'details' && (
+                        <div style={{ display: 'flex', gap: '10px', marginTop: '15px', flexWrap: 'wrap' }}>
+                            {/* Edit / Save Button */}
+                            <button className={`prof-btn ${isEditing ? 'prof-btn-save' : 'prof-btn-edit'}`} onClick={() => isEditing ? handleSaveProfile() : setIsEditing(true)}>
+                                <i className={`fas ${isEditing ? 'fa-check' : 'fa-pen'}`}></i> {isEditing ? 'Save Profile' : 'Edit Profile'}
+                            </button>
+
+                            {/* Build Resume Button */}
+                            <button className="prof-btn" style={{ background: 'rgba(255,255,255,0.2)', color: 'white', border: '1px solid rgba(255,255,255,0.3)' }} onClick={() => setIsResumeModalOpen(true)}>
+                                <i className="fas fa-file-contract"></i> Build Resume
+                            </button>
+
+                            {/* Download PDF Button */}
+                            {/* Download PDF Button */}
+                            <button
+                                className="prof-btn"
+                                style={{ background: '#3b82f6', color: 'white' }}
+                                onClick={() => downloadResumePDF(profileData)}
+                            >
+                                <i className="fas fa-file-pdf"></i> Download PDF
+                            </button>
+                        </div>
+                    )}
+                    <ResumeBuilderModal
+                        isOpen={isResumeModalOpen}
+                        onClose={() => setIsResumeModalOpen(false)}
+                        user={profileData}
+                    />
+
+                </div>
+            </div>
 
             {/* --- MODERN TABS --- */}
             <div className="prof-tabs-container">
@@ -207,7 +371,6 @@ export default function Profile({ user }) {
                         {user.role === 'teacher' && (
                             <ProfInput
                                 label="Academic Year"
-                                // Checks top-level first, then extras object (handling backend variations)
                                 value={profileData.academicYear || profileData.extras?.academicYear || "Not Assigned"}
                                 disabled={true}
                                 lockIcon={true}
@@ -355,10 +518,12 @@ export default function Profile({ user }) {
     }
 
     /* --- Avatar (White with Color Text) --- */
+    /* ✅ FIXED: Added min-width/height and flex-shrink to prevent oval shape */
     .prof-avatar {
         width: 100px; height: 100px;
-        min-width: 100px;
+        min-width: 100px; min-height: 100px;
         border-radius: 50%;
+        flex-shrink: 0; 
         background: rgba(255, 255, 255, 0.95);
         border: 4px solid rgba(255,255,255,0.3); /* Glass Border */
         display: flex; align-items: center; justify-content: center;
@@ -462,11 +627,15 @@ export default function Profile({ user }) {
         margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.6px;
     }
     
+    /* ✅ FIXED: Added appearance:none to hide default arrow (fixes double dropdown) */
     .prof-input, .prof-select {
         width: 100%; padding: 12px 16px; border-radius: 12px;
         border: 2px solid #f1f5f9; background: #f8fafc;
         color: #1e293b; font-size: 14px; font-weight: 500;
-        transition: all 0.2s; box-sizing: border-box; /* Fixes Input Width */
+        transition: all 0.2s; box-sizing: border-box; 
+        appearance: none;
+        -webkit-appearance: none;
+        -moz-appearance: none;
     }
     .prof-input:focus, .prof-select:focus {
         background: white; border-color: #d946ef; outline: none;
