@@ -3,13 +3,14 @@ import { db, auth, storage } from '../firebase';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import toast from 'react-hot-toast';
+import CustomDropdown from '../components/CustomDropdown';
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
 export default function AddTasks({ teacherInfo }) {
-    const [activeTab, setActiveTab] = useState('create'); 
+    const [activeTab, setActiveTab] = useState('create');
     const [tasks, setTasks] = useState([]);
-    const [selectedTask, setSelectedTask] = useState(null); 
+    const [selectedTask, setSelectedTask] = useState(null);
     const [submissions, setSubmissions] = useState([]);
     const [loading, setLoading] = useState(false);
 
@@ -22,8 +23,8 @@ export default function AddTasks({ teacherInfo }) {
     const [marks, setMarks] = useState('');
     const [feedback, setFeedback] = useState('');
 
-    const assignedYears = teacherInfo?.assignedClasses 
-        ? [...new Set(teacherInfo.assignedClasses.map(c => c.year))] 
+    const assignedYears = teacherInfo?.assignedClasses
+        ? [...new Set(teacherInfo.assignedClasses.map(c => c.year))]
         : [];
 
     useEffect(() => {
@@ -31,7 +32,7 @@ export default function AddTasks({ teacherInfo }) {
         const q = query(collection(db, 'assignments'), where('teacherId', '==', auth.currentUser.uid));
         const unsub = onSnapshot(q, (snap) => {
             const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-            data.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+            data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
             setTasks(data);
         });
         return () => unsub();
@@ -53,25 +54,37 @@ export default function AddTasks({ teacherInfo }) {
                 attachmentUrl = await getDownloadURL(fileRef);
             }
 
-            const taskData = {
-                ...form,
-                attachmentUrl,
-                teacherId: auth.currentUser.uid,
-                teacherName: `${teacherInfo.firstName} ${teacherInfo.lastName}`,
-                department: teacherInfo.department,
-                instituteId: teacherInfo.instituteId,
-                createdAt: new Date().toISOString()
-            };
-
-            const response = await fetch(`${BACKEND_URL}/createAssignment`, {
+            // 1. Save Assignment
+            await fetch(`${BACKEND_URL}/createAssignment`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(taskData)
-            });
-            
-            if (!response.ok) throw new Error("Backend failed");
+                body: JSON.stringify({
+                    ...form,
+                    attachmentUrl,
+                    teacherId: auth.currentUser.uid,
+                    teacherName: `${teacherInfo.firstName} ${teacherInfo.lastName}`,
+                    department: teacherInfo.department,
+                    instituteId: teacherInfo.instituteId,
+                    createdAt: new Date().toISOString()
+                })
+            }).then(res => { if(!res.ok) throw new Error("Backend failed"); });
 
-            toast.success("Assignment Live!", { id: toastId });
+            // 2. Trigger Notification (✅ NEW CODE)
+            // Re-using the same notification endpoint but customizing the title
+            fetch(`${BACKEND_URL}/sendAnnouncementNotification`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: `📝 New Assignment: ${form.title}`,
+                    message: `Due Date: ${new Date(form.dueDate).toLocaleDateString()}. Check app for details.`,
+                    targetYear: form.targetYear,
+                    instituteId: teacherInfo.instituteId,
+                    department: teacherInfo.department,
+                    senderName: `${teacherInfo.firstName} ${teacherInfo.lastName}`
+                })
+            }).catch(err => console.error("Notification trigger failed:", err));
+
+            toast.success("Assignment Live & Students Notified!", { id: toastId });
             setForm({ title: '', description: '', targetYear: '', dueDate: '' });
             setFile(null);
 
@@ -98,7 +111,7 @@ export default function AddTasks({ teacherInfo }) {
     };
 
     const submitGrade = async (submissionId) => {
-        if(!marks || marks > 100 || marks < 0) return toast.error("Enter valid marks (0-100)");
+        if (!marks || marks > 100 || marks < 0) return toast.error("Enter valid marks (0-100)");
         try {
             await fetch(`${BACKEND_URL}/gradeSubmission`, {
                 method: 'POST',
@@ -113,22 +126,22 @@ export default function AddTasks({ teacherInfo }) {
 
     return (
         <div className="task-page-container">
-            
+
             {/* --- HEADER --- */}
             <div className="task-header">
                 <div>
                     <h2 className="gradient-text">Classroom Tasks</h2>
                     <p className="subtitle">Create assignments & track performance.</p>
                 </div>
-                
+
                 <div className="toggle-container">
-                    <button 
-                        onClick={() => setActiveTab('create')} 
+                    <button
+                        onClick={() => setActiveTab('create')}
                         className={`toggle-btn ${activeTab === 'create' ? 'active-create' : ''}`}>
                         <i className="fas fa-plus"></i> Create
                     </button>
-                    <button 
-                        onClick={() => { setActiveTab('evaluate'); setSelectedTask(null); }} 
+                    <button
+                        onClick={() => { setActiveTab('evaluate'); setSelectedTask(null); }}
                         className={`toggle-btn ${activeTab === 'evaluate' ? 'active-eval' : ''}`}>
                         <i className="fas fa-check-double"></i> Evaluate
                     </button>
@@ -147,11 +160,11 @@ export default function AddTasks({ teacherInfo }) {
                         <div className="form-main">
                             <div className="input-group">
                                 <label>Title</label>
-                                <input required value={form.title} onChange={e => setForm({...form, title: e.target.value})} placeholder="e.g. Thermodynamics Project" />
+                                <input required value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="e.g. Thermodynamics Project" />
                             </div>
                             <div className="input-group">
                                 <label>Instructions</label>
-                                <textarea required value={form.description} onChange={e => setForm({...form, description: e.target.value})} rows="6" placeholder="Explain the task details..." />
+                                <textarea required value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows="6" placeholder="Explain the task details..." />
                             </div>
                         </div>
 
@@ -159,16 +172,17 @@ export default function AddTasks({ teacherInfo }) {
                         <div className="form-sidebar">
                             <div className="input-group">
                                 <label>Class</label>
-                                <select value={form.targetYear} onChange={e => setForm({...form, targetYear: e.target.value})} required>
-                                    <option value="">Select Target Class</option>
-                                    <option value="All">All Classes</option>
-                                    {assignedYears.map(year => <option key={year} value={year}>{year} Year</option>)}
-                                </select>
+                                <CustomDropdown
+                                    value={form.targetYear}
+                                    onChange={(e) => setForm({ ...form, targetYear: e.target.value })}
+                                    placeholder="Select Class"
+                                    options={assignedYears.map(year => ({ value: year, label: `${year} Year` }))}
+                                />
                             </div>
 
                             <div className="input-group">
                                 <label>Deadline</label>
-                                <input type="date" required value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} />
+                                <input type="date" required value={form.dueDate} onChange={e => setForm({ ...form, dueDate: e.target.value })} />
                             </div>
 
                             {/* File Upload */}
@@ -199,9 +213,9 @@ export default function AddTasks({ teacherInfo }) {
                                 </span>
                                 {task.attachmentUrl && <i className="fas fa-paperclip attachment-icon"></i>}
                             </div>
-                            
+
                             <h4>{task.title}</h4>
-                            
+
                             <div className="card-footer">
                                 <span><i className="far fa-clock"></i> {new Date(task.dueDate).toLocaleDateString()}</span>
                                 <span className="arrow-link">Open &rarr;</span>
@@ -219,9 +233,9 @@ export default function AddTasks({ teacherInfo }) {
                         <button onClick={() => setSelectedTask(null)} className="back-btn">
                             <i className="fas fa-chevron-left"></i> Back
                         </button>
-                        <h3>{selectedTask.title} <span style={{fontWeight:'400', fontSize:'14px', opacity:0.7}}>| Submissions</span></h3>
+                        <h3>{selectedTask.title} <span style={{ fontWeight: '400', fontSize: '14px', opacity: 0.7 }}>| Submissions</span></h3>
                     </div>
-                    
+
                     <div className="table-responsive">
                         <table className="modern-table">
                             <thead>

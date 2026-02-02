@@ -44,3 +44,43 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+/* --- 📱 SAFE AREA GLOBAL FIXES --- */
+
+/* 1. Ensure the root container respects safe areas */
+#root {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    box-sizing: border-box;
+    background-color: #f8fafc; /* Matches your body bg */
+    height: 100vh;
+    width: 100vw;
+}
+
+/* 2. Fix Fixed/Absolute Elements (Headers & Footers) */
+/* These elements ignore parent padding, so we must fix them individually */
+
+/* Mobile Header Fix */
+.mobile-header {
+    padding-top: max(15px, env(safe-area-inset-top)) !important;
+    height: auto !important;
+    min-height: 70px;
+    /* Ensure it doesn't get cut off */
+    box-sizing: content-box; 
+}
+
+/* Mobile Footer Fix */
+.mobile-footer {
+    padding-bottom: max(15px, env(safe-area-inset-bottom)) !important;
+    height: auto !important;
+    min-height: 60px;
+    /* Ensure click targets aren't hidden behind home bar */
+    box-sizing: content-box; 
+}
+
+/* 3. Fix Scrollable Areas */
+.main-content {
+    /* Ensure the bottom of the scrollable area isn't hidden behind the footer */
+    padding-bottom: calc(80px + env(safe-area-inset-bottom)) !important; 
+}

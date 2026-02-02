@@ -4,7 +4,7 @@ import { collection, query, where, onSnapshot, orderBy, limit } from 'firebase/f
 import { motion } from 'framer-motion'; 
 import './Dashboard.css';
 
-// ✅ 1. Distinct Avatars
+// ✅ Default Fallback Avatars
 const MALE_AVATAR = "https://cdn-icons-png.flaticon.com/512/4140/4140048.png";
 const FEMALE_AVATAR = "https://cdn-icons-png.flaticon.com/512/4140/4140047.png";
 
@@ -28,14 +28,10 @@ export default function Leaderboard({ user }) {
         );
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const data = snapshot.docs.map(doc => {
-                const d = doc.data();
-                return { 
-                    id: doc.id, 
-                    ...d,
-                    sex: d.sex || d.gender || d.Sex || 'M' 
-                };
-            });
+            const data = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
             
             setLeaders(data);
             
@@ -51,21 +47,23 @@ export default function Leaderboard({ user }) {
         return () => unsubscribe();
     }, [user?.instituteId, user.uid, showAll]);
 
-    const getAvatar = (sex) => {
-        if (!sex) return MALE_AVATAR;
-        const s = String(sex).toUpperCase().trim();
-        if (s === 'F' || s === 'FEMALE' || s === 'GIRL' || s === 'WOMAN') {
+    // ✅ FIXED: Updated Avatar logic to support Custom Profile Pics + Gender Defaults
+    const getAvatar = (student) => {
+        if (student.profilePic) return student.profilePic;
+        
+        const gender = (student.gender || student.sex || 'male').toLowerCase();
+        if (gender === 'female' || gender === 'f' || gender === 'girl') {
             return FEMALE_AVATAR;
         }
         return MALE_AVATAR;
     };
 
-    // ✅ NEW: Helper to get "Actual Name" (Sushant) instead of "Surname" (Markad)
+    // ✅ Helper to get "Actual Name" (Sushant) instead of "Surname" (Markad)
     const getDisplayName = (student) => {
         if (student.lastName) {
-            return student.lastName.trim().split(' ')[0]; // Returns "Sushant" from "Sushant Sukhadev"
+            return student.lastName.trim().split(' ')[0];
         }
-        return student.firstName; // Fallback
+        return student.firstName || "Student";
     };
 
     const top3 = leaders.slice(0, 3);
@@ -114,12 +112,11 @@ export default function Leaderboard({ user }) {
                             >
                                 {isFirst && <div className="crown-icon">👑</div>}
                                 <div className="podium-avatar-container">
-                                    <img src={getAvatar(student.sex)} alt="avatar" className="podium-avatar" />
+                                    <img src={getAvatar(student)} alt="avatar" className="podium-avatar" style={{ objectFit: 'cover' }} />
                                     <div className="podium-badge">{rank}</div>
                                 </div>
                                 <div className="podium-info">
                                     <div className="podium-name-row">
-                                        {/* ✅ UPDATED: Uses getDisplayName() to show Actual Name */}
                                         <span className="p-name">{getDisplayName(student)}</span>
                                         {user.uid === student.id && <span className="me-pill">YOU</span>}
                                     </div>
@@ -146,10 +143,9 @@ export default function Leaderboard({ user }) {
                             <span className="lb-rank-circle">{index + 4}</span>
                         </div>
                         <div className="lb-user-col">
-                            <img src={getAvatar(student.sex)} className="lb-list-avatar" alt="user" />
+                            <img src={getAvatar(student)} className="lb-list-avatar" alt="user" style={{ objectFit: 'cover' }} />
                             <div className="lb-text-info">
                                 <div className="lb-name-row">
-                                    {/* List view shows Full Name (Surname First Name) which is usually fine */}
                                     <span className="lb-name-text">{student.firstName} {student.lastName}</span>
                                     {user.uid === student.id && <span className="me-pill-small">YOU</span>}
                                 </div>

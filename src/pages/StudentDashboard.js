@@ -136,7 +136,7 @@ const LeaveRequestForm = ({ user }) => {
     return (
         <div className="content-section">
             <h2 className="content-title">Request Leave</h2>
-            
+
             <div className="card" style={{ marginBottom: '30px' }}>
                 <form onSubmit={handleSubmit}>
                     <div className="input-group">
@@ -217,18 +217,32 @@ const NoticesView = ({ notices }) => {
                                     <span className="notice-time">{getRelativeTime(n.createdAt)}</span>
                                 </div>
                                 <p className="notice-body">{n.message}</p>
+                                {n.attachmentUrl && (
+                                    <div style={{ marginBottom: '12px', marginTop: '10px' }}>
+                                        <a href={n.attachmentUrl} target="_blank" rel="noreferrer"
+                                            style={{
+                                                display: 'inline-flex', alignItems: 'center', gap: '8px',
+                                                padding: '8px 12px', background: '#eff6ff',
+                                                color: '#2563eb', borderRadius: '8px',
+                                                textDecoration: 'none', fontSize: '13px', fontWeight: '600',
+                                                border: '1px solid #bfdbfe'
+                                            }}>
+                                            <i className="fas fa-paperclip"></i> View Attachment
+                                        </a>
+                                    </div>
+                                )}
 
                                 {/* ✅ ADDED: Attachment Button */}
                                 {n.attachmentUrl && (
-                                    <div style={{marginBottom: '12px'}}>
-                                        <a href={n.attachmentUrl} target="_blank" rel="noreferrer" 
-                                           style={{
-                                               display: 'inline-flex', alignItems: 'center', gap: '8px',
-                                               padding: '8px 12px', background: '#eff6ff', 
-                                               color: '#2563eb', borderRadius: '8px', 
-                                               textDecoration: 'none', fontSize: '13px', fontWeight: '600',
-                                               border: '1px solid #bfdbfe'
-                                           }}>
+                                    <div style={{ marginBottom: '12px' }}>
+                                        <a href={n.attachmentUrl} target="_blank" rel="noreferrer"
+                                            style={{
+                                                display: 'inline-flex', alignItems: 'center', gap: '8px',
+                                                padding: '8px 12px', background: '#eff6ff',
+                                                color: '#2563eb', borderRadius: '8px',
+                                                textDecoration: 'none', fontSize: '13px', fontWeight: '600',
+                                                border: '1px solid #bfdbfe'
+                                            }}>
                                             <i className="fas fa-paperclip"></i> View Attachment
                                         </a>
                                     </div>
@@ -400,7 +414,7 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                     // ✅ Create a nice time string (e.g., "10:30 AM")
                     timeDisplay: data.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                     // ✅ Keep the date for reference if needed
-                    dateDisplay: data.timestamp?.toDate().toLocaleDateString() 
+                    dateDisplay: data.timestamp?.toDate().toLocaleDateString()
                 };
             }));
         });
@@ -418,7 +432,7 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                 <AttendanceOverview user={user} />
                 {/* ✅ MODERN LIVE ATTENDANCE CARD */}
                 {/* ✨ ULTRA-MODERN ATTENDANCE CARD ✨ */}
-                <div className="card" style={{ 
+                <div className="card" style={{
                     background: 'linear-gradient(120deg, #4f46e5 0%, #0ea5e9 100%)', // Indigo to Sky Blue
                     color: 'white',
                     border: 'none',
@@ -429,43 +443,43 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                     padding: '28px'
                 }}>
                     {/* 🎨 Abstract Background Shapes */}
-                    <div style={{ 
-                        position: 'absolute', top: '-60px', right: '-60px', 
-                        width: '220px', height: '220px', 
-                        background: 'radial-gradient(circle, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0) 70%)', 
+                    <div style={{
+                        position: 'absolute', top: '-60px', right: '-60px',
+                        width: '220px', height: '220px',
+                        background: 'radial-gradient(circle, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0) 70%)',
                         borderRadius: '50%', pointerEvents: 'none'
                     }}></div>
-                    <div style={{ 
-                        position: 'absolute', bottom: '-40px', left: '-20px', 
-                        width: '180px', height: '180px', 
-                        background: 'rgba(255,255,255,0.1)', 
+                    <div style={{
+                        position: 'absolute', bottom: '-40px', left: '-20px',
+                        width: '180px', height: '180px',
+                        background: 'rgba(255,255,255,0.1)',
                         borderRadius: '50%', filter: 'blur(30px)', pointerEvents: 'none'
                     }}></div>
 
                     <div style={{ position: 'relative', zIndex: 10 }}>
                         {/* Header: Label & Status */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                            <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
-                                <div style={{ 
-                                    background:'rgba(255,255,255,0.2)', padding:'8px', borderRadius:'12px',
-                                    display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(4px)'
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <div style={{
+                                    background: 'rgba(255,255,255,0.2)', padding: '8px', borderRadius: '12px',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)'
                                 }}>
-                                    <i className="fas fa-wifi" style={{ fontSize:'16px' }}></i>
+                                    <i className="fas fa-wifi" style={{ fontSize: '16px' }}></i>
                                 </div>
-                                <span style={{ fontWeight:'600', fontSize:'14px', letterSpacing:'0.5px', textTransform:'uppercase', opacity:0.9 }}>
+                                <span style={{ fontWeight: '600', fontSize: '14px', letterSpacing: '0.5px', textTransform: 'uppercase', opacity: 0.9 }}>
                                     Attendance
                                 </span>
                             </div>
-                            
+
                             {liveSession && (
-                                <div className="pulsate" style={{ 
+                                <div className="pulsate" style={{
                                     background: 'rgba(255,255,255,0.25)', border: '1px solid rgba(255,255,255,0.4)',
-                                    padding: '6px 14px', borderRadius: '30px', 
+                                    padding: '6px 14px', borderRadius: '30px',
                                     display: 'flex', alignItems: 'center', gap: '8px',
                                     backdropFilter: 'blur(4px)'
                                 }}>
-                                    <div style={{ width:'8px', height:'8px', background:'#bef264', borderRadius:'50%', boxShadow:'0 0 8px #bef264' }}></div> 
-                                    <span style={{ fontSize:'11px', fontWeight:'800', letterSpacing:'0.5px' }}>LIVE</span>
+                                    <div style={{ width: '8px', height: '8px', background: '#bef264', borderRadius: '50%', boxShadow: '0 0 8px #bef264' }}></div>
+                                    <span style={{ fontSize: '11px', fontWeight: '800', letterSpacing: '0.5px' }}>LIVE</span>
                                 </div>
                             )}
                         </div>
@@ -474,25 +488,25 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                         {liveSession ? (
                             <div>
                                 <div style={{ marginBottom: '28px' }}>
-                                    <h1 style={{ 
-                                        fontSize: '34px', fontWeight: '800', margin: '0', 
-                                        lineHeight: '1.1', textShadow: '0 4px 15px rgba(0,0,0,0.2)' 
+                                    <h1 style={{
+                                        fontSize: '34px', fontWeight: '800', margin: '0',
+                                        lineHeight: '1.1', textShadow: '0 4px 15px rgba(0,0,0,0.2)'
                                     }}>
                                         {liveSession.subject}
                                     </h1>
-                                    <div style={{ display:'flex', alignItems:'center', gap:'8px', marginTop:'8px', opacity:0.85 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', opacity: 0.85 }}>
                                         <i className="far fa-clock"></i>
-                                        <span style={{ fontSize: '14px', fontWeight:'500' }}>
+                                        <span style={{ fontSize: '14px', fontWeight: '500' }}>
                                             Session Started • {liveSession.startTime || "Now"}
                                         </span>
                                     </div>
                                 </div>
 
                                 {/* 🚀 SMART SCAN BUTTON */}
-                                <button 
+                                <button
                                     onClick={() => {
-                                        if (Capacitor.isNativePlatform()) openNativeCameraForQR(); 
-                                        else setShowScanner(true); 
+                                        if (Capacitor.isNativePlatform()) openNativeCameraForQR();
+                                        else setShowScanner(true);
                                     }}
                                     style={{
                                         background: 'white',
@@ -513,20 +527,20 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                                     onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
                                     onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
                                 >
-                                    <i className="fas fa-expand" style={{ fontSize:'18px' }}></i>
+                                    <i className="fas fa-expand" style={{ fontSize: '18px' }}></i>
                                     {Capacitor.isNativePlatform() ? "Scan Now" : "Open Scanner"}
                                 </button>
                             </div>
                         ) : (
-                            <div style={{ 
-                                background: 'rgba(255, 255, 255, 0.15)', borderRadius: '16px', padding: '25px', 
+                            <div style={{
+                                background: 'rgba(255, 255, 255, 0.15)', borderRadius: '16px', padding: '25px',
                                 textAlign: 'center', border: '1px dashed rgba(253, 253, 253, 0.3)',
                                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px'
                             }}>
                                 {/* ✅ FIX: Explicitly added color: 'white' */}
                                 <i className="fas fa-coffee" style={{ fontSize: '28px', opacity: 0.8, color: 'white' }}></i>
-                                
-                                <p style={{ fontSize: '14px', fontWeight:'500', margin: 0, opacity: 0.9, color: 'white' }}>
+
+                                <p style={{ fontSize: '14px', fontWeight: '500', margin: 0, opacity: 0.9, color: 'white' }}>
                                     No active class. Enjoy your break!
                                 </p>
                             </div>
@@ -534,7 +548,7 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                     </div>
                 </div>
 
-              {/* ✅ TODAY'S HISTORY CARD (Scrollable) */}
+                {/* ✅ TODAY'S HISTORY CARD (Scrollable) */}
                 <div className="card" style={{ maxHeight: '400px', display: 'flex', flexDirection: 'column' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
                         <h3 style={{ margin: 0 }}>Today's History</h3>
@@ -997,13 +1011,13 @@ export default function StudentDashboard() {
         try {
             // 🚀 PARALLEL EXECUTION: Start all security checks at the same time
             // This cuts the waiting time in half without skipping any checks.
-            
+
             // A. Get Device Fingerprint (Critical for Proxy Proof)
             const deviceIdPromise = getUniqueDeviceId();
-            
+
             // B. Get Firebase Auth Token
             const tokenPromise = auth.currentUser.getIdToken();
-            
+
             // C. Get GPS Location (Usually the slowest part)
             const locationPromise = new Promise((resolve, reject) => {
                 navigator.geolocation.getCurrentPosition(
@@ -1017,17 +1031,17 @@ export default function StudentDashboard() {
 
             // ⏳ Wait for ALL security data to be ready
             const [currentDeviceId, token, location] = await Promise.all([
-                deviceIdPromise, 
-                tokenPromise, 
+                deviceIdPromise,
+                tokenPromise,
                 locationPromise
             ]);
 
             // 🚀 3. Send Everything to Backend for Strict Verification
             const response = await fetch(`${BACKEND_URL}/markAttendance`, {
                 method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json', 
-                    'Authorization': `Bearer ${token}` 
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify({
                     sessionId: decodedText,
@@ -1097,17 +1111,17 @@ export default function StudentDashboard() {
 
     // ✅ UPGRADED: ULTRA HD Camera - Direct MediaStream Approach for Browser
     // ✅ WEB SCANNER LOGIC (Simple Start -> HD Upgrade -> Zoom)
-   // ✅ UPDATED CAMERA LOGIC (Always Enable Zoom)
+    // ✅ UPDATED CAMERA LOGIC (Always Enable Zoom)
     useEffect(() => {
         let html5QrCode;
         if (showScanner) {
             html5QrCode = new Html5Qrcode("reader");
             scannerRef.current = html5QrCode;
-            
-            const config = { 
-                fps: 10, 
+
+            const config = {
+                fps: 10,
                 qrbox: { width: 250, height: 250 },
-                aspectRatio: 1.0 
+                aspectRatio: 1.0
             };
 
             html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
@@ -1117,15 +1131,15 @@ export default function StudentDashboard() {
                         const capabilities = html5QrCode.getRunningTrackCameraCapabilities();
                         if (capabilities && capabilities.zoom) {
                             // Hardware Zoom Supported!
-                            setZoomCap(capabilities.zoom); 
+                            setZoomCap(capabilities.zoom);
                             setZoom(capabilities.zoom.min || 1);
                         } else {
                             // Hardware Zoom NOT Supported -> Use CSS Zoom Default
                             console.log("Hardware zoom not supported. Switching to Digital Zoom.");
-                            setZoomCap(null); 
-                            setZoom(1); 
+                            setZoomCap(null);
+                            setZoom(1);
                         }
-                    } catch (e) { 
+                    } catch (e) {
                         console.log("Zoom check failed, using Digital Zoom", e);
                         setZoomCap(null);
                     }
@@ -1185,6 +1199,8 @@ export default function StudentDashboard() {
 
     return (
         <div className="dashboard-container">
+
+        
 
             {isMobileNavOpen && <div className="nav-overlay" onClick={() => setIsMobileNavOpen(false)} />}
 
@@ -1282,7 +1298,7 @@ export default function StudentDashboard() {
                         {/* Scanner Frame */}
                         <div style={{ position: 'relative', width: '300px', height: '300px', borderRadius: '20px', overflow: 'hidden', border: '2px solid #3b82f6', boxShadow: '0 0 20px rgba(59, 130, 246, 0.5)' }}>
                             <div id="reader" style={{ width: '100%', height: '100%' }}></div>
-                            
+
                             {/* Scanning Animation Line */}
                             <div style={{
                                 position: 'absolute', top: 0, left: 0, width: '100%', height: '2px', background: '#3b82f6',
@@ -1296,18 +1312,18 @@ export default function StudentDashboard() {
 
                         {/* ✅ ZOOM SLIDER (Always Visible) */}
                         <div style={{ width: '80%', maxWidth: '300px', marginTop: '20px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <span style={{ color: 'white', fontSize: '12px', fontWeight:'bold' }}>1x</span>
-                            <input 
-                                type="range" 
+                            <span style={{ color: 'white', fontSize: '12px', fontWeight: 'bold' }}>1x</span>
+                            <input
+                                type="range"
                                 // If hardware zoom exists, use its limits. Otherwise default to 1x - 3x for CSS.
-                                min={zoomCap ? zoomCap.min : 1} 
-                                max={zoomCap ? zoomCap.max : 3} 
-                                step={zoomCap ? zoomCap.step : 0.1} 
-                                value={zoom} 
+                                min={zoomCap ? zoomCap.min : 1}
+                                max={zoomCap ? zoomCap.max : 3}
+                                step={zoomCap ? zoomCap.step : 0.1}
+                                value={zoom}
                                 onChange={handleZoomChange}
-                                style={{ flex: 1, accentColor: '#3b82f6', cursor: 'pointer', height:'6px' }} 
+                                style={{ flex: 1, accentColor: '#3b82f6', cursor: 'pointer', height: '6px' }}
                             />
-                            <span style={{ color: 'white', fontSize: '12px', fontWeight:'bold' }}>
+                            <span style={{ color: 'white', fontSize: '12px', fontWeight: 'bold' }}>
                                 {zoomCap ? 'Max' : '3x'}
                             </span>
                         </div>

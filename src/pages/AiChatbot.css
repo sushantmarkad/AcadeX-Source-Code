@@ -341,24 +341,56 @@
 
 /* --- MOBILE RESPONSIVENESS (Best Experience) --- */
 @media (max-width: 480px) {
-  .ai-fab { bottom: 70px; right: 20px; width: 50px; height: 50px; }
+  .ai-fab { 
+      /* Positioned higher to clear the mobile nav bar */
+      bottom: calc(110px + env(safe-area-inset-bottom)); 
+      right: 20px; 
+      width: 50px; 
+      height: 50px; 
+  }
   
   .ai-chat-window {
     position: fixed;
     top: 0;
     left: 0;
-    width: 100%;
-    height: 100%;
-    max-height: 100dvh; /* Dynamic Viewport Height for mobile browsers */
-    right: 0;
-    bottom: 0;
+    width: 100vw;
+    height: 100vh;
+    max-height: 100dvh; /* Dynamic viewport height */
     border-radius: 0;
     border: none;
+    z-index: 10001; 
+    display: flex;
+    flex-direction: column;
   }
   
-  .ai-header { padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.1); }
-  .ai-body { padding: 15px; }
-  .message-bubble { max-width: 90%; }
+  .ai-header { 
+    /* ✅ FIX: Added Safe Area Top to prevent overlapping with Camera/Notch */
+    padding-top: max(15px, env(safe-area-inset-top)); 
+    padding-bottom: 12px;
+    padding-left: 16px;
+    padding-right: 16px;
+    border-radius: 0;
+  }
+
+  .ai-body { 
+    flex: 1;
+    padding: 15px; 
+  }
+
+  .ai-input-area {
+    /* ✅ FIX: Added Safe Area Bottom to clear the Home Bar indicator */
+    padding-bottom: max(15px, env(safe-area-inset-bottom));
+    background: white;
+    border-top: 1px solid #f1f5f9;
+  }
+
+  .message-bubble { 
+    max-width: 90%; 
+    font-size: 14px;
+  }
+  
+  /* Adjust history scroll area for mobile */
+  .ai-body > div[style*="overflowY: 'auto'"] {
+      padding-bottom: 40px;
+  }
 }
-
-

@@ -211,10 +211,15 @@ export default function AiChatbot({ user, isOpenProp, onClose }) {
 
     const toggleChat = () => { setIsOpen(!isOpen); if (isOpen && onClose) onClose(); };
 
-    const renderMessage = (text) => {
+  const renderMessage = (text) => {
         if (!text) return null;
+        // Clean and split text into paragraphs
         return text.replace(/^"|"$/g, '').split('\n').map((line, i) => (
-            <div key={i} style={{marginBottom:'4px'}}>
+            <div key={i} style={{ 
+                marginBottom: '4px', 
+                wordBreak: 'break-word', // ✅ Prevents text pushing bubbles off-screen
+                overflowWrap: 'anywhere'
+            }}>
                 {line.split(/(\*\*.*?\*\*)/g).map((part, index) => 
                     part.startsWith('**') && part.endsWith('**') ? 
                     <strong key={index}>{part.slice(2, -2)}</strong> : part

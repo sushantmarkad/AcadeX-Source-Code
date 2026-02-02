@@ -1,6 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
-/* --- 1. UNIVERSAL RESET & TYPOGRAPHY --- */
+/* --- 1. UNIVERSAL RESET --- */
 * {
   box-sizing: border-box;
   margin: 0;
@@ -10,19 +10,28 @@
 body {
   font-family: 'Inter', sans-serif;
   -webkit-font-smoothing: antialiased;
-  background-color: #F3F4F6; /* Fallback */
+  background-color: #F3F4F6;
+  overscroll-behavior-y: none;
 }
 
-/* --- 2. PAGE BACKGROUND (Modern Mesh Gradient) --- */
+/* --- 2. PAGE WRAPPER (Safe Area Aware) --- */
 .login-wrapper, .application-wrapper {
+  /* Dynamic Height for Mobile Browsers */
   min-height: 100vh;
+  min-height: 100dvh; 
   width: 100%;
   display: flex;
   justify-content: center;
   align-items: center;
   padding: 20px;
   position: relative;
-  overflow: hidden;
+  
+  /* ✅ SAFE AREA FIX: Ensures global padding respects notch/home bar */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+
   /* Subtle, premium gradient background */
   background: 
     radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
@@ -32,33 +41,22 @@ body {
     #ffffff;
 }
 
-/* --- 3. GLASSMORPHISM CARD --- */
+/* --- 3. GLASS CARD --- */
 .login-container, .application-container {
   width: 100%;
   max-width: 460px;
-  background: rgba(255, 255, 255, 0.85); /* Semi-transparent white */
-  backdrop-filter: blur(20px); /* The Frosted Glass Effect */
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   padding: 48px 40px;
-  border-radius: 28px; /* Smooth, large corners */
+  border-radius: 28px;
   border: 1px solid rgba(255, 255, 255, 0.6);
-  /* Premium soft shadow */
   box-shadow: 
-    0 20px 40px -10px rgba(59, 130, 246, 0.15), /* Blue tint shadow */
+    0 20px 40px -10px rgba(59, 130, 246, 0.15),
     0 0 0 1px rgba(255, 255, 255, 0.5) inset;
   text-align: center;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  transition: transform 0.3s ease;
   z-index: 10;
-}
-
-/* Hover effect on desktop for a tactile feel */
-@media (min-width: 768px) {
-  .login-container:hover, .application-container:hover {
-    transform: translateY(-4px);
-    box-shadow: 
-      0 30px 60px -12px rgba(59, 130, 246, 0.2),
-      0 0 0 1px rgba(255, 255, 255, 0.8) inset;
-  }
 }
 
 /* --- 4. HEADER & LOGO --- */
@@ -67,293 +65,112 @@ body {
 }
 
 .login-logo, .application-logo {
-  width: 120px;
-  height: 120px;
-  object-fit: contain;
-  margin: 0 auto 24px;
-  display: block;
-  /* Soft glowing logo effect */
+  width: 120px; height: 120px; object-fit: contain; margin: 0 auto 24px;
   filter: drop-shadow(0 0 15px rgba(59, 130, 246, 0.4));
 }
 
 .login-header h1, .application-header h1 {
-  font-size: 28px;
-  font-weight: 800; /* Extra bold */
-  color: #111827; /* Dark Navy */
-  margin-bottom: 10px;
-  letter-spacing: -0.03em; /* Tight tracking */
-  line-height: 1.2;
+  font-size: 28px; font-weight: 800; color: #111827; margin-bottom: 10px;
 }
 
-.login-header .highlight, .application-header .highlight {
-  background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+.highlight { 
+  background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); 
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent; 
 }
 
 .subtitle {
-  font-size: 15px;
-  color: #6B7280; /* Neutral Gray */
-  line-height: 1.6;
-  font-weight: 500;
+  font-size: 15px; color: #6B7280; font-weight: 500;
 }
 
-/* --- 5. INPUT FIELDS --- */
+/* --- 5. FORM ELEMENTS --- */
 .login-form, .application-form {
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+  text-align: left; display: flex; flex-direction: column; gap: 20px;
 }
 
-.input-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
+.input-group { display: flex; flex-direction: column; gap: 8px; }
 
 .input-group label {
-  font-size: 13px;
-  font-weight: 700;
-  color: #374151;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-left: 4px;
+  font-size: 13px; font-weight: 700; color: #374151; text-transform: uppercase; margin-left: 4px;
 }
 
-.input-group input, 
-.input-group select, 
-.input-group textarea {
-  width: 100%;
-  height: 56px; /* Large touch targets */
-  border: 2px solid transparent; /* Pre-set transparent border */
-  border-radius: 16px; /* Modern rounded corners */
-  padding: 0 20px;
-  font-size: 16px;
-  color: #1F2937;
-  background: #F3F4F6; /* Light gray background */
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  font-family: 'Inter', sans-serif;
-  font-weight: 500;
+.input-group input, .input-group select, .input-group textarea {
+  width: 100%; height: 56px; border: 2px solid transparent; border-radius: 16px;
+  padding: 0 20px; font-size: 16px; background: #F3F4F6; color: #1F2937;
+  transition: all 0.2s;
 }
 
-.input-group textarea {
-  height: auto;
-  padding: 20px;
-  resize: vertical;
-  min-height: 120px;
+.input-group input:focus { 
+  outline: none; background: #FFFFFF; border-color: #8B5CF6; box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.15); 
 }
 
-/* Focus State - The Glow */
-.input-group input:focus, 
-.input-group select:focus, 
-.input-group textarea:focus {
-  outline: none;
-  background: #FFFFFF;
-  border-color: #8B5CF6; /* Purple border */
-  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.15); /* Purple glow ring */
-}
-
-/* File Input Styling */
-input[type="file"] {
-  padding: 14px;
-  background: #F9FAFB;
-  border: 2px dashed #D1D5DB;
-  cursor: pointer;
-  height: auto;
-}
-input[type="file"]:hover {
-  border-color: #3B82F6;
-  background: #EFF6FF;
-}
-
-/* --- 6. BUTTONS --- */
+/* Buttons */
 .btn-primary {
-  width: 100%;
-  height: 56px;
-  /* Vibrant Blue -> Purple Gradient */
+  width: 100%; height: 56px;
   background: linear-gradient(135deg, #3B82F6 0%, #7C3AED 100%);
-  color: white;
-  border: none;
-  border-radius: 16px;
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-top: 12px;
-  /* Glow Shadow */
+  color: white; border: none; border-radius: 16px;
+  font-size: 16px; font-weight: 700; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
   box-shadow: 0 10px 20px -5px rgba(124, 58, 237, 0.4);
-  position: relative;
-  overflow: hidden;
+}
+.btn-primary:active { transform: scale(0.98); }
+
+.separator { 
+  display: flex; align-items: center; text-align: center; color: #9CA3AF; 
+  font-size: 12px; font-weight: 600; margin: 24px 0; 
+}
+.separator::before, .separator::after { content: ''; flex: 1; border-bottom: 1px solid #E5E7EB; }
+.separator::before { margin-right: 16px; } .separator::after { margin-left: 16px; }
+
+.btn-google {
+  width: 100%; height: 56px; background: #FFFFFF; color: #1F2937;
+  border: 1px solid #E5E7EB; border-radius: 16px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center; gap: 12px; cursor: pointer;
 }
 
-/* Shine effect on hover */
-.btn-primary::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-  transition: 0.5s;
+.error-message { 
+  background: #FEF2F2; color: #DC2626; padding: 14px; border-radius: 12px; 
+  font-size: 14px; font-weight: 600; border: 1px solid #FECACA; text-align: center; 
 }
 
-.btn-primary:hover {
-  transform: translateY(-2px) scale(1.01);
-  box-shadow: 0 15px 30px -5px rgba(124, 58, 237, 0.5);
+/* Register Link Styling */
+.register-link {
+    margin-top: 20px;
+    font-size: 14px;
+    color: #6B7280;
+    text-align: center;
+    padding-bottom: 10px; /* Extra padding for touch targets */
+}
+.register-link span {
+    color: #3B82F6;
+    font-weight: 600;
+    cursor: pointer;
 }
 
-.btn-primary:hover::before {
-  left: 100%;
-}
-
-.btn-primary:active {
-  transform: translateY(1px);
-  box-shadow: 0 5px 10px -5px rgba(124, 58, 237, 0.4);
-}
-
-.btn-primary:disabled {
-  background: #CBD5E1;
-  box-shadow: none;
-  cursor: not-allowed;
-  transform: none;
-}
-
-/* Secondary / Google Button */
-.btn-google, .btn-secondary {
-  width: 100%;
-  height: 56px;
-  background: #FFFFFF;
-  color: #1F2937;
-  border: 1px solid #E5E7EB;
-  border-radius: 16px;
-  font-size: 15px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  margin-top: 16px;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.03);
-}
-
-.btn-google:hover, .btn-secondary:hover {
-  background: #F9FAFB;
-  border-color: #D1D5DB;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-}
-
-/* --- 7. ALERTS & TEXT --- */
-.separator {
-  display: flex;
-  align-items: center;
-  text-align: center;
-  color: #9CA3AF;
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  margin: 24px 0;
-}
-.separator::before, .separator::after {
-  content: '';
-  flex: 1;
-  border-bottom: 1px solid #E5E7EB;
-}
-.separator::before { margin-right: 16px; }
-.separator::after { margin-left: 16px; }
-
-.error-message {
-  background: #FEF2F2;
-  color: #DC2626;
-  padding: 14px;
-  border-radius: 12px;
-  font-size: 14px;
-  font-weight: 600;
-  border: 1px solid #FECACA;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  animation: shake 0.4s ease-in-out;
-}
-
-.success-message {
-  background: #ECFDF5;
-  color: #059669;
-  padding: 14px;
-  border-radius: 12px;
-  font-size: 14px;
-  font-weight: 600;
-  border: 1px solid #A7F3D0;
-  text-align: center;
-}
-
-/* Links */
-p {
-  font-size: 14px;
-  color: #4B5563;
-  line-height: 1.5;
-}
-
-span[style*="cursor: pointer"] {
-  color: #3B82F6 !important;
-  font-weight: 600;
-  transition: color 0.2s;
-  text-decoration: none;
-  position: relative;
-}
-
-span[style*="cursor: pointer"]:hover {
-  color: #7C3AED !important; /* Purple on hover */
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-
-@keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  25% { transform: translateX(-4px); }
-  75% { transform: translateX(4px); }
-}
-
-/* --- 8. MOBILE OPTIMIZATION (Full Screen Feel) --- */
+/* --- 📱 MOBILE OPTIMIZATION (Safe Area Fixes) --- */
 @media (max-width: 640px) {
   .login-wrapper, .application-wrapper {
-    background: #FFFFFF;
+    align-items: flex-start; /* Allows content to flow naturally */
+    height: auto;
     padding: 0;
-    align-items: flex-start;
+    background: #FFFFFF;
   }
 
   .login-container, .application-container {
-    box-shadow: none;
-    border: none;
-    border-radius: 0;
-    background: transparent;
-    backdrop-filter: none;
+    box-shadow: none; border: none; border-radius: 0;
+    background: transparent; backdrop-filter: none;
     padding: 30px 24px;
     max-width: 100%;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
+    
+    /* Ensure it fills screen but allows scroll */
+    min-height: 100dvh; 
+    
+    display: flex; flex-direction: column; justify-content: center;
+    
+    /* ✅ KEY FIX: Add EXTRA padding at the bottom for the Home Bar */
+    /* 60px base padding + whatever the device needs for the safe area */
+    padding-bottom: calc(60px + env(safe-area-inset-bottom)); 
   }
 
-  .login-header h1, .application-header h1 {
-    font-size: 32px; /* Larger title on mobile */
-  }
-  
-  .input-group input, 
-  .btn-primary, 
-  .btn-google {
-    height: 60px; /* Extra tall for thumbs */
-    font-size: 17px;
-  }
+  .login-header h1 { font-size: 32px; }
+  .input-group input, .btn-primary, .btn-google { height: 60px; font-size: 17px; }
 }

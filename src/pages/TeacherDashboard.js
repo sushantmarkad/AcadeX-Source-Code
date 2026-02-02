@@ -2,14 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { auth, db, storage } from '../firebase';
-import { collection, doc, getDoc, serverTimestamp, onSnapshot, query, where, getDocs, setDoc, addDoc, deleteDoc, Timestamp, writeBatch, increment } from 'firebase/firestore';
+import { collection, doc, getDoc, serverTimestamp, onSnapshot, query, where, getDocs, setDoc, addDoc, deleteDoc, updateDoc, Timestamp, writeBatch, increment } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
 import { CSVLink } from 'react-csv';
 import toast from 'react-hot-toast';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, LabelList } from 'recharts';
 import './Dashboard.css';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-
+import CustomDropdown from '../components/CustomDropdown';
+import { PushNotifications } from '@capacitor/push-notifications';
+import { Capacitor } from '@capacitor/core';
 
 // Component Imports
 import AddTasks from './AddTasks';
@@ -67,6 +69,7 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                 attachmentUrl = await getDownloadURL(fileRef);
             }
 
+            // 1. Save to Firestore
             await addDoc(collection(db, 'announcements'), {
                 ...form,
                 attachmentUrl,
@@ -77,8 +80,22 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                 role: 'teacher',
                 createdAt: serverTimestamp()
             });
-            
-            toast.success("Announcement Posted!", { id: toastId });
+
+            // 2. Trigger Notification (✅ NEW CODE)
+            fetch(`${BACKEND_URL}/sendAnnouncementNotification`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: `📢 New Notice: ${form.title}`,
+                    message: form.message, // Or a substring if too long
+                    targetYear: form.targetYear,
+                    instituteId: teacherInfo.instituteId,
+                    department: teacherInfo.department,
+                    senderName: `${teacherInfo.firstName} ${teacherInfo.lastName}`
+                })
+            }).catch(err => console.error("Notification trigger failed:", err));
+
+            toast.success("Announcement Posted & Notified!", { id: toastId });
             setForm({ title: '', message: '', targetYear: '' });
             setFile(null);
             setActiveTab('history');
@@ -98,22 +115,22 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
 
     return (
         <div className="task-page-container">
-            
+
             {/* --- HEADER (Matches Add Tasks) --- */}
             <div className="task-header">
                 <div>
                     <h2 className="gradient-text">Class Announcements</h2>
                     <p className="subtitle">Broadcast updates to your students.</p>
                 </div>
-                
+
                 <div className="toggle-container">
-                    <button 
-                        onClick={() => setActiveTab('create')} 
+                    <button
+                        onClick={() => setActiveTab('create')}
                         className={`toggle-btn ${activeTab === 'create' ? 'active-create' : ''}`}>
                         <i className="fas fa-pen-fancy"></i> Compose
                     </button>
-                    <button 
-                        onClick={() => setActiveTab('history')} 
+                    <button
+                        onClick={() => setActiveTab('history')}
                         className={`toggle-btn ${activeTab === 'history' ? 'active-eval' : ''}`}>
                         <i className="fas fa-history"></i> History
                     </button>
@@ -132,11 +149,11 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                         <div className="form-main">
                             <div className="input-group">
                                 <label>Title</label>
-                                <input required value={form.title} onChange={e => setForm({...form, title: e.target.value})} placeholder="e.g. Exam Schedule Changed" />
+                                <input required value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="e.g. Exam Schedule Changed" />
                             </div>
                             <div className="input-group">
                                 <label>Message</label>
-                                <textarea required value={form.message} onChange={e => setForm({...form, message: e.target.value})} rows="6" placeholder="Type your important message here..." />
+                                <textarea required value={form.message} onChange={e => setForm({ ...form, message: e.target.value })} rows="6" placeholder="Type your important message here..." />
                             </div>
                         </div>
 
@@ -144,29 +161,33 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                         <div className="form-sidebar">
                             <div className="input-group">
                                 <label>Target Class</label>
-                                <select value={form.targetYear} onChange={e => setForm({...form, targetYear: e.target.value})} required>
-                                    <option value="">Select Class</option>
-                                    <option value="All">All My Classes</option>
-                                    {assignedYears.map(year => <option key={year} value={year}>{year} Year</option>)}
-                                </select>
+                                <CustomDropdown
+                                    value={form.targetYear}
+                                    onChange={(e) => setForm({ ...form, targetYear: e.target.value })}
+                                    placeholder="Select Class"
+                                    options={[
+                                        { value: 'All', label: 'All My Classes' },
+                                        ...assignedYears.map(year => ({ value: year, label: `${year} Year` }))
+                                    ]}
+                                />
                             </div>
 
                             {/* File Upload */}
                             <div className="input-group">
-    <label>Attachment (Optional)</label>
-    <div className="file-upload-wrapper">
-        <input 
-            type="file" 
-            id="anno-file" 
-            onChange={e => setFile(e.target.files[0])} 
-            style={{ display: 'none' }} 
-        />
-        <label htmlFor="anno-file" className="custom-file-upload">
-            <i className={`fas ${file ? 'fa-check-circle' : 'fa-cloud-upload-alt'}`}></i>
-            <span>{file ? file.name : "Click to Attach PDF / Image"}</span>
-        </label>
-    </div>
-</div>
+                                <label>Attachment (Optional)</label>
+                                <div className="file-upload-wrapper">
+                                    <input
+                                        type="file"
+                                        id="anno-file"
+                                        onChange={e => setFile(e.target.files[0])}
+                                        style={{ display: 'none' }}
+                                    />
+                                    <label htmlFor="anno-file" className="custom-file-upload">
+                                        <i className={`fas ${file ? 'fa-check-circle' : 'fa-cloud-upload-alt'}`}></i>
+                                        <span>{file ? file.name : "Click to Attach PDF / Image"}</span>
+                                    </label>
+                                </div>
+                            </div>
 
                             <button className="submit-btn" disabled={loading}>
                                 {loading ? 'Posting...' : 'Post Now'} <i className="fas fa-paper-plane"></i>
@@ -188,12 +209,12 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                                     </span>
                                     {ann.attachmentUrl && <i className="fas fa-paperclip attachment-icon"></i>}
                                 </div>
-                                
+
                                 <h4>{ann.title}</h4>
                                 <p className="card-msg">{ann.message}</p>
-                                
+
                                 {ann.attachmentUrl && (
-                                    <a href={ann.attachmentUrl} target="_blank" rel="noreferrer" className="view-doc-btn" style={{marginTop:'auto', width:'fit-content'}}>
+                                    <a href={ann.attachmentUrl} target="_blank" rel="noreferrer" className="view-doc-btn" style={{ marginTop: 'auto', width: 'fit-content' }}>
                                         <i className="fas fa-eye"></i> View File
                                     </a>
                                 )}
@@ -438,7 +459,7 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
                     };
                 });
                 setChartData(formattedData);
-            } catch (err) { console.error(err); } 
+            } catch (err) { console.error(err); }
             finally { setLoading(false); }
         };
         fetchAnalytics();
@@ -532,7 +553,7 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
                     </div>
                 )}
             </div>
-            
+
             {/* ✅ CSS For Gradient Text */}
             <style>{`
                 .gradient-text {
@@ -647,7 +668,7 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
 
             if (response.ok) {
                 toast.success(data.message, { id: toastId });
-                setManualRoll(""); 
+                setManualRoll("");
             } else {
                 toast.error("Failed: " + data.error, { id: toastId });
             }
@@ -684,7 +705,7 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                 <div>
                     {/* ✅ UPDATED: Applied gradient-text class here */}
                     <h2 className="gradient-text">{getGreeting()}, {teacherInfo.firstName}!</h2>
-                    
+
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '5px' }}>
                         <span style={{ background: '#2563eb', color: 'white', padding: '6px 14px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 5px rgba(37,99,235,0.2)' }}>
                             <i className="fas fa-graduation-cap"></i> {selectedYear} Year • {currentSubject}
@@ -721,9 +742,11 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                                         <div style={{ marginTop: '10px', background: 'white', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                                             <div className="input-group" style={{ marginBottom: '8px' }}>
                                                 <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b' }}>Batch</label>
-                                                <select value={selectedBatch} onChange={(e) => setSelectedBatch(e.target.value)} style={{ width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid #bfdbfe' }}>
-                                                    {['A', 'B', 'C', 'D', 'E'].map(b => <option key={b} value={b}>Batch {b}</option>)}
-                                                </select>
+                                                <CustomDropdown
+                                                    value={selectedBatch}
+                                                    onChange={(e) => setSelectedBatch(e.target.value)}
+                                                    options={['A', 'B', 'C', 'D', 'E'].map(b => ({ value: b, label: `Batch ${b}` }))}
+                                                />
                                             </div>
                                             <div style={{ display: 'flex', gap: '5px' }}>
                                                 <input type="number" value={rollStart} onChange={(e) => setRollStart(e.target.value)} placeholder="Start" style={{ flex: 1, minWidth: 0, padding: '6px', borderRadius: '6px', border: '1px solid #bfdbfe' }} />
@@ -840,8 +863,26 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                 <div className="cards-grid">
                     <div className="card card-full-width" style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '20px', background: '#f8fafc' }}>
                         <div style={{ flex: 1 }}>
-                            <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', textTransform: 'uppercase' }}>Select Date</label>
-                            <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '10px', fontSize: '15px' }} />
+                            <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', textTransform: 'uppercase', marginBottom: '5px' }}>Select Date</label>
+                            <div style={{ position: 'relative', width: '100%' }}>
+                                <input
+                                    type="date"
+                                    value={selectedDate}
+                                    onChange={(e) => setSelectedDate(e.target.value)}
+                                    style={{
+                                        width: '100%',
+                                        padding: '12px 12px 12px 40px', // Space for icon
+                                        border: '1px solid #cbd5e1',
+                                        borderRadius: '8px',
+                                        fontSize: '14px',
+                                        background: '#ffffff',
+                                        color: '#334155',
+                                        outline: 'none',
+                                        appearance: 'none' // Removes default browser styling
+                                    }}
+                                />
+                                <i className="fas fa-calendar-alt" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }}></i>
+                            </div>
                         </div>
                         <div style={{ flex: 2 }}>
                             <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Viewing Report for:</p>
@@ -922,7 +963,7 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                     )}
                 </div>
             )}
-            
+
             {/* ✅ ADDED: Theme CSS for the Greeting */}
             <style>{`
                 .gradient-text {
@@ -939,7 +980,6 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
 };
 
 // --- 📱 MOBILE FOOTER COMPONENT ---
-// ✅ Update the parameters to include unreadNoticeCount
 const MobileFooter = ({ activePage, setActivePage, unreadNoticeCount }) => {
     return (
         <div className="mobile-footer">
@@ -951,26 +991,30 @@ const MobileFooter = ({ activePage, setActivePage, unreadNoticeCount }) => {
                 <i className="fas fa-chart-bar"></i>
                 <span>Stats</span>
             </button>
+
+            {/* ✅ CHANGED: Renamed from 'Notice' to 'Post' to avoid confusion */}
             <button className={`nav-item ${activePage === 'announcements' ? 'active' : ''}`} onClick={() => setActivePage('announcements')}>
                 <i className="fas fa-bullhorn"></i>
-                <span>Notice</span>
+                <span>Post</span>
             </button>
+
             <button className={`nav-item ${activePage === 'addTasks' ? 'active' : ''}`} onClick={() => setActivePage('addTasks')}>
                 <i className="fas fa-tasks"></i>
                 <span>Tasks</span>
             </button>
-            <button className={`nav-item ${activePage === 'profile' ? 'active' : ''}`} onClick={() => setActivePage('profile')}>
-                <i className="fas fa-user"></i>
-                <span>Profile</span>
-            </button>
 
-            {/* ✅ Notices Tab with Badge */}
+            {/* Admin Notices (Inbox) */}
             <button className={`nav-item ${activePage === 'adminNotices' ? 'active' : ''}`} onClick={() => setActivePage('adminNotices')} style={{ position: 'relative' }}>
                 <i className="fas fa-bell"></i>
                 <span>Notices</span>
                 {unreadNoticeCount > 0 && (
                     <span style={{ position: 'absolute', top: '5px', right: '15px', width: '8px', height: '8px', background: '#ef4444', borderRadius: '50%' }}></span>
                 )}
+            </button>
+
+            <button className={`nav-item ${activePage === 'profile' ? 'active' : ''}`} onClick={() => setActivePage('profile')}>
+                <i className="fas fa-user"></i>
+                <span>Profile</span>
             </button>
         </div>
     );
@@ -1029,6 +1073,59 @@ export default function TeacherDashboard() {
         });
         return () => unsub();
     }, [auth.currentUser, selectedYear]);
+
+    // ✅ REGISTER TEACHER FOR PUSH NOTIFICATIONS (Fixed Dependency)
+    useEffect(() => {
+        // 1. Wait until we know who the user is
+        if (!teacherInfo?.firstName || !auth.currentUser) return;
+
+        const registerPushNotifications = async () => {
+            if (Capacitor.isNativePlatform()) {
+
+                // Request Permission
+                let permStatus = await PushNotifications.checkPermissions();
+                if (permStatus.receive === 'prompt') {
+                    permStatus = await PushNotifications.requestPermissions();
+                }
+
+                if (permStatus.receive !== 'granted') {
+                    console.log('User denied permissions!');
+                    return;
+                }
+
+                await PushNotifications.register();
+
+                // Clear listeners first to prevent memory leaks and double-triggers
+                await PushNotifications.removeAllListeners();
+
+                PushNotifications.addListener('registration', async (token) => {
+                    // console.log("Push Token:", token.value);
+                    const userRef = doc(db, 'users', auth.currentUser.uid);
+                    await setDoc(userRef, { fcmToken: token.value }, { merge: true }); // Use setDoc + merge
+                });
+
+                PushNotifications.addListener('pushNotificationReceived', (notification) => {
+                    toast(notification.title + ": " + notification.body, {
+                        icon: '🔔',
+                        duration: 5000,
+                        style: { background: '#3b82f6', color: '#fff' }
+                    });
+                });
+
+                PushNotifications.addListener('pushNotificationActionPerformed', (notification) => {
+                    setActivePage('adminNotices');
+                });
+            }
+        };
+
+        registerPushNotifications();
+
+        return () => {
+            if (Capacitor.isNativePlatform()) {
+                PushNotifications.removeAllListeners();
+            }
+        };
+    }, [teacherInfo]); // ✅ FIX: Only runs once teacher data is ready
 
     // ✅ FETCH NOTICES FOR TEACHERS
     useEffect(() => {
@@ -1219,12 +1316,20 @@ export default function TeacherDashboard() {
 
     const handleSession = async () => {
         if (activeSession) {
+            // --- END SESSION LOGIC ---
             const toastId = toast.loading("Ending Session...");
             try {
-                await fetch(`${BACKEND_URL}/endSession`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: activeSession.sessionId }) });
+                await fetch(`${BACKEND_URL}/endSession`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sessionId: activeSession.sessionId })
+                });
                 toast.success("Session Ended", { id: toastId });
-            } catch (e) { toast.error("Error: " + e.message, { id: toastId }); }
+            } catch (e) {
+                toast.error("Error: " + e.message, { id: toastId });
+            }
         } else {
+            // --- START SESSION LOGIC ---
             if (!teacherInfo?.instituteId) return toast.error("Institute ID missing.");
 
             let currentSubject = teacherInfo.subject;
@@ -1234,10 +1339,13 @@ export default function TeacherDashboard() {
             }
 
             setSessionLoading(true);
-            const startToast = toast.loading("Starting Class...");
+            const startToast = toast.loading("Acquiring Location..."); // Step 1
 
             if ("geolocation" in navigator) {
                 navigator.geolocation.getCurrentPosition(async (pos) => {
+                    // ✅ SUCCESS: Location Found
+                    toast.loading("Starting Session...", { id: startToast }); // Step 2
+
                     try {
                         const response = await fetch(`${BACKEND_URL}/startSession`, {
                             method: 'POST',
@@ -1264,26 +1372,39 @@ export default function TeacherDashboard() {
                         const data = await response.json();
                         if (response.ok) {
                             playSessionStartSound();
-                            toast.success(`Session Started: ${currentSubject} (${sessionType})`);
+                            toast.success(`Session Live: ${currentSubject}`, { id: startToast });
                         } else {
-                            toast.error("Failed to start session: " + data.error);
+                            toast.error("Failed: " + data.error, { id: startToast });
                         }
                     } catch (err) {
-                        toast.error("Network Error: " + err.message);
+                        toast.error("Network Error: " + err.message, { id: startToast });
                     } finally {
                         setSessionLoading(false);
-                        toast.dismiss(startToast);
                     }
 
                 }, (err) => {
-                    toast.error("Location required.");
+                    // ❌ ERROR: Handle specific location errors
+                    console.error("Location Error:", err);
+                    let errMsg = "Location check failed.";
+
+                    switch (err.code) {
+                        case 1: errMsg = "Location permission denied."; break;
+                        case 2: errMsg = "GPS signal lost or unavailable."; break;
+                        case 3: errMsg = "Location request timed out. Try again."; break;
+                        default: errMsg = "Location error: " + err.message;
+                    }
+
+                    toast.error(errMsg, { id: startToast });
                     setSessionLoading(false);
-                    toast.dismiss(startToast);
-                }, { enableHighAccuracy: true, timeout: 5000 });
+
+                }, {
+                    enableHighAccuracy: true,
+                    timeout: 20000, // ✅ INCREASED TIMEOUT to 20 seconds (Fixes the issue)
+                    maximumAge: 0
+                });
             } else {
-                toast.error("Geolocation not supported.");
+                toast.error("Geolocation not supported on this device.", { id: startToast });
                 setSessionLoading(false);
-                toast.dismiss(startToast);
             }
         }
     };
@@ -1316,48 +1437,53 @@ export default function TeacherDashboard() {
             case 'announcements': return <TeacherAnnouncements teacherInfo={teacherInfo} />;
             case 'addTasks': return <AddTasks teacherInfo={teacherInfo} />;
             case 'adminNotices': return (
-    <div className="content-section">
-        {/* ✅ UPDATED TITLE CLASS */}
-        <h2 className="gradient-text">Staff Notices</h2>
-        <p className="content-subtitle">Important updates from the HOD and Administration.</p>
+                <div className="content-section">
+                    {/* ✅ UPDATED TITLE CLASS */}
+                    <h2 className="gradient-text">Staff Notices</h2>
+                    <p className="content-subtitle">Important updates from the HOD and Administration.</p>
 
-        <div className="cards-grid" style={{ gridTemplateColumns: '1fr' }}>
-            {adminNotices.length > 0 ? (
-                adminNotices.map(notice => (
-                    <div key={notice.id} className="card" style={{ borderLeft: '4px solid #3b82f6' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
-                            <div>
-                                <span className="status-badge-pill" style={{ background: '#eff6ff', color: '#2563eb', marginBottom: '8px', display: 'inline-block' }}>
-                                    {notice.targetYear === 'Teachers' ? 'Staff Only' : 'General Notice'}
-                                </span>
-                                <h3 style={{ margin: 0, fontSize: '18px', color: '#1e293b' }}>{notice.title}</h3>
+                    <div className="cards-grid" style={{ gridTemplateColumns: '1fr' }}>
+                        {adminNotices.length > 0 ? (
+                            adminNotices.map(notice => (
+                                <div key={notice.id} className="card" style={{ borderLeft: '4px solid #3b82f6' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+                                        <div>
+                                            <span className="status-badge-pill" style={{ background: '#eff6ff', color: '#2563eb', marginBottom: '8px', display: 'inline-block' }}>
+                                                {notice.targetYear === 'Teachers' ? 'Staff Only' : 'General Notice'}
+                                            </span>
+                                            <h3 style={{ margin: 0, fontSize: '18px', color: '#1e293b' }}>{notice.title}</h3>
+                                        </div>
+
+                                        <span style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', whiteSpace: 'nowrap', textAlign: 'right' }}>
+                                            {notice.createdAt?.toDate().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                            <br />
+                                            {notice.createdAt?.toDate().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                                        </span>
+                                    </div>
+
+                                    <p style={{ color: '#475569', lineHeight: '1.6', fontSize: '14px' }}>{notice.message}</p>
+                                    {notice.attachmentUrl && (
+                                        <a href={notice.attachmentUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '12px', color: '#2563eb', fontSize: '13px', fontWeight: '600', textDecoration: 'none', background: '#f0f9ff', padding: '6px 12px', borderRadius: '6px' }}>
+                                            <i className="fas fa-paperclip"></i> View Attachment
+                                        </a>
+                                    )}
+
+                                    <div style={{ marginTop: '15px', paddingTop: '10px', borderTop: '1px solid #f1f5f9', fontSize: '12px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <i className="fas fa-user-shield"></i>
+                                        <span>Posted by: <strong>{notice.teacherName || 'HOD / Admin'}</strong></span>
+                                    </div>
+                                </div>
+                            ))
+                        ) : (
+                            <div className="card" style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                                <i className="fas fa-folder-open" style={{ fontSize: '32px', marginBottom: '10px', opacity: 0.5 }}></i>
+                                <p>No notices for staff at the moment.</p>
                             </div>
-
-                            <span style={{ fontSize: '11px', fontWeight: '600', color: '#64748b', whiteSpace: 'nowrap', textAlign: 'right' }}>
-                                {notice.createdAt?.toDate().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
-                                <br />
-                                {notice.createdAt?.toDate().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}
-                            </span>
-                        </div>
-
-                        <p style={{ color: '#475569', lineHeight: '1.6', fontSize: '14px' }}>{notice.message}</p>
-
-                        <div style={{ marginTop: '15px', paddingTop: '10px', borderTop: '1px solid #f1f5f9', fontSize: '12px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <i className="fas fa-user-shield"></i>
-                            <span>Posted by: <strong>{notice.teacherName || 'HOD / Admin'}</strong></span>
-                        </div>
+                        )}
                     </div>
-                ))
-            ) : (
-                <div className="card" style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
-                    <i className="fas fa-folder-open" style={{ fontSize: '32px', marginBottom: '10px', opacity: 0.5 }}></i>
-                    <p>No notices for staff at the moment.</p>
-                </div>
-            )}
-        </div>
 
-        {/* ✅ CSS For Gradient Text (Redundant but safe) */}
-        <style>{`
+                    {/* ✅ CSS For Gradient Text (Redundant but safe) */}
+                    <style>{`
             .gradient-text {
                 background: linear-gradient(135deg, #7c3aed 0%, #db2777 100%);
                 -webkit-background-clip: text;
@@ -1367,8 +1493,8 @@ export default function TeacherDashboard() {
                 font-weight: 700;
             }
         `}</style>
-    </div>
-);
+                </div>
+            );
             case 'profile': return <Profile user={teacherInfo} />;
             default: return null;
         }
@@ -1488,3 +1614,4 @@ export default function TeacherDashboard() {
         </div>
     );
 }
+

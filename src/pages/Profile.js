@@ -5,6 +5,8 @@ import toast from 'react-hot-toast';
 import TwoFactorSetup from '../components/TwoFactorSetup'; // ✅ Import 2FA Component
 import './Dashboard.css';
 import ResumeBuilderModal from '../components/ResumeBuilderModal';
+import { Printer } from '@bcyesil/capacitor-plugin-printer';
+import { Capacitor } from '@capacitor/core';
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
@@ -29,21 +31,11 @@ const getAvatarGradient = (name) => {
 };
 
 // --- PDF DOWNLOAD HELPER (Blue Links for Visibility) ---
-const downloadResumePDF = (user) => {
+// --- PDF DOWNLOAD HELPER (Native Mobile + Web Support) ---
+const downloadResumePDF = async (user) => {
     const resume = user.resumeData || {};
-    
-    // 1. Create a hidden iframe
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = '0';
-    document.body.appendChild(iframe);
 
-    // 2. Generate Content
-    const doc = iframe.contentWindow.document;
+    // 1. Generate Content (With Blue Links & Professional Styling)
     const htmlContent = `
         <html>
         <head>
@@ -156,18 +148,43 @@ const downloadResumePDF = (user) => {
         </html>
     `;
 
-    doc.open();
-    doc.write(htmlContent);
-    doc.close();
+    // 2. Platform Specific Print Logic
+    try {
+        if (Capacitor.isNativePlatform()) {
+            // 📱 ANDROID APP: Use Native Printer Plugin
+            await Printer.print({
+                content: htmlContent,
+                name: `${user.firstName}_Resume`
+            });
+        } else {
+            // 💻 WEB BROWSER: Use Iframe Method
+            const iframe = document.createElement('iframe');
+            iframe.style.position = 'fixed';
+            iframe.style.right = '0';
+            iframe.style.bottom = '0';
+            iframe.style.width = '0';
+            iframe.style.height = '0';
+            iframe.style.border = '0';
+            document.body.appendChild(iframe);
 
-    // 3. Trigger Print
-    setTimeout(() => {
-        iframe.contentWindow.focus();
-        iframe.contentWindow.print();
-        setTimeout(() => {
-            document.body.removeChild(iframe);
-        }, 1000);
-    }, 500);
+            const doc = iframe.contentWindow.document;
+            doc.open();
+            doc.write(htmlContent);
+            doc.close();
+
+            // Trigger Print
+            setTimeout(() => {
+                iframe.contentWindow.focus();
+                iframe.contentWindow.print();
+                setTimeout(() => {
+                    document.body.removeChild(iframe);
+                }, 1000);
+            }, 500);
+        }
+    } catch (error) {
+        console.error("Printing failed:", error);
+        alert("Unable to download PDF. Please try again.");
+    }
 };
 export default function Profile({ user }) {
     const [isResumeModalOpen, setIsResumeModalOpen] = useState(false);
@@ -265,7 +282,47 @@ export default function Profile({ user }) {
             setPassLoading(false);
         }
     };
+   // ✅ EXPANDED AVATAR OPTIONS
+    const AVATAR_OPTIONS = [
+        // Boy Avatars
+        { id: 'm1', url: 'https://cdn-icons-png.flaticon.com/512/4140/4140048.png', label: 'Boy 1' },
+        { id: 'm2', url: 'https://cdn-icons-png.flaticon.com/512/4139/4139948.png', label: 'Boy 2' },
+        { id: 'm3', url: 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png', label: 'Boy 3' },
+        { id: 'm4', url: 'https://cdn-icons-png.flaticon.com/512/4140/4140061.png', label: 'Boy 4' },
+        
+        // Girl Avatars
+        { id: 'f1', url: 'https://cdn-icons-png.flaticon.com/512/4140/4140047.png', label: 'Girl 1' },
+        { id: 'f2', url: 'https://cdn-icons-png.flaticon.com/512/4139/4139951.png', label: 'Girl 2' },
+        { id: 'f3', url: 'https://cdn-icons-png.flaticon.com/512/4140/4140051.png', label: 'Girl 3' },
+        { id: 'f4', url: 'https://cdn-icons-png.flaticon.com/512/6997/6997662.png', label: 'Girl 4' },
+        
+        // Neutral / Fun Avatars
+        { id: 'n1', url: 'https://cdn-icons-png.flaticon.com/512/11498/11498793.png', label: 'Robot' },
+        { id: 'n2', url: 'https://cdn-icons-png.flaticon.com/512/9408/9408175.png', label: 'Astronaut' }
+    ];
 
+  const handleAvatarSelect = async (url) => {
+        const toastId = toast.loading("Updating avatar...");
+        try {
+            const userRef = doc(db, 'users', auth.currentUser.uid);
+            
+            // ✅ IMPROVED GENDER DETECTION Logic
+            // If the URL contains girl-related IDs or if you want to manual map them:
+            const femaleIds = ['f1', 'f2', 'f3', 'f4'];
+            const selectedAvatar = AVATAR_OPTIONS.find(a => a.url === url);
+            const detectedGender = femaleIds.includes(selectedAvatar?.id) ? 'female' : 'male';
+
+            await updateDoc(userRef, { 
+                profilePic: url,
+                gender: detectedGender // Syncs gender field for defaults
+            });
+            
+            toast.success("Avatar updated!", { id: toastId });
+        } catch (err) {
+            toast.error("Failed to update avatar", { id: toastId });
+        }
+    };
+    
     if (!profileData) return <div className="content-section">Loading...</div>;
 
     return (
@@ -274,9 +331,23 @@ export default function Profile({ user }) {
             {/* --- PREMIUM HEADER CARD (Sunset Violet Theme) --- */}
             <div className="prof-header-card">
                 <div className="prof-header-content">
-                    {/* Avatar with Glass Effect Border */}
-                    <div className="prof-avatar">
-                        {profileData.firstName?.[0]}{profileData.lastName?.[0]}
+                    {/* ✅ Updated Profile Avatar Logic with Defaults */}
+                    <div className="prof-avatar" style={{
+                        background: user.profilePic ? 'transparent' : getAvatarGradient(user.firstName),
+                        overflow: 'hidden'
+                    }}>
+                        {user.profilePic ? (
+                            <img src={user.profilePic} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : (
+                            /* Fallback to Gender Default or Initials */
+                            profileData.gender === 'male' ? (
+                                <img src="https://cdn-icons-png.flaticon.com/512/4140/4140048.png" alt="Male Default" style={{ width: '100%', height: '100%' }} />
+                            ) : user.gender === 'female' ? (
+                                <img src="https://cdn-icons-png.flaticon.com/512/4140/4140047.png" alt="Female Default" style={{ width: '100%', height: '100%' }} />
+                            ) : (
+                                <>{user.firstName?.charAt(0)}{user.lastName?.charAt(0)}</>
+                            )
+                        )}
                     </div>
 
                     <div className="prof-info">
@@ -365,6 +436,34 @@ export default function Profile({ user }) {
                                 {user.role === 'student' && (
                                     <ProfInput label="Academic Year" value={profileData.year || "N/A"} disabled={true} lockIcon={true} />
                                 )}
+                            </div>
+                        </div>
+                        {/* ✅ Add Avatar Selection UI */}
+                        <div className="prof-card" style={{ marginTop: '20px' }}>
+                            <div className="prof-card-header">
+                                <div className="prof-icon-box" style={{ background: '#fef3c7', color: '#d97706' }}>
+                                    <i className="fas fa-paint-brush"></i>
+                                </div>
+                                <h3>Choose Your Avatar</h3>
+                            </div>
+                            <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                                {AVATAR_OPTIONS.map((avatar) => (
+                                    <div
+                                        key={avatar.id}
+                                        onClick={() => handleAvatarSelect(avatar.url)}
+                                        style={{
+                                            cursor: 'pointer',
+                                            padding: '5px',
+                                            borderRadius: '50%',
+                                            border: profileData.profilePic === avatar.url ? '3px solid #db2777' : '3px solid transparent',
+                                            transition: 'all 0.2s',
+                                            background: 'white',
+                                            boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                                        }}
+                                    >
+                                        <img src={avatar.url} alt={avatar.label} style={{ width: '55px', height: '55px', borderRadius: '50%' }} />
+                                    </div>
+                                ))}
                             </div>
                         </div>
 

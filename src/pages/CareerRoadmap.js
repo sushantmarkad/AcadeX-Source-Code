@@ -208,32 +208,43 @@ export default function CareerRoadmap({ user }) {
 
     return (
         <div className="content-section">
-            {/* ✅ VERIFICATION MODAL */}
-            {/* ✅ VERIFICATION MODAL (Fixed with Portal) */}
+           {/* ✅ UPDATED VERIFICATION MODAL */}
             {verifyModal.isOpen && ReactDOM.createPortal(
-                <div className="custom-modal-overlay" style={{
-                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-                    zIndex: 10000, // Ensure this is higher than sidebar (usually 10000)
-                    background: 'rgba(0, 0, 0, 0.6)', backdropFilter: 'blur(5px)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center'
-                }}>
-                    <div className="custom-modal-box">
+                <div className="fp-modal-overlay">
+                    <div className="fp-confirm-box">
+                        <div className="fp-modal-icon">
+                            <i className="fas fa-gift"></i>
+                        </div>
                         <h3>Claim Your XP 🎯</h3>
-                        <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '15px' }}>Briefly summarize what you learned to complete this task:</p>
+                        <p>Briefly summarize what you learned to complete this task:</p>
+                        
                         <textarea
                             className="modern-input"
                             rows="3"
                             placeholder="I learned about..."
                             value={summary}
                             onChange={(e) => setSummary(e.target.value)}
+                            style={{ marginBottom: '20px' }}
                         />
-                        <div className="modal-actions">
-                            <button className="btn-secondary" onClick={() => setVerifyModal({ isOpen: false })}>Cancel</button>
-                            <button className="btn-primary" onClick={submitVerification}>Claim 50 XP</button>
+
+                        {/* ✅ THE FIX: Using unique button group for perfect alignment */}
+                        <div className="fp-modal-btn-group">
+                            <button 
+                                className="fp-btn-cancel" 
+                                onClick={() => setVerifyModal({ isOpen: false })}
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                className="fp-btn-claim" 
+                                onClick={submitVerification}
+                            >
+                                Claim 50 XP
+                            </button>
                         </div>
                     </div>
                 </div>,
-                document.body // 👈 This pushes it to the top level of the DOM
+                document.body 
             )}
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>

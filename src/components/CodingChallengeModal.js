@@ -108,7 +108,7 @@ export default function CodingChallengeModal({ isOpen, onClose, user, onComplete
                     display: flex; 
                     align-items: center; 
                     justify-content: center;
-                    z-index: 9999999 !important;
+                    z-index: 10000;
                     padding: 20px;
                     animation: fadeIn 0.3s ease-out;
                 }
@@ -158,24 +158,22 @@ export default function CodingChallengeModal({ isOpen, onClose, user, onComplete
                 }
                 .cc-close:hover { color: white; }
 
-                /* 4. SELECTION SCREEN - UPDATED FOR SCROLLING */
+                /* 4. SELECTION SCREEN */
                 .cc-select-screen { 
                     height: 100%; 
                     display: flex; flex-direction: column; 
                     align-items: center; 
-                    /* ✅ CHANGED to flex-start + padding to prevent top cut-off */
-                    justify-content: flex-start; 
+                    justify-content: flex-start; /* Changed for scroll safety */
                     gap: 40px; text-align: center; 
                     padding: 40px 20px;
                     background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
-                    /* ✅ ENSURES SCROLLBAR APPEARS */
-                    overflow-y: auto; 
+                    overflow-y: auto; /* Enable scrolling */
                 }
                 
                 .cc-level-grid { 
                     display: flex; gap: 25px; flex-wrap: wrap; 
                     justify-content: center; width: 100%; max-width: 900px; 
-                    padding-bottom: 40px; /* Extra space at bottom for scrolling */
+                    padding-bottom: 40px; 
                 }
                 
                 .cc-level-card {
@@ -239,26 +237,66 @@ export default function CodingChallengeModal({ isOpen, onClose, user, onComplete
                 .cc-btn-run:hover { background: #2563eb; transform: translateY(-2px); }
                 .cc-btn-run:disabled { background: #64748b; cursor: not-allowed; opacity: 0.7; transform: none; box-shadow: none; }
 
-                /* 6. MOBILE RESPONSIVENESS */
+                /* --- 📱 MOBILE SAFE AREA FIXES --- */
                 @media (max-width: 768px) {
-                    .cc-modal-overlay { padding: 0; }
-                    .cc-modal-box { width: 100%; height: 100%; max-width: none; border-radius: 0; border: none; }
-                    .cc-header { padding: 12px 15px; }
+                    .cc-modal-overlay {
+                        padding: 0;
+                        align-items: flex-start; /* Ensure top alignment */
+                        background: var(--cc-bg); /* Match bg color to avoid gaps */
+                    }
+                    
+                    .cc-modal-box { 
+                        width: 100%; 
+                        height: 100dvh; /* Dynamic Full Height */
+                        max-width: none; 
+                        max-height: none;
+                        border-radius: 0; 
+                        border: none; 
+                    }
+                    
+                    .cc-header { 
+                        padding: 12px 15px;
+                        /* Safe Area for Notch */
+                        padding-top: max(15px, env(safe-area-inset-top)); 
+                        min-height: 70px;
+                    }
+                    
                     .cc-title { font-size: 1rem; }
+                    
                     .cc-layout { flex-direction: column; }
-                    .cc-panel-left { width: 100%; height: auto; max-height: 30vh; border-right: none; border-bottom: 1px solid var(--cc-border); padding: 15px; }
+                    
+                    .cc-panel-left { 
+                        width: 100%; 
+                        height: auto; 
+                        max-height: 30vh; /* Limit question height */
+                        border-right: none; 
+                        border-bottom: 1px solid var(--cc-border); 
+                        padding: 15px; 
+                    }
+                    
                     .cc-panel-right { flex: 1; height: auto; min-height: 0; }
+                    
                     .cc-editor { font-size: 14px; padding: 15px; }
-                    .cc-console { height: 100px; padding: 10px 15px; }
+                    
+                    .cc-console { height: 120px; padding: 10px 15px; }
                     
                     /* Grid Fix for Mobile */
                     .cc-level-grid { flex-direction: column; width: 100%; padding-bottom: 60px; }
-                    .cc-level-card { width: 100%; max-width: 100%; min-height: auto; flex-direction: row; text-align: left; padding: 20px; align-items: center; gap: 20px; }
+                    .cc-level-card { 
+                        width: 100%; max-width: 100%; min-height: auto; 
+                        flex-direction: row; text-align: left; 
+                        padding: 20px; align-items: center; gap: 20px; 
+                    }
                     .cc-level-icon { margin: 0; font-size: 32px; }
                     .cc-level-title { font-size: 1.2rem; }
                     .cc-level-desc { font-size: 0.85rem; }
                     
-                    .cc-footer { padding: 10px 15px; }
+                    .cc-footer { 
+                        padding: 10px 15px;
+                        /* Safe Area for Home Bar */
+                        padding-bottom: max(20px, env(safe-area-inset-bottom)); 
+                    }
+                    
                     .cc-btn-run { width: 100%; justify-content: center; padding: 12px; }
                 }
             `}</style>

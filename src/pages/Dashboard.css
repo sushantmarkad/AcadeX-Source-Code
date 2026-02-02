@@ -24,18 +24,22 @@ body {
 
 .dashboard-container { display: flex; height: 100vh; width: 100%; overflow: hidden; }
 
-/* --- Sidebar (UPDATED FOR MOBILE SCROLLING) --- */
+/* --- Sidebar (UPDATED FOR MOBILE SCROLLING & SAFE AREAS) --- */
 .sidebar {
   width: 260px; 
   background-color: var(--card-bg); 
   border-right: 1px solid var(--border-color);
   display: flex; 
   flex-direction: column; 
+  /* ✅ SAFE AREA PADDING ADDED BELOW */
   padding: 24px; 
+  padding-top: max(24px, env(safe-area-inset-top)); 
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+  
   flex-shrink: 0;
   z-index: 10000 !important;
   height: 100vh; /* Fallback */
-  height: 100dvh; 
+  height: 100dvh; /* Dynamic Full Height */
   overflow-y: auto; 
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
@@ -2522,14 +2526,56 @@ textarea.modern-input:focus { border-color: var(--tech-blue); box-shadow: 0 0 0 
 
 @keyframes fp-pulse { 0% { opacity: 1; } 50% { opacity: 0.6; } 100% { opacity: 1; } }
 @keyframes fp-popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-/* --- FIX: Force Toasts on Top --- */
-/* Target react-hot-toast container */
-.go4109123758, 
-.Toaster {
-    z-index: 999999 !important; /* One level higher than your modal (99999) */
+/* --- 🚀 STUDENT FUTURE PLANS MODAL STYLES --- */
+.fp-modal-overlay {
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+    background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(8px);
+    z-index: 100001; display: flex; align-items: center; justify-content: center;
+    padding: 20px;
 }
 
-/* Fallback if the class name changes */
-div[style*="z-index: 9999"] {
-    z-index: 2147483647 !important; /* Maximum CSS z-index value */
+.fp-confirm-box {
+    background: white; border-radius: 24px; padding: 30px;
+    width: 100%; max-width: 340px; text-align: center;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.2); 
+    animation: fpPop 0.3s ease-out;
 }
+
+@keyframes fpPop { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+
+.fp-modal-icon {
+    font-size: 40px; color: #10b981; margin-bottom: 15px;
+}
+
+.fp-confirm-box h3 { margin: 0 0 10px 0; color: #1e293b; font-size: 18px; }
+.fp-confirm-box p { color: #64748b; font-size: 14px; margin-bottom: 25px; line-height: 1.5; }
+
+/* ✅ THE FIX: Side-by-side buttons with flex: 1 */
+.fp-modal-btn-group {
+    display: flex !important;
+    gap: 12px !important;
+    width: 100% !important;
+}
+
+.fp-btn-cancel, .fp-btn-claim {
+    flex: 1; /* Forces 50/50 width */
+    padding: 12px !important;
+    border-radius: 12px !important;
+    font-weight: 700 !important;
+    font-size: 14px !important;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.fp-btn-cancel { background: #f1f5f9; color: #64748b; }
+.fp-btn-claim { 
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%); 
+    color: white; 
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
+}
+
+.fp-btn-cancel:active, .fp-btn-claim:active { transform: scale(0.96); }

@@ -1,18 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { signOut } from 'firebase/auth';
+import { signOut, updatePassword } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
-import { auth, db, sendPasswordResetEmail } from '../firebase';
-import { doc, getDoc, collection, query, where, onSnapshot, deleteDoc, addDoc, updateDoc, serverTimestamp } from "firebase/firestore";
-import toast, { Toaster } from 'react-hot-toast';
-import { 
-    PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend, 
-    BarChart, Bar, XAxis, YAxis, CartesianGrid 
+import { auth, db, storage, sendPasswordResetEmail } from '../firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { doc, getDoc, collection, query, where, onSnapshot, deleteDoc, addDoc, updateDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import toast from 'react-hot-toast';
+import {
+    PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
+    BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from 'recharts';
 import { Timestamp } from 'firebase/firestore';
 import logo from "../assets/logo.png";
 import './Dashboard.css';
-import './HODDashboard.css'; 
+import './HODDashboard.css';
 import TwoFactorSetup from '../components/TwoFactorSetup'; // ✅ Add this import
+import CustomDropdown from '../components/CustomDropdown';
+
 
 import ManageTimetable from './ManageTimetable';
 
@@ -24,10 +27,23 @@ export default function HODDashboard() {
     const [deptUsers, setDeptUsers] = useState([]);
     const [leaves, setLeaves] = useState([]);
     const [totalClasses, setTotalClasses] = useState(0);
-    const [searchQuery, setSearchQuery] = useState(""); 
+    const [searchQuery, setSearchQuery] = useState("");
+    const [annoTab, setAnnoTab] = useState('create');
 
     const [selectedRequestIds, setSelectedRequestIds] = useState([]);
     const [selectedUserIds, setSelectedUserIds] = useState([]);
+    // ✅ NEW STATES
+    const [annoFile, setAnnoFile] = useState(null); // For Announcement File
+    const [passwordForm, setPasswordForm] = useState({ newPassword: '', confirmPassword: '' }); // For Password Update
+
+    // Timetable States
+    const [timetableYear, setTimetableYear] = useState('FE');
+    const [timetableData, setTimetableData] = useState({});
+    const [isSavingTimetable, setIsSavingTimetable] = useState(false);
+
+    // Attendance Graph State
+    const [attendanceGraph, setAttendanceGraph] = useState([]);
+    const [timeRange, setTimeRange] = useState('week');
 
     // ✅ Announcement State (Fixed naming consistency)
     const [announcements, setAnnouncements] = useState([]);
@@ -38,15 +54,19 @@ export default function HODDashboard() {
     const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
     // ✅ Teacher Form (Includes Academic Year)
-    const [teacherForm, setTeacherForm] = useState({ 
-        firstName: '', lastName: '', email: '', password: '', 
-        academicYear: '2024-2025', 
-        assignedClasses: [] 
+    const [teacherForm, setTeacherForm] = useState({
+        firstName: '', lastName: '', email: '', password: '',
+        academicYear: '2024-2025',
+        assignedClasses: []
     });
-    
+
+
+
     // ✅ Profile Editing State
     const [profileForm, setProfileForm] = useState({ firstName: '', lastName: '', qualification: '', phone: '' });
     const [isEditingProfile, setIsEditingProfile] = useState(false);
+    const [analyticsYear, setAnalyticsYear] = useState('FE');
+    const [criteria, setCriteria] = useState({ FE: 75, SE: 75, TE: 75, BE: 75 });
 
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
@@ -58,7 +78,7 @@ export default function HODDashboard() {
             if (userDoc.exists()) {
                 const data = userDoc.data();
                 setHodInfo(data);
-                
+
                 // Initialize Profile Form
                 setProfileForm({
                     firstName: data.firstName || '',
@@ -95,99 +115,116 @@ export default function HODDashboard() {
         init();
     }, []);
 
-    // --- ✅ NEW: ATTENDANCE ANALYTICS LOGIC ---
-    const [attendanceGraph, setAttendanceGraph] = useState([]);
-    const [timeRange, setTimeRange] = useState('week'); // 'week' | 'month'
 
+
+    // --- 1. FUNCTIONAL ATTENDANCE GRAPH ---
     useEffect(() => {
+        if (!hodInfo || deptUsers.length === 0) return;
         const fetchAttendanceStats = async () => {
-            if (!hodInfo || deptUsers.length === 0) return;
-
-            // 1. Calculate Total Students per Year
-            const studentsByYear = { FE: 0, SE: 0, TE: 0, BE: 0 };
-            const studentYearMap = {}; // Map uid -> year
-            
-            deptUsers.forEach(u => {
-                if (u.role === 'student' && u.year) {
-                    studentsByYear[u.year] = (studentsByYear[u.year] || 0) + 1;
-                    studentYearMap[u.id] = u.year;
-                }
-            });
-
-            // 2. Define Time Range
             const now = new Date();
             const startDate = new Date();
             if (timeRange === 'week') startDate.setDate(now.getDate() - 7);
-            else startDate.setDate(now.getDate() - 30); // Monthly
+            else startDate.setDate(now.getDate() - 30);
 
-            // 3. Fetch Attendance Logs (Optimized for recent only)
             try {
+                // Fetch attendance for the selected time range
                 const q = query(
                     collection(db, 'attendance'),
                     where('instituteId', '==', hodInfo.instituteId),
                     where('department', '==', hodInfo.department),
                     where('timestamp', '>=', Timestamp.fromDate(startDate))
                 );
-                
-                // Note: onSnapshot is better for real-time, but getDocs is fine for analytics to save reads
+
                 onSnapshot(q, (snap) => {
-                    const yearCounts = { FE: 0, SE: 0, TE: 0, BE: 0 }; // Total 'Present' count
+                    const yearCounts = { FE: 0, SE: 0, TE: 0, BE: 0 };
                     const sessionsByYear = { FE: new Set(), SE: new Set(), TE: new Set(), BE: new Set() };
+
+                    // Create a map of student ID -> Year for quick lookup
+                    const studentYearMap = {};
+                    deptUsers.forEach(u => { if (u.role === 'student') studentYearMap[u.id] = u.year; });
 
                     snap.docs.forEach(doc => {
                         const data = doc.data();
-                        const studentYear = studentYearMap[data.studentId];
-                        
-                        if (studentYear && yearCounts[studentYear] !== undefined) {
-                            yearCounts[studentYear]++;
-                            sessionsByYear[studentYear].add(data.sessionId);
+                        const year = studentYearMap[data.studentId];
+                        if (year && yearCounts[year] !== undefined) {
+                            yearCounts[year]++;
+                            sessionsByYear[year].add(data.sessionId);
                         }
                     });
 
-                    // 4. Calculate Percentage per Year
+                    // Calculate Student Counts per year
+                    const studentsByYear = { FE: 0, SE: 0, TE: 0, BE: 0 };
+                    deptUsers.forEach(u => { if (u.role === 'student' && u.year) studentsByYear[u.year]++; });
+
+                    // Generate Graph Data
                     const graphData = ['FE', 'SE', 'TE', 'BE'].map(year => {
-                        const totalStudents = studentsByYear[year] || 1; // Avoid divide by zero
+                        const totalStudents = studentsByYear[year] || 1;
                         const totalSessions = sessionsByYear[year].size || 1;
                         const totalPresent = yearCounts[year];
-                        
-                        // Avg Present % = (Total Present) / (Total Sessions * Total Students) * 100
                         const avgPct = Math.round((totalPresent / (totalSessions * totalStudents)) * 100) || 0;
-
-                        return { name: year, attendance: avgPct, totalStudents: studentsByYear[year] };
+                        return { name: year, attendance: avgPct };
                     });
-
                     setAttendanceGraph(graphData);
                 });
-
-            } catch (err) {
-                console.error("Error fetching analytics:", err);
-            }
+            } catch (err) { console.error(err); }
         };
-
         fetchAttendanceStats();
     }, [hodInfo, deptUsers, timeRange]);
+
+    // --- 4. PASSWORD CHANGE HANDLER ---
+    const handleChangePassword = async (e) => {
+        e.preventDefault();
+        if (passwordForm.newPassword !== passwordForm.confirmPassword) return toast.error("Passwords do not match!");
+        if (passwordForm.newPassword.length < 6) return toast.error("Password too short.");
+
+        const toastId = toast.loading("Updating Password...");
+        try {
+            await updatePassword(auth.currentUser, passwordForm.newPassword);
+            toast.success("Password Changed!", { id: toastId });
+            setPasswordForm({ newPassword: '', confirmPassword: '' });
+        } catch (error) {
+            toast.error("Error: " + error.message, { id: toastId });
+            if (error.code === 'auth/requires-recent-login') toast("Please logout and login again.", { icon: '🔒' });
+        }
+    };
 
     // --- ANALYTICS CALCULATIONS ---
     const studentsList = deptUsers.filter(u => u.role === 'student');
     const teachersList = deptUsers.filter(u => u.role === 'teacher');
 
-    const processedStudents = studentsList.map(s => {
-        const attended = s.attendanceCount || 0;
-        const percentage = totalClasses > 0 ? (attended / totalClasses) * 100 : 100;
-        return { ...s, percentage };
-    });
+    // --- ✅ UPDATED: ANALYTICS PROCESSING (Dynamic Criteria) ---
+    const getYearAnalytics = () => {
+        // 1. Filter students based on selected analyticsYear
+        const yearStudents = studentsList.filter(s => s.year === analyticsYear);
+        const threshold = criteria[analyticsYear] || 75; // Get custom criteria for this year
 
-    const atRiskStudents = processedStudents.filter(s => s.percentage < 75);
-    const safeStudents = processedStudents.filter(s => s.percentage >= 75);
+        // 2. Calculate percentage
+        const processed = yearStudents.map(s => {
+            const attended = s.attendanceCount || 0;
+            // Formula: (Attended / Total Classes) * 100
+            const percentage = totalClasses > 0 ? (attended / totalClasses) * 100 : (attended > 0 ? 100 : 0);
+            return { ...s, percentage };
+        });
 
-    const filteredDefaulters = atRiskStudents.filter(s =>
-        s.firstName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        s.rollNo.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+        // 3. Categorize based on Dynamic Threshold
+        const safe = processed.filter(s => s.percentage >= threshold);
+        const defaulters = processed.filter(s => s.percentage < threshold);
 
-    const chartData = [
-        { name: 'Safe (>75%)', value: safeStudents.length, color: '#10b981' },
-        { name: 'At Risk (<75%)', value: atRiskStudents.length, color: '#ef4444' },
+        // 4. Search Filter for Defaulters
+        const filteredDefaulters = defaulters.filter(s =>
+            (s.firstName && s.firstName.toLowerCase().includes(searchQuery.toLowerCase())) ||
+            (s.rollNo && s.rollNo.toLowerCase().includes(searchQuery.toLowerCase()))
+        );
+
+        return { total: processed.length, safe, defaulters, filteredDefaulters, threshold };
+    };
+
+    const analyticsData = getYearAnalytics();
+
+    // Pie Chart Data with colors
+    const pieData = [
+        { name: 'Safe', value: analyticsData.safe.length, color: '#10b981' },
+        { name: 'Defaulters', value: analyticsData.defaulters.length, color: '#ef4444' },
     ];
 
     // --- HELPERS ---
@@ -253,11 +290,19 @@ export default function HODDashboard() {
         }
     };
 
-    // 2. Post Announcement
     const handlePostAnnouncement = async (e) => {
         e.preventDefault();
         const toastId = toast.loading("Posting...");
         try {
+            // 1. Upload File (if selected)
+            let attachmentUrl = "";
+            if (annoFile) {
+                const fileRef = ref(storage, `announcements/${auth.currentUser.uid}/${Date.now()}_${annoFile.name}`);
+                await uploadBytes(fileRef, annoFile);
+                attachmentUrl = await getDownloadURL(fileRef);
+            }
+
+            // 2. Save Announcement
             await addDoc(collection(db, 'announcements'), {
                 title: announcementForm.title,
                 message: announcementForm.message,
@@ -266,28 +311,71 @@ export default function HODDashboard() {
                 department: hodInfo.department,
                 teacherName: `${hodInfo.firstName} ${hodInfo.lastName} (HOD)`,
                 role: 'hod',
+                attachmentUrl: attachmentUrl, // ✅ Save URL
                 createdAt: serverTimestamp()
             });
-            toast.success("Announcement Sent!", { id: toastId });
+
+            // 3. Notification Logic (Keep your existing notification fetch here)
+            fetch(`${BACKEND_URL}/sendAnnouncementNotification`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: `📢 HOD Notice: ${announcementForm.title}`,
+                    message: announcementForm.message,
+                    targetYear: announcementForm.targetYear,
+                    instituteId: hodInfo.instituteId,
+                    department: hodInfo.department,
+                    senderName: `${hodInfo.firstName} ${hodInfo.lastName}`
+                })
+            }).catch(err => console.error(err));
+
+            toast.success("Posted Successfully!", { id: toastId });
             setAnnouncementForm({ title: '', message: '', targetYear: 'All' });
-        } catch (err) {
-            toast.error("Failed to post.", { id: toastId });
-        }
+            setAnnoFile(null); // Reset File
+        } catch (err) { toast.error("Failed to post.", { id: toastId }); }
+    };
+    const handleDeleteAnnouncement = (id) => {
+        // ✅ Use Custom Modal instead of window.confirm
+        confirmAction('Delete Notice?', 'Are you sure you want to remove this announcement?', async () => {
+            closeModal();
+            const toastId = toast.loading("Deleting...");
+            try {
+                await deleteDoc(doc(db, 'announcements', id));
+                toast.success("Deleted", { id: toastId });
+            } catch (e) { toast.error("Failed", { id: toastId }); }
+        }, 'danger');
     };
 
-    const handleDeleteAnnouncement = async (id) => {
-        if (!window.confirm("Delete this announcement?")) return;
+
+
+    // --- SEND NOTICE FUNCTION (Connected to Backend) ---
+    const handleSendNotice = async (student) => {
+        const toastId = toast.loading(`Sending notice to ${student.firstName}...`);
+
         try {
-            await deleteDoc(doc(db, 'announcements', id));
-            toast.success("Deleted.");
-        } catch (e) { toast.error("Failed."); }
-    };
+            const response = await fetch(`${BACKEND_URL}/sendNotice`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: student.email,
+                    name: `${student.firstName} ${student.lastName}`,
+                    subject: "⚠️ Critical Attendance Warning - Action Required",
+                    message: `Your attendance has fallen below the <b>${analyticsData.threshold}%</b> threshold. 
+                              Your current attendance is <b style="color:red">${student.percentage.toFixed(1)}%</b>. 
+                              Please meet the HOD immediately to discuss this issue.`
+                })
+            });
 
-    const handleSendNotice = (student) => {
-        toast.success(`Notice sent to ${student.firstName} (${student.email})`, {
-            icon: '📨',
-            style: { border: '1px solid #3b82f6', color: '#1e3a8a', background: '#eff6ff' }
-        });
+            const data = await response.json();
+
+            if (response.ok) {
+                toast.success("Notice Sent Successfully!", { id: toastId });
+            } else {
+                throw new Error(data.error || "Failed to send email");
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error("Failed to send notice.", { id: toastId });
+        }
     };
 
     const handleDeleteUsers = () => {
@@ -401,9 +489,9 @@ export default function HODDashboard() {
                     instituteName: hodInfo.instituteName,
                     department: hodInfo.department,
                     assignedClasses: teacherForm.assignedClasses,
-                    extras: { 
+                    extras: {
                         academicYear: teacherForm.academicYear,
-                        qualification: 'Added by HOD' 
+                        qualification: 'Added by HOD'
                     }
                 })
             });
@@ -441,18 +529,31 @@ export default function HODDashboard() {
 
     return (
         <div className="dashboard-container">
-            <Toaster
-                position="bottom-center"
-                toastOptions={{ duration: 4000, style: { background: '#1e293b', color: '#fff', marginBottom: '60px' } }}
-            />
+            
 
             {modal.isOpen && (
-                <div className="custom-modal-overlay">
-                    <div className="custom-modal-box">
-                        <h3>{modal.title}</h3> <p>{modal.message}</p>
-                        <div className="modal-actions">
-                            <button className="btn-secondary" onClick={closeModal}>Cancel</button>
-                            <button className="btn-primary" onClick={modal.onConfirm}>Confirm</button>
+                <div className="hod-modal-overlay">
+                    <div className="hod-confirm-box">
+                        <div className="hod-modal-icon">
+                            <i className={`fas ${modal.type === 'danger' ? 'fa-exclamation-circle' : 'fa-question-circle'}`}></i>
+                        </div>
+                        <h3>{modal.title}</h3>
+                        <p>{modal.message}</p>
+
+                        {/* ✅ UNIQUE FLEX CONTAINER FOR BUTTONS */}
+                        <div className="hod-modal-btn-group">
+                            <button
+                                className="hod-btn-cancel"
+                                onClick={closeModal}
+                            >
+                                No, Cancel
+                            </button>
+                            <button
+                                className={`hod-btn-confirm ${modal.type === 'danger' ? 'danger-bg' : 'primary-bg'}`}
+                                onClick={modal.onConfirm}
+                            >
+                                Yes, Confirm
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -481,20 +582,20 @@ export default function HODDashboard() {
                 </div>
             </aside>
 
-            <main className="main-content" style={{paddingBottom: '70px'}}>
+            <main className="main-content" style={{ paddingBottom: '20px' }}>
                 <header className="mobile-header">
                     <button className="hamburger-btn" onClick={() => setIsMobileNavOpen(true)}><i className="fas fa-bars"></i></button>
                     <div className="mobile-brand"><img src={logo} alt="Logo" className="mobile-logo-img" /><span className="mobile-logo-text">AcadeX</span></div>
                     <div style={{ width: '40px' }}></div>
                 </header>
 
-               {/* ✅ UPDATED DASHBOARD TAB */}
+                {/* ✅ UPDATED DASHBOARD TAB */}
                 {activeTab === 'dashboard' && (
                     <div className="content-section">
                         <h2 className="content-title">Department Overview</h2>
-                        
+
                         {/* 1. Student Count by Year (Cards) */}
-                        <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom:'20px' }}>
+                        <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: '20px' }}>
                             {['FE', 'SE', 'TE', 'BE'].map(year => {
                                 const count = studentsList.filter(s => s.year === year).length;
                                 const colors = { FE: '#3b82f6', SE: '#8b5cf6', TE: '#f59e0b', BE: '#10b981' };
@@ -512,31 +613,67 @@ export default function HODDashboard() {
                             </div>
                         </div>
 
-                        {/* 2. Attendance Analytics Graph */}
+                        {/* 2. Attendance Analytics Graph (Functional) */}
                         <div className="card" style={{ height: '400px', display: 'flex', flexDirection: 'column' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                                 <div>
                                     <h3 style={{ margin: 0, color: '#1e293b' }}>Average Attendance</h3>
                                     <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>Performance by Class Year</p>
                                 </div>
+
+                                {/* Time Range Toggles */}
                                 <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '8px', display: 'flex' }}>
-                                    <button onClick={() => setTimeRange('week')} style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', background: timeRange === 'week' ? 'white' : 'transparent', color: timeRange === 'week' ? '#0f172a' : '#64748b', boxShadow: timeRange === 'week' ? '0 2px 5px rgba(0,0,0,0.05)' : 'none' }}>This Week</button>
-                                    <button onClick={() => setTimeRange('month')} style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', background: timeRange === 'month' ? 'white' : 'transparent', color: timeRange === 'month' ? '#0f172a' : '#64748b', boxShadow: timeRange === 'month' ? '0 2px 5px rgba(0,0,0,0.05)' : 'none' }}>This Month</button>
+                                    <button
+                                        onClick={() => setTimeRange('week')}
+                                        style={{
+                                            padding: '6px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold',
+                                            background: timeRange === 'week' ? 'white' : 'transparent',
+                                            color: timeRange === 'week' ? '#0f172a' : '#64748b',
+                                            boxShadow: timeRange === 'week' ? '0 2px 5px rgba(0,0,0,0.05)' : 'none'
+                                        }}
+                                    >
+                                        This Week
+                                    </button>
+                                    <button
+                                        onClick={() => setTimeRange('month')}
+                                        style={{
+                                            padding: '6px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold',
+                                            background: timeRange === 'month' ? 'white' : 'transparent',
+                                            color: timeRange === 'month' ? '#0f172a' : '#64748b',
+                                            boxShadow: timeRange === 'month' ? '0 2px 5px rgba(0,0,0,0.05)' : 'none'
+                                        }}
+                                    >
+                                        This Month
+                                    </button>
                                 </div>
                             </div>
 
+                            {/* Dynamic Bar Chart */}
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart data={attendanceGraph} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12, fontWeight: 600 }} dy={10} />
-                                    <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
-                                    <Tooltip 
+                                    <XAxis
+                                        dataKey="name"
+                                        axisLine={false}
+                                        tickLine={false}
+                                        tick={{ fill: '#64748b', fontSize: 12, fontWeight: 600 }}
+                                        dy={10}
+                                    />
+                                    <YAxis
+                                        axisLine={false}
+                                        tickLine={false}
+                                        tick={{ fill: '#64748b', fontSize: 12 }}
+                                    />
+                                    <Tooltip
                                         cursor={{ fill: '#f1f5f9' }}
                                         contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                                     />
                                     <Bar dataKey="attendance" name="Avg Attendance %" radius={[6, 6, 0, 0]} barSize={50}>
                                         {attendanceGraph.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={entry.name === 'FE' ? '#3b82f6' : entry.name === 'SE' ? '#8b5cf6' : entry.name === 'TE' ? '#f59e0b' : '#10b981'} />
+                                            <Cell
+                                                key={`cell-${index}`}
+                                                fill={entry.name === 'FE' ? '#3b82f6' : entry.name === 'SE' ? '#8b5cf6' : entry.name === 'TE' ? '#f59e0b' : '#10b981'}
+                                            />
                                         ))}
                                     </Bar>
                                 </BarChart>
@@ -545,222 +682,590 @@ export default function HODDashboard() {
                     </div>
                 )}
 
+                {/* ✅ UPDATED ANALYTICS TAB */}
                 {activeTab === 'analytics' && (
                     <div className="content-section">
-                        <h2 className="content-title">Attendance Analytics</h2>
-                        <div className="search-box-wrapper">
+                        {/* Header: Title & Year Selector */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '15px', marginTop: '15px' }}>
+                            <div>
+                                <h2 className="content-title" style={{ margin: 0 }}>Attendance Analytics</h2>
+                                <p style={{ margin: '5px 0 0', fontSize: '13px', color: '#64748b' }}>
+                                    Managing criteria for <strong>{analyticsYear}</strong> (Current: {analyticsData.threshold}%)
+                                </p>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                {/* Criteria Changer */}
+                                <div style={{ background: 'white', padding: '5px 10px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ fontSize: '12px', fontWeight: '600', color: '#64748b' }}>Min %:</span>
+                                    <input
+                                        type="number"
+                                        value={criteria[analyticsYear]}
+                                        onChange={(e) => setCriteria({ ...criteria, [analyticsYear]: Number(e.target.value) })}
+                                        style={{ width: '50px', padding: '4px', border: '1px solid #cbd5e1', borderRadius: '6px', fontWeight: 'bold', textAlign: 'center' }}
+                                    />
+                                </div>
+
+                                {/* Year Tabs */}
+                                <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '12px', display: 'flex', gap: '5px' }}>
+                                    {['FE', 'SE', 'TE', 'BE'].map(year => (
+                                        <button
+                                            key={year}
+                                            onClick={() => setAnalyticsYear(year)}
+                                            style={{
+                                                padding: '8px 16px', border: 'none', borderRadius: '10px', cursor: 'pointer',
+                                                fontSize: '13px', fontWeight: '700',
+                                                background: analyticsYear === year ? '#ffffff' : 'transparent',
+                                                color: analyticsYear === year ? '#2563eb' : '#64748b',
+                                                boxShadow: analyticsYear === year ? '0 4px 12px rgba(0,0,0,0.05)' : 'none',
+                                                transition: 'all 0.2s ease'
+                                            }}
+                                        >
+                                            {year}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Summary Cards */}
+                        <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', marginBottom: '25px', gap: '15px' }}>
+                            <div className="card" style={{ padding: '20px', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                    <div>
+                                        <span style={{ fontSize: '11px', color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>Total {analyticsYear}</span>
+                                        <div style={{ fontSize: '28px', fontWeight: '800', color: '#1e293b', marginTop: '5px' }}>{analyticsData.total}</div>
+                                    </div>
+                                    <div style={{ background: '#f1f5f9', padding: '10px', borderRadius: '12px', color: '#64748b' }}><i className="fas fa-users"></i></div>
+                                </div>
+                            </div>
+                            <div className="card" style={{ padding: '20px', background: '#ecfdf5', border: '1px solid #d1fae5', borderRadius: '16px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                    <div>
+                                        <span style={{ fontSize: '11px', color: '#047857', fontWeight: '700', textTransform: 'uppercase' }}>Safe ({'>'}{analyticsData.threshold}%)</span>
+                                        <div style={{ fontSize: '28px', fontWeight: '800', color: '#065f46', marginTop: '5px' }}>{analyticsData.safe.length}</div>
+                                    </div>
+                                    <div style={{ background: '#d1fae5', padding: '10px', borderRadius: '12px', color: '#059669' }}><i className="fas fa-check-circle"></i></div>
+                                </div>
+                            </div>
+                            <div className="card" style={{ padding: '20px', background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: '16px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                    <div>
+                                        <span style={{ fontSize: '11px', color: '#b91c1c', fontWeight: '700', textTransform: 'uppercase' }}>Defaulters ({'<'}{analyticsData.threshold}%)</span>
+                                        <div style={{ fontSize: '28px', fontWeight: '800', color: '#b91c1c', marginTop: '5px' }}>{analyticsData.defaulters.length}</div>
+                                    </div>
+                                    <div style={{ background: '#fee2e2', padding: '10px', borderRadius: '12px', color: '#dc2626' }}><i className="fas fa-exclamation-triangle"></i></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Search Bar */}
+                        <div className="search-box-wrapper" style={{ maxWidth: '100%', marginBottom: '20px' }}>
                             <i className="fas fa-search search-icon"></i>
                             <input
                                 type="text"
-                                placeholder="Search by name or roll no..."
+                                placeholder={`Search ${analyticsYear} defaulters...`}
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 className="search-input-modern"
                             />
                         </div>
 
-                        <div className="cards-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
-                            <div className="card" style={{ height: '400px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                                <h3 style={{ alignSelf: 'flex-start', marginBottom: '10px' }}>Overview</h3>
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <PieChart>
-                                        <Pie
-                                            data={chartData}
-                                            cx="50%"
-                                            cy="50%"
-                                            innerRadius={70}
-                                            outerRadius={100}
-                                            paddingAngle={5}
-                                            dataKey="value"
-                                            stroke="none"
-                                        >
-                                            {chartData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
-                                        </Pie>
-                                        <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
-                                        <Legend verticalAlign="bottom" height={36} wrapperStyle={{ paddingTop: '20px' }} />
-                                    </PieChart>
-                                </ResponsiveContainer>
+                        {/* ✅ Chart & Defaulters List Grid */}
+                        <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '25px', alignItems: 'start' }}>
+
+                            {/* Card 1: Pie Chart with Center Count */}
+                            <div className="card" style={{ minHeight: '420px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '25px', position: 'relative' }}>
+                                <h3 style={{ alignSelf: 'flex-start', marginBottom: '15px', fontSize: '16px', color: '#334155', fontWeight: '700' }}>Status Distribution ({analyticsYear})</h3>
+
+                                <div style={{ width: '100%', height: '300px', position: 'relative' }}>
+
+                                    {/* 🔥 CENTERED COUNT FOR MOBILE VISIBILITY */}
+                                    <div style={{
+                                        position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -60%)',
+                                        textAlign: 'center', pointerEvents: 'none', zIndex: 10
+                                    }}>
+                                        <div style={{ fontSize: '36px', fontWeight: '800', color: '#ef4444', lineHeight: '1' }}>
+                                            {analyticsData.defaulters.length}
+                                        </div>
+                                        <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '700', textTransform: 'uppercase', marginTop: '5px' }}>
+                                            Defaulters
+                                        </div>
+                                    </div>
+
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <PieChart>
+                                            <Pie
+                                                data={pieData}
+                                                cx="50%"
+                                                cy="50%"
+                                                innerRadius={85}  // Increased inner radius for text space
+                                                outerRadius={115}
+                                                paddingAngle={5}
+                                                dataKey="value"
+                                                stroke="none"
+                                            >
+                                                {pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
+                                            </Pie>
+                                            <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.1)' }} />
+                                            <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                                        </PieChart>
+                                    </ResponsiveContainer>
+                                </div>
                             </div>
 
-                            <div className="card" style={{ borderLeft: '4px solid #ef4444' }}>
-                                <h3 style={{ color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px' }}>
-                                    ⚠️ Defaulters List <span className="nav-badge" style={{ background: '#ef4444' }}>{filteredDefaulters.length}</span>
-                                </h3>
-                                <div className="table-wrapper" style={{ maxHeight: '320px', overflowY: 'auto' }}>
-                                    <table className="attendance-table">
-                                        <thead><tr><th>Name</th><th>%</th><th>Action</th></tr></thead>
-                                        <tbody>
-                                            {filteredDefaulters.map(s => (
-                                                <tr key={s.id}>
-                                                    <td>
-                                                        <div style={{ fontWeight: '600' }}>{s.firstName} {s.lastName}</div>
-                                                        <div style={{ fontSize: '11px', color: '#64748b' }}>
-                                                            {s.rollNo} • <span style={{ color: '#2563eb', fontWeight: 'bold' }}>{s.year || 'N/A'}</span>
-                                                        </div>
-                                                    </td>
-                                                    <td><span className="status-badge-pill" style={{ background: '#fef2f2', color: '#dc2626' }}>{s.percentage.toFixed(0)}%</span></td>
-                                                    <td>
-                                                        <button onClick={() => handleSendNotice(s)} className="btn-action" style={{ background: '#e0f2fe', color: '#0369a1', border: 'none', fontSize: '12px', padding: '4px 10px' }}>
-                                                            Send Notice
-                                                        </button>
-                                                    </td>
+                            {/* Card 2: Defaulters List (Fixed Layout) */}
+                            <div className="card" style={{ borderTop: '4px solid #ef4444', height: '420px', display: 'flex', flexDirection: 'column', padding: '0' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 20px 15px', borderBottom: '1px solid #f1f5f9' }}>
+                                    <h3 style={{ color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px', margin: 0, fontSize: '16px', fontWeight: '700' }}>
+                                        ⚠️ Critical List
+                                    </h3>
+                                    <span className="nav-badge" style={{ background: '#fee2e2', color: '#ef4444', fontSize: '12px', padding: '4px 10px' }}>
+                                        {analyticsData.filteredDefaulters.length}
+                                    </span>
+                                </div>
+
+                                {/* 🔥 FIXED: Removed minWidth constraint to prevent laptop scrollbar */}
+                                <div className="table-wrapper custom-scroll" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', border: 'none', padding: '0' }}>
+                                    {analyticsData.filteredDefaulters.length > 0 ? (
+                                        <table className="attendance-table" style={{ width: '100%', minWidth: 'auto' }}>
+                                            <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                                                <tr>
+                                                    <th style={{ background: 'white', fontSize: '11px', color: '#64748b', paddingLeft: '20px' }}>Student</th>
+                                                    <th style={{ background: 'white', fontSize: '11px', color: '#64748b', textAlign: 'center' }}>Att %</th>
+                                                    <th style={{ background: 'white', fontSize: '11px', color: '#64748b', textAlign: 'right', paddingRight: '20px' }}>Action</th>
                                                 </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
+                                            </thead>
+                                            <tbody>
+                                                {analyticsData.filteredDefaulters.map(s => (
+                                                    <tr key={s.id} style={{ borderBottom: '1px solid #f8fafc' }}>
+                                                        <td style={{ padding: '12px 20px' }}>
+                                                            <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '13px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '120px' }}>
+                                                                {s.firstName} {s.lastName}
+                                                            </div>
+                                                            <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>{s.rollNo}</div>
+                                                        </td>
+                                                        <td style={{ textAlign: 'center', padding: '12px' }}>
+                                                            <span className="status-badge-pill" style={{ background: '#fef2f2', color: '#dc2626', fontSize: '11px', padding: '4px 10px' }}>
+                                                                {s.percentage.toFixed(0)}%
+                                                            </span>
+                                                        </td>
+                                                        <td style={{ textAlign: 'right', padding: '12px 20px' }}>
+                                                            <button
+                                                                onClick={() => handleSendNotice(s)}
+                                                                className="btn-action"
+                                                                style={{
+                                                                    background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe',
+                                                                    borderRadius: '8px', fontSize: '11px', padding: '6px 12px', fontWeight: '700',
+                                                                    cursor: 'pointer', whiteSpace: 'nowrap'
+                                                                }}
+                                                            >
+                                                                Send
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    ) : (
+                                        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', padding: '40px' }}>
+                                            <i className="fas fa-check-circle" style={{ fontSize: '40px', marginBottom: '15px', color: '#10b981', opacity: 0.5 }}></i>
+                                            <p style={{ fontSize: '14px', fontWeight: '600' }}>All Clear!</p>
+                                            <p style={{ fontSize: '12px' }}>No defaulters below {analyticsData.threshold}%</p>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
                     </div>
                 )}
-{activeTab === 'profile' && (
-    <div className="content-section">
-        <h2 className="content-title">My Profile</h2>
-        
-        {/* Container to stack Profile and Security cards */}
-        <div className="cards-grid" style={{ gridTemplateColumns: '1fr' }}>
-
-            {/* 1. EXISTING PROFILE CARD */}
-            <div className="card" style={{ padding: 0, overflow: 'hidden', maxWidth: '800px', margin: '0 auto' }}>
-                
-                {/* Cover Photo & Avatar Area */}
-                <div className="profile-cover">
-                    <div className="profile-avatar-wrapper">
-                        <div className="profile-avatar-img">
-                            {hodInfo?.firstName?.charAt(0)}
-                        </div>
-                    </div>
-                    {/* Edit Button positioned on Cover */}
-                    <div style={{ position: 'absolute', bottom: '-50px', right: '20px' }}>
-                        <button className="edit-btn-floating" onClick={() => setIsEditingProfile(!isEditingProfile)}>
-                            {isEditingProfile ? 'Cancel Editing' : <><i className="fas fa-pen"></i> Edit Profile</>}
-                        </button>
-                    </div>
-                </div>
-
-                {/* Header Info */}
-                <div className="profile-header-content">
-                    <div style={{ marginTop: '10px' }}>
-                        <h2 style={{ margin: 0, fontSize: '24px', color: '#1e293b' }}>
-                            {hodInfo?.firstName} {hodInfo?.lastName}
-                        </h2>
-                        <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '14px' }}>
-                            Head of Department • {hodInfo?.department}
-                        </p>
-                    </div>
-                </div>
-
-                {/* Details Grid (View Mode) */}
-                {!isEditingProfile ? (
-                    <div className="profile-grid">
-                        <div className="profile-field">
-                            <label>Institute</label>
-                            <div><i className="fas fa-university" style={{color:'#6366f1'}}></i> {hodInfo?.instituteName}</div>
-                        </div>
-                        <div className="profile-field">
-                            <label>Email Address</label>
-                            <div><i className="fas fa-envelope" style={{color:'#ef4444'}}></i> {hodInfo?.email}</div>
-                        </div>
-                        <div className="profile-field">
-                            <label>Qualification</label>
-                            <div><i className="fas fa-graduation-cap" style={{color:'#f59e0b'}}></i> {hodInfo?.qualification || 'Not Added'}</div>
-                        </div>
-                        <div className="profile-field">
-                            <label>Phone Number</label>
-                            <div><i className="fas fa-phone" style={{color:'#10b981'}}></i> {hodInfo?.phone || 'Not Added'}</div>
-                        </div>
-                    </div>
-                ) : (
-                    // Edit Form
-                    <form onSubmit={handleUpdateProfile} style={{ padding: '20px' }}>
-                        <div style={{display:'flex', gap:'15px', marginBottom:'15px'}}>
-                            <div className="input-group" style={{flex:1}}>
-                                <label>First Name</label>
-                                <input type="text" value={profileForm.firstName} onChange={e => setProfileForm({...profileForm, firstName: e.target.value})} className="modern-input" />
-                            </div>
-                            <div className="input-group" style={{flex:1}}>
-                                <label>Last Name</label>
-                                <input type="text" value={profileForm.lastName} onChange={e => setProfileForm({...profileForm, lastName: e.target.value})} className="modern-input" />
-                            </div>
-                        </div>
-                        
-                        <div style={{display:'flex', gap:'15px', marginBottom:'15px'}}>
-                            <div className="input-group" style={{flex:1}}>
-                                <label>Qualification</label>
-                                <input type="text" value={profileForm.qualification} onChange={e => setProfileForm({...profileForm, qualification: e.target.value})} className="modern-input" placeholder="e.g. PhD" />
-                            </div>
-                            <div className="input-group" style={{flex:1}}>
-                                <label>Phone</label>
-                                <input type="text" value={profileForm.phone} onChange={e => setProfileForm({...profileForm, phone: e.target.value})} className="modern-input" placeholder="+91..." />
-                            </div>
-                        </div>
-
-                        <button className="btn-primary" disabled={loading} style={{width:'100%'}}>
-                            {loading ? 'Saving Changes...' : 'Save Updates'}
-                        </button>
-                    </form>
-                )}
-            </div>
-
-            {/* 2. ✅ NEW 2FA SECTION FOR HOD */}
-            <div className="card" style={{ borderLeft: '4px solid #10b981', maxWidth: '800px', margin: '0 auto', width: '100%' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px', paddingBottom: '15px', borderBottom: '1px solid #f1f5f9' }}>
-                    <div style={{ width: '50px', height: '50px', borderRadius: '12px', background: '#ecfdf5', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }}>
-                        <i className="fas fa-shield-alt"></i>
-                    </div>
-                    <div>
-                        <h3 style={{ margin: 0, fontSize: '18px', color: '#1e293b' }}>Two-Factor Authentication</h3>
-                        <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>Protect your Department Head account.</p>
-                    </div>
-                </div>
-                
-                {/* 2FA Component */}
-                <TwoFactorSetup user={hodInfo} />
-            </div>
-
-        </div>
-    </div>
-)}
-                {activeTab === 'announcements' && (
+                {activeTab === 'profile' && (
                     <div className="content-section">
-                        <h2 className="content-title">📢 Announcements</h2>
-                        <div className="cards-grid">
-                            <div className="card">
-                                <h3>Create Announcement</h3>
-                                <form onSubmit={handlePostAnnouncement} style={{ marginTop: '15px' }}>
-                                    <div className="input-group">
-                                        <label>Target Audience</label>
-                                        <select value={announcementForm.targetYear} onChange={e => setAnnouncementForm({ ...announcementForm, targetYear: e.target.value })} required className="modern-select">
-                                            <option value="All">All Students & Teachers</option>
-                                            <option value="Teachers">Teachers Only</option>
-                                            <option value="FE">First Year (FE)</option>
-                                            <option value="SE">Second Year (SE)</option>
-                                            <option value="TE">Third Year (TE)</option>
-                                            <option value="BE">Final Year (BE)</option>
-                                        </select>
+                        <h2 className="content-title">My Profile</h2>
+
+                        {/* Container to stack Profile and Security cards */}
+                        <div className="cards-grid" style={{ gridTemplateColumns: '1fr' }}>
+
+                            {/* 1. EXISTING PROFILE CARD */}
+                            <div className="card" style={{ padding: 0, overflow: 'hidden', maxWidth: '800px', margin: '0 auto' }}>
+
+                                {/* Cover Photo & Avatar Area */}
+                                <div className="profile-cover">
+                                    <div className="profile-avatar-wrapper">
+                                        <div className="profile-avatar-img">
+                                            {hodInfo?.firstName?.charAt(0)}
+                                        </div>
                                     </div>
-                                    <div className="input-group"><label>Title</label><input type="text" required value={announcementForm.title} onChange={e => setAnnouncementForm({ ...announcementForm, title: e.target.value })} /></div>
-                                    <div className="input-group"><label>Message</label><textarea className="modern-input" rows="3" required value={announcementForm.message} onChange={e => setAnnouncementForm({ ...announcementForm, message: e.target.value })} /></div>
-                                    <button className="btn-primary">Post</button>
+                                    {/* Edit Button positioned on Cover */}
+                                    <div style={{ position: 'absolute', bottom: '-50px', right: '20px' }}>
+                                        <button className="edit-btn-floating" onClick={() => setIsEditingProfile(!isEditingProfile)}>
+                                            {isEditingProfile ? 'Cancel Editing' : <><i className="fas fa-pen"></i> Edit Profile</>}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Header Info */}
+                                <div className="profile-header-content">
+                                    <div style={{ marginTop: '10px' }}>
+                                        <h2 style={{ margin: 0, fontSize: '24px', color: '#1e293b' }}>
+                                            {hodInfo?.firstName} {hodInfo?.lastName}
+                                        </h2>
+                                        <p style={{ margin: '4px 0 0', color: '#64748b', fontSize: '14px' }}>
+                                            Head of Department • {hodInfo?.department}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Details Grid (View Mode) */}
+                                {!isEditingProfile ? (
+                                    <div className="profile-grid">
+                                        <div className="profile-field">
+                                            <label>Institute</label>
+                                            <div><i className="fas fa-university" style={{ color: '#6366f1' }}></i> {hodInfo?.instituteName}</div>
+                                        </div>
+                                        <div className="profile-field">
+                                            <label>Email Address</label>
+                                            <div><i className="fas fa-envelope" style={{ color: '#ef4444' }}></i> {hodInfo?.email}</div>
+                                        </div>
+                                        <div className="profile-field">
+                                            <label>Qualification</label>
+                                            <div><i className="fas fa-graduation-cap" style={{ color: '#f59e0b' }}></i> {hodInfo?.qualification || 'Not Added'}</div>
+                                        </div>
+                                        <div className="profile-field">
+                                            <label>Phone Number</label>
+                                            <div><i className="fas fa-phone" style={{ color: '#10b981' }}></i> {hodInfo?.phone || 'Not Added'}</div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    // Edit Form
+                                    <form onSubmit={handleUpdateProfile} style={{ padding: '20px' }}>
+                                        <div style={{ display: 'flex', gap: '15px', marginBottom: '15px' }}>
+                                            <div className="input-group" style={{ flex: 1 }}>
+                                                <label>First Name</label>
+                                                <input type="text" value={profileForm.firstName} onChange={e => setProfileForm({ ...profileForm, firstName: e.target.value })} className="modern-input" />
+                                            </div>
+                                            <div className="input-group" style={{ flex: 1 }}>
+                                                <label>Last Name</label>
+                                                <input type="text" value={profileForm.lastName} onChange={e => setProfileForm({ ...profileForm, lastName: e.target.value })} className="modern-input" />
+                                            </div>
+                                        </div>
+
+                                        <div style={{ display: 'flex', gap: '15px', marginBottom: '15px' }}>
+                                            <div className="input-group" style={{ flex: 1 }}>
+                                                <label>Qualification</label>
+                                                <input type="text" value={profileForm.qualification} onChange={e => setProfileForm({ ...profileForm, qualification: e.target.value })} className="modern-input" placeholder="e.g. PhD" />
+                                            </div>
+                                            <div className="input-group" style={{ flex: 1 }}>
+                                                <label>Phone</label>
+                                                <input type="text" value={profileForm.phone} onChange={e => setProfileForm({ ...profileForm, phone: e.target.value })} className="modern-input" placeholder="+91..." />
+                                            </div>
+                                        </div>
+
+                                        <button className="btn-primary" disabled={loading} style={{ width: '100%' }}>
+                                            {loading ? 'Saving Changes...' : 'Save Updates'}
+                                        </button>
+                                    </form>
+                                )}
+                            </div>
+
+                            {/* 2. ✅ NEW 2FA SECTION FOR HOD */}
+                            <div className="card" style={{ borderLeft: '4px solid #10b981', maxWidth: '800px', margin: '0 auto', width: '100%' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px', paddingBottom: '15px', borderBottom: '1px solid #f1f5f9' }}>
+                                    <div style={{ width: '50px', height: '50px', borderRadius: '12px', background: '#ecfdf5', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }}>
+                                        <i className="fas fa-shield-alt"></i>
+                                    </div>
+                                    <div>
+                                        <h3 style={{ margin: 0, fontSize: '18px', color: '#1e293b' }}>Two-Factor Authentication</h3>
+                                        <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>Protect your Department Head account.</p>
+                                    </div>
+                                </div>
+
+                                {/* 2FA Component */}
+                                <TwoFactorSetup user={hodInfo} />
+                            </div>
+                            {/* ✅ Security: Change Password */}
+                            <div className="card" style={{ maxWidth: '800px', margin: '20px auto', width: '100%', borderLeft: '4px solid #f59e0b' }}>
+                                <h3><i className="fas fa-lock"></i> Change Password</h3>
+                                {/* ✅ FIX: Vertical stacking for Mobile */}
+                                <form onSubmit={handleChangePassword} style={{
+                                    marginTop: '15px',
+                                    display: 'flex',
+                                    flexDirection: 'column', // Force one below other
+                                    gap: '20px'
+                                }}>
+                                    <div className="input-group">
+                                        <label>New Password</label>
+                                        <input type="password" value={passwordForm.newPassword} onChange={e => setPasswordForm({ ...passwordForm, newPassword: e.target.value })} required minLength={6} placeholder="Min 6 chars" />
+                                    </div>
+                                    <div className="input-group">
+                                        <label>Confirm Password</label>
+                                        <input type="password" value={passwordForm.confirmPassword} onChange={e => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })} required placeholder="Repeat password" />
+                                    </div>
+                                    <button className="btn-secondary" style={{ width: '100%', height: '48px' }}>Update Password</button>
                                 </form>
                             </div>
-                            <div className="card">
-                                <h3>History</h3>
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '400px', overflowY: 'auto', marginTop: '10px' }}>
-                                    {announcements.map(a => (
-                                        <div key={a.id} style={{ padding: '12px', background: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0', position: 'relative' }}>
-                                            <span className="status-badge-pill" style={{ fontSize: '10px', marginBottom: '5px', background: a.targetYear === 'Teachers' ? '#fef3c7' : '#e0f2fe', color: a.targetYear === 'Teachers' ? '#d97706' : '#0284c7' }}>
-                                                {a.targetYear === 'All' ? 'Everyone' : a.targetYear}
-                                            </span>
-                                            <h4 style={{ margin: '0 0 5px 0' }}>{a.title}</h4>
-                                            <p style={{ fontSize: '13px', color: '#64748b', margin: 0 }}>{a.message}</p>
-                                            <small style={{fontSize:'11px', color:'#94a3b8'}}>By: {a.teacherName}</small>
-                                            <button onClick={() => handleDeleteAnnouncement(a.id)} style={{ position: 'absolute', top: '10px', right: '10px', background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}><i className="fas fa-trash"></i></button>
-                                        </div>
-                                    ))}
+
+                        </div>
+                    </div>
+                )}
+                {activeTab === 'announcements' && (
+                    <div className="content-section">
+                        {/* --- 1. MODERN HEADER & TOGGLE --- */}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginBottom: '30px', marginTop: '15px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                <div style={{ width: '50px', height: '50px', borderRadius: '12px', background: 'linear-gradient(135deg, #2563eb, #1e40af)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: '24px', boxShadow: '0 10px 20px -5px rgba(37, 99, 235, 0.4)' }}>
+                                    <i className="fas fa-bullhorn"></i>
+                                </div>
+                                <div>
+                                    <h2 className="content-title" style={{ fontSize: '24px', margin: 0, color: '#1e293b' }}>
+                                        Announcements
+                                    </h2>
+                                    <p style={{ color: '#64748b', margin: '4px 0 0', fontSize: '14px' }}>Manage department circulars & updates.</p>
                                 </div>
                             </div>
+
+                            {/* TOGGLE BUTTONS */}
+                            <div style={{ background: 'white', padding: '6px', borderRadius: '12px', display: 'flex', gap: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.03)', width: 'fit-content', border: '1px solid #f1f5f9' }}>
+                                <button
+                                    onClick={() => setAnnoTab('create')}
+                                    style={{
+                                        padding: '10px 24px', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '700',
+                                        background: annoTab === 'create' ? '#eff6ff' : 'transparent',
+                                        color: annoTab === 'create' ? '#2563eb' : '#64748b',
+                                        transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '8px'
+                                    }}
+                                >
+                                    <i className="fas fa-pen-nib"></i> Compose
+                                </button>
+                                <button
+                                    onClick={() => setAnnoTab('history')}
+                                    style={{
+                                        padding: '10px 24px', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '700',
+                                        background: annoTab === 'history' ? '#eff6ff' : 'transparent',
+                                        color: annoTab === 'history' ? '#2563eb' : '#64748b',
+                                        transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '8px'
+                                    }}
+                                >
+                                    <i className="fas fa-history"></i> History
+                                </button>
+                            </div>
                         </div>
+
+                        {/* --- 2. COMPOSE VIEW --- */}
+                        {annoTab === 'create' && (
+                            <div className="card" style={{ maxWidth: '750px', border: 'none', boxShadow: '0 20px 40px -10px rgba(0,0,0,0.08)', overflow: 'hidden', padding: '0', borderRadius: '20px' }}>
+                                <div style={{ background: 'white', padding: '30px 40px', borderBottom: '1px solid #f1f5f9' }}>
+                                    <h3 style={{ margin: 0, fontSize: '18px', display: 'flex', alignItems: 'center', gap: '12px', color: '#1e293b' }}>
+                                        <span style={{ background: '#dbeafe', color: '#2563eb', padding: '8px', borderRadius: '8px' }}><i className="fas fa-layer-group"></i></span>
+                                        Draft Notice
+                                    </h3>
+                                </div>
+
+                                <form onSubmit={handlePostAnnouncement} style={{ padding: '30px 40px' }}>
+                                    {/* Target Audience */}
+                                    <div style={{ marginBottom: '25px' }}>
+                                        <label style={{ display: 'block', fontWeight: '700', color: '#64748b', fontSize: '12px', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.5px' }}>Target Audience</label>
+                                        <CustomDropdown
+                                            value={announcementForm.targetYear}
+                                            onChange={(e) => setAnnouncementForm({ ...announcementForm, targetYear: e.target.value })}
+                                            options={[
+                                                { value: 'All', label: <span><i className="fas fa-users" style={{ marginRight: '10px', color: '#3b82f6' }}></i> All Students</span> },
+                                                { value: 'FE', label: <span><i className="fas fa-graduation-cap" style={{ marginRight: '10px', color: '#8b5cf6' }}></i> First Year (FE)</span> },
+                                                { value: 'SE', label: <span><i className="fas fa-graduation-cap" style={{ marginRight: '10px', color: '#ec4899' }}></i> Second Year (SE)</span> },
+                                                { value: 'TE', label: <span><i className="fas fa-graduation-cap" style={{ marginRight: '10px', color: '#f59e0b' }}></i> Third Year (TE)</span> },
+                                                { value: 'BE', label: <span><i className="fas fa-graduation-cap" style={{ marginRight: '10px', color: '#10b981' }}></i> Final Year (BE)</span> },
+                                                { value: 'Teachers', label: <span><i className="fas fa-chalkboard-teacher" style={{ marginRight: '10px', color: '#ef4444' }}></i> Faculty & Staff</span> }
+                                            ]}
+                                        />
+                                    </div>
+
+                                    {/* Title */}
+                                    <div style={{ marginBottom: '25px' }}>
+                                        <label style={{ display: 'block', fontWeight: '700', color: '#64748b', fontSize: '12px', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.5px' }}>Subject Line</label>
+                                        <div style={{ position: 'relative' }}>
+                                            <i className="fas fa-heading" style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }}></i>
+                                            <input
+                                                type="text"
+                                                required
+                                                placeholder="e.g. Schedule for Upcoming Exams"
+                                                value={announcementForm.title}
+                                                onChange={e => setAnnouncementForm({ ...announcementForm, title: e.target.value })}
+                                                style={{ width: '100%', padding: '14px 14px 14px 45px', borderRadius: '12px', border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '14px', outline: 'none', transition: 'all 0.2s', fontWeight: '500', color: '#334155' }}
+                                                onFocus={(e) => { e.target.style.background = 'white'; e.target.style.borderColor = '#3b82f6'; }}
+                                                onBlur={(e) => { e.target.style.background = '#f8fafc'; e.target.style.borderColor = '#e2e8f0'; }}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Message */}
+                                    <div style={{ marginBottom: '25px' }}>
+                                        <label style={{ display: 'block', fontWeight: '700', color: '#64748b', fontSize: '12px', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.5px' }}>Message Body</label>
+                                        <textarea
+                                            rows="6"
+                                            required
+                                            placeholder="Write the full details of the announcement here..."
+                                            value={announcementForm.message}
+                                            onChange={e => setAnnouncementForm({ ...announcementForm, message: e.target.value })}
+                                            style={{ width: '100%', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: '14px', resize: 'vertical', outline: 'none', fontFamily: 'inherit', transition: 'all 0.2s', lineHeight: '1.6', color: '#334155' }}
+                                            onFocus={(e) => { e.target.style.background = 'white'; e.target.style.borderColor = '#3b82f6'; }}
+                                            onBlur={(e) => { e.target.style.background = '#f8fafc'; e.target.style.borderColor = '#e2e8f0'; }}
+                                        />
+                                    </div>
+
+                                    {/* File Upload */}
+                                    <div style={{ marginBottom: '30px' }}>
+                                        <label style={{ display: 'block', fontWeight: '700', color: '#64748b', fontSize: '12px', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.5px' }}>Attachment</label>
+                                        <input
+                                            type="file"
+                                            id="anno-file"
+                                            onChange={e => setAnnoFile(e.target.files[0])}
+                                            style={{ display: 'none' }}
+                                        />
+                                        <label htmlFor="anno-file" style={{
+                                            display: 'flex', alignItems: 'center', gap: '15px',
+                                            padding: '15px 20px', border: '2px dashed #cbd5e1', borderRadius: '12px',
+                                            background: 'white', cursor: 'pointer', transition: 'all 0.2s', color: '#64748b'
+                                        }}
+                                            onMouseOver={(e) => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.background = '#eff6ff'; }}
+                                            onMouseOut={(e) => { e.currentTarget.style.borderColor = '#cbd5e1'; e.currentTarget.style.background = 'white'; }}
+                                        >
+                                            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#e0f2fe', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0284c7', fontSize: '18px' }}>
+                                                <i className={`fas ${annoFile ? 'fa-check' : 'fa-paperclip'}`}></i>
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                                <span style={{ fontSize: '14px', fontWeight: '600', color: '#1e293b' }}>
+                                                    {annoFile ? annoFile.name : "Attach Document"}
+                                                </span>
+                                                <span style={{ fontSize: '12px', color: '#94a3b8' }}>PDF, JPG, PNG (Max 5MB)</span>
+                                            </div>
+                                        </label>
+                                    </div>
+
+                                    {/* Submit Button */}
+                                    <button className="btn-primary" style={{ width: '100%', padding: '16px', borderRadius: '12px', fontSize: '16px', fontWeight: '700', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', boxShadow: '0 10px 20px -5px rgba(37, 99, 235, 0.4)', background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)', border: 'none' }}>
+                                        <span>Publish Announcement</span> <i className="fas fa-paper-plane"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        )}
+
+                        {/* --- 3. HISTORY VIEW --- */}
+                        {annoTab === 'history' && (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
+                                {announcements.length === 0 ? (
+                                    <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '80px 20px', color: '#94a3b8', background: 'white', borderRadius: '20px', border: '1px dashed #e2e8f0' }}>
+                                        <div style={{ width: '80px', height: '80px', background: '#f8fafc', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px auto' }}>
+                                            <i className="fas fa-inbox" style={{ fontSize: '32px', opacity: 0.3 }}></i>
+                                        </div>
+                                        <p style={{ fontWeight: '600', fontSize: '16px', margin: 0 }}>No announcements history.</p>
+                                    </div>
+                                ) : (
+                                    announcements.map(a => (
+                                        <div key={a.id} style={{
+                                            background: 'white', borderRadius: '16px', padding: '24px',
+                                            border: '1px solid #f1f5f9', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)',
+                                            position: 'relative', display: 'flex', flexDirection: 'column',
+                                            transition: 'transform 0.2s', cursor: 'default'
+                                        }}
+                                            onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-3px)'}
+                                            onMouseOut={(e) => e.currentTarget.style.transform = 'translateY(0)'}
+                                        >
+                                            {/* Header */}
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '15px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <span style={{
+                                                        width: '32px', height: '32px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px',
+                                                        background: a.targetYear === 'Teachers' ? '#fff7ed' : '#eff6ff',
+                                                        color: a.targetYear === 'Teachers' ? '#c2410c' : '#2563eb'
+                                                    }}>
+                                                        <i className={`fas ${a.targetYear === 'Teachers' ? 'fa-chalkboard-teacher' : 'fa-user-graduate'}`}></i>
+                                                    </span>
+                                                    <span style={{ fontSize: '12px', fontWeight: '700', color: '#64748b' }}>
+                                                        {a.targetYear === 'All' ? 'Everyone' : a.targetYear}
+                                                    </span>
+                                                </div>
+                                                <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600', background: '#f8fafc', padding: '4px 8px', borderRadius: '6px' }}>
+                                                    {a.createdAt?.toDate().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                                                </span>
+                                            </div>
+
+                                            {/* Content */}
+                                            <h4 style={{ margin: '0 0 10px 0', fontSize: '16px', color: '#1e293b', lineHeight: '1.4', fontWeight: '700' }}>{a.title}</h4>
+                                            <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 20px 0', lineHeight: '1.6', flex: 1 }}>{a.message}</p>
+
+                                            {/* Footer with UNIQUE CLASS for Alignment */}
+                                            <div className="anno-history-footer">
+                                                {a.attachmentUrl ? (
+                                                    <a href={a.attachmentUrl} target="_blank" rel="noreferrer" className="anno-attachment-link">
+                                                        <i className="fas fa-file-alt"></i> Open File
+                                                    </a>
+                                                ) : (
+                                                    <span style={{ fontSize: '12px', color: '#cbd5e1', fontStyle: 'italic', fontWeight: '500' }}>No attachment</span>
+                                                )}
+
+                                                <button
+                                                    onClick={() => handleDeleteAnnouncement(a.id)}
+                                                    className="anno-delete-btn"
+                                                    title="Delete Notice"
+                                                >
+                                                    <i className="fas fa-trash-alt"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        )}
+
+                        {/* ✅ UNIQUE CSS FOR PERFECT ALIGNMENT */}
+                        <style>{`
+                            .anno-history-footer {
+                                margin-top: auto;
+                                padding-top: 15px;
+                                border-top: 1px solid #f8fafc;
+                                display: flex;
+                                justify-content: space-between;
+                                align-items: center; /* 🔑 This forces vertical center alignment */
+                                height: 40px; /* Fixed height container */
+                            }
+
+                            .anno-attachment-link {
+                                font-size: 12px;
+                                font-weight: 600;
+                                color: #2563eb;
+                                text-decoration: none;
+                                display: flex;
+                                align-items: center;
+                                gap: 8px;
+                                background: #f0f9ff;
+                                padding: 8px 14px;
+                                borderRadius: 8px;
+                                transition: all 0.2s;
+                                height: 36px; /* Matches delete button height */
+                            }
+                            .anno-attachment-link:hover {
+                                background: #dbeafe;
+                            }
+
+                            .anno-delete-btn {
+                                background: #fee2e2;
+                                color: #ef4444;
+                                border: none;
+                                width: 36px; /* Fixed square size */
+                                height: 36px; 
+                                border-radius: 10px;
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                                cursor: pointer;
+                                transition: all 0.2s;
+                                font-size: 14px;
+                            }
+                            .anno-delete-btn:hover {
+                                background: #fecaca;
+                                transform: scale(1.05);
+                            }
+                        `}</style>
                     </div>
                 )}
 
@@ -823,7 +1328,7 @@ export default function HODDashboard() {
                 {activeTab === 'manage' && (
                     <div className="content-section">
                         <h2 className="content-title">Department Users</h2>
-                        
+
                         {/* Teachers Table */}
                         <div className="card card-full-width" style={{ marginBottom: '24px' }}>
                             <h3 style={{ margin: '0 0 10px 0' }}>Teachers ({teachersList.length})</h3>
@@ -847,7 +1352,7 @@ export default function HODDashboard() {
                                                 <td>{t.email}</td>
                                                 <td>
                                                     <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
-                                                        {t.assignedClasses && t.assignedClasses.length > 0 ? 
+                                                        {t.assignedClasses && t.assignedClasses.length > 0 ?
                                                             t.assignedClasses.map((cls, idx) => (
                                                                 <span key={idx} className="status-badge-pill" style={{ fontSize: '11px', padding: '2px 8px' }}>
                                                                     {cls.year} - {cls.subject}
@@ -875,25 +1380,25 @@ export default function HODDashboard() {
                                 const yearStudents = studentsList.filter(s => s.year === year);
                                 return (
                                     <div key={year} className="card" style={{ display: 'flex', flexDirection: 'column', height: '350px' }}>
-                                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', borderBottom:'1px solid #e2e8f0', paddingBottom:'10px', marginBottom:'10px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '10px', marginBottom: '10px' }}>
                                             <h3 style={{ margin: 0, color: '#2563eb' }}>{year} Students</h3>
-                                            <span className="nav-badge" style={{background:'#eff6ff', color:'#2563eb', fontSize:'12px'}}>{yearStudents.length}</span>
+                                            <span className="nav-badge" style={{ background: '#eff6ff', color: '#2563eb', fontSize: '12px' }}>{yearStudents.length}</span>
                                         </div>
-                                        
+
                                         <div className="custom-scroll" style={{ flex: 1, overflowY: 'auto' }}>
                                             {yearStudents.length > 0 ? (
                                                 <table className="attendance-table" style={{ fontSize: '13px' }}>
                                                     <thead><tr><th>Roll</th><th>Name</th></tr></thead>
                                                     <tbody>
-                                                        {yearStudents.sort((a,b) => (a.rollNo || "").localeCompare(b.rollNo, undefined, {numeric:true})).map(s => (
+                                                        {yearStudents.sort((a, b) => (a.rollNo || "").localeCompare(b.rollNo, undefined, { numeric: true })).map(s => (
                                                             <tr key={s.id}>
-                                                                <td style={{fontWeight:'bold'}}>{s.rollNo}</td>
+                                                                <td style={{ fontWeight: 'bold' }}>{s.rollNo}</td>
                                                                 <td>{s.firstName} {s.lastName}</td>
                                                             </tr>
                                                         ))}
                                                     </tbody>
                                                 </table>
-                                            ) : <p style={{textAlign:'center', color:'#94a3b8', marginTop:'20px'}}>No students found.</p>}
+                                            ) : <p style={{ textAlign: 'center', color: '#94a3b8', marginTop: '20px' }}>No students found.</p>}
                                         </div>
                                     </div>
                                 );
@@ -915,9 +1420,9 @@ export default function HODDashboard() {
                         <h2 className="content-title">Add New Teacher</h2>
                         <div className="card">
                             <form onSubmit={handleAddTeacher}>
-                                <div style={{display:'flex', gap:'15px'}}>
-                                    <div className="input-group" style={{flex:1}}><label>First Name</label><input type="text" required value={teacherForm.firstName} onChange={e => setTeacherForm({ ...teacherForm, firstName: e.target.value })} /></div>
-                                    <div className="input-group" style={{flex:1}}><label>Last Name</label><input type="text" required value={teacherForm.lastName} onChange={e => setTeacherForm({ ...teacherForm, lastName: e.target.value })} /></div>
+                                <div style={{ display: 'flex', gap: '15px' }}>
+                                    <div className="input-group" style={{ flex: 1 }}><label>First Name</label><input type="text" required value={teacherForm.firstName} onChange={e => setTeacherForm({ ...teacherForm, firstName: e.target.value })} /></div>
+                                    <div className="input-group" style={{ flex: 1 }}><label>Last Name</label><input type="text" required value={teacherForm.lastName} onChange={e => setTeacherForm({ ...teacherForm, lastName: e.target.value })} /></div>
                                 </div>
 
                                 <div className="input-group">
@@ -925,14 +1430,18 @@ export default function HODDashboard() {
                                     <input type="text" value={hodInfo?.department || ''} disabled style={{ background: '#f1f5f9', cursor: 'not-allowed' }} />
                                 </div>
 
-                                {/* ✅ Academic Year */}
+                                {/* REPLACED ACADEMIC YEAR SELECT */}
                                 <div className="input-group">
                                     <label>Academic Year</label>
-                                    <select value={teacherForm.academicYear} onChange={e => setTeacherForm({...teacherForm, academicYear: e.target.value})} className="modern-select">
-                                        <option value="2024-2025">2024-2025</option>
-                                        <option value="2025-2026">2025-2026</option>
-                                        <option value="2026-2027">2026-2027</option>
-                                    </select>
+                                    <CustomDropdown
+                                        value={teacherForm.academicYear}
+                                        onChange={(e) => setTeacherForm({ ...teacherForm, academicYear: e.target.value })}
+                                        options={[
+                                            { value: '2024-2025', label: '2024-2025' },
+                                            { value: '2025-2026', label: '2025-2026' },
+                                            { value: '2026-2027', label: '2026-2027' }
+                                        ]}
+                                    />
                                 </div>
 
                                 <div className="input-group">
@@ -975,7 +1484,7 @@ export default function HODDashboard() {
                     </div>
                 )}
             </main>
-            
+
             {/* Mobile Footer Bar */}
             <MobileFooter />
         </div>
