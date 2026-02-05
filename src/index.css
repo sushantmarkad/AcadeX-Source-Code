@@ -63,7 +63,7 @@ code {
 
 /* Mobile Header Fix */
 .mobile-header {
-    padding-top: max(15px, env(safe-area-inset-top)) !important;
+    padding-top: max(9px, env(safe-area-inset-top)) !important;
     height: auto !important;
     min-height: 70px;
     /* Ensure it doesn't get cut off */

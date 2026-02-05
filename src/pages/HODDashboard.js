@@ -40,6 +40,7 @@ export default function HODDashboard() {
     const [timetableYear, setTimetableYear] = useState('FE');
     const [timetableData, setTimetableData] = useState({});
     const [isSavingTimetable, setIsSavingTimetable] = useState(false);
+    const [activeSemesters, setActiveSemesters] = useState({ FE: 1, SE: 3, TE: 5, BE: 7 });
 
     // Attendance Graph State
     const [attendanceGraph, setAttendanceGraph] = useState([]);
@@ -87,10 +88,19 @@ export default function HODDashboard() {
                     phone: data.phone || ''
                 });
 
-                // Fetch Stats
-                const statsDoc = await getDoc(doc(db, "department_stats", `${data.instituteId}_${data.department}`));
-                if (statsDoc.exists()) setTotalClasses(statsDoc.data().totalClasses || 0);
+                // ✅ UPDATED: Fetch Stats & Active Semester
+                const statsRef = doc(db, "department_stats", `${data.instituteId}_${data.department}`);
+                const statsDoc = await getDoc(statsRef);
 
+                if (statsDoc.exists()) {
+                    setTotalClasses(statsDoc.data().totalClasses || 0);
+                    // ✅ LOAD OBJECT INSTEAD OF SINGLE INTEGER
+                    setActiveSemesters(statsDoc.data().activeSemesters || { FE: 1, SE: 3, TE: 5, BE: 7 });
+                } else {
+                    const defaultSems = { FE: 1, SE: 3, TE: 5, BE: 7 };
+                    await setDoc(statsRef, { activeSemesters: defaultSems, totalClasses: 0 }, { merge: true });
+                    setActiveSemesters(defaultSems);
+                }
                 // Fetch Requests
                 const qRequests = query(collection(db, 'student_requests'), where('instituteId', '==', data.instituteId), where('department', '==', data.department), where('status', '==', 'pending'));
                 onSnapshot(qRequests, (snap) => setStudentRequests(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
@@ -248,14 +258,30 @@ export default function HODDashboard() {
         else setSelectedRequestIds(studentRequests.map(r => r.id));
     };
 
-    // Handle Class/Year Selection for New Teacher
+    // ✅ NEW: Handle Semester Selection
+    const handleSemesterChange = (year, semester) => {
+        setTeacherForm(prev => ({
+            ...prev,
+            assignedClasses: prev.assignedClasses.map(c =>
+                c.year === year ? { ...c, semester: Number(semester) } : c
+            )
+        }));
+    };
+
+    // ✅ UPDATE: Ensure new classes get a default semester when toggled
     const handleClassToggle = (year) => {
         setTeacherForm(prev => {
             const exists = prev.assignedClasses.find(c => c.year === year);
             if (exists) {
                 return { ...prev, assignedClasses: prev.assignedClasses.filter(c => c.year !== year) };
             } else {
-                return { ...prev, assignedClasses: [...prev.assignedClasses, { year, subject: '' }] };
+                // Default Semesters: FE->1, SE->3, TE->5, BE->7
+                let defaultSem = 1;
+                if (year === 'SE') defaultSem = 3;
+                if (year === 'TE') defaultSem = 5;
+                if (year === 'BE') defaultSem = 7;
+
+                return { ...prev, assignedClasses: [...prev.assignedClasses, { year, subject: '', semester: defaultSem }] };
             }
         });
     };
@@ -266,6 +292,7 @@ export default function HODDashboard() {
             assignedClasses: prev.assignedClasses.map(c => c.year === year ? { ...c, subject } : c)
         }));
     };
+
 
     // --- ACTIONS ---
 
@@ -527,9 +554,48 @@ export default function HODDashboard() {
         </li>
     );
 
+// ✅ NEW: Handle Year-Wise Switching via Backend API
+    const handleSemesterSwitch = async (year, newSem) => {
+        if (!hodInfo) return;
+        
+        const toastId = toast.loading(`Updating ${year} to Sem ${newSem}...`);
+        
+        try {
+            const semInt = parseInt(newSem);
+            
+            // 1. Create the updated state object locally first
+            const updatedSems = { ...activeSemesters, [year]: semInt };
+
+            // 2. Call the Backend API (Secure Write)
+            const response = await fetch(`${BACKEND_URL}/updateDepartmentStats`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    instituteId: hodInfo.instituteId,
+                    department: hodInfo.department,
+                    activeSemesters: updatedSems
+                })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || "Server failed to update");
+            }
+
+            // 3. Update Local State (Only if backend succeeds)
+            setActiveSemesters(updatedSems);
+            toast.success(`${year} is now in Semester ${semInt}`, { id: toastId });
+
+        } catch (error) {
+            console.error("Semester Switch Error:", error);
+            toast.error(error.message || "Failed to update semester", { id: toastId });
+        }
+    };
+
     return (
         <div className="dashboard-container">
-            
+
 
             {modal.isOpen && (
                 <div className="hod-modal-overlay">
@@ -589,9 +655,50 @@ export default function HODDashboard() {
                     <div style={{ width: '40px' }}></div>
                 </header>
 
-                {/* ✅ UPDATED DASHBOARD TAB */}
                 {activeTab === 'dashboard' && (
                     <div className="content-section">
+                        
+                        {/* ✅ NEW: YEAR-WISE SEMESTER CONTROL */}
+                        {/* This allows the HOD to set the semester for each year independently */}
+                        <div className="card" style={{ background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', color: 'white', marginBottom: '30px', padding: '25px' }}>
+                            <h3 style={{ margin: '0 0 15px 0', fontSize: '18px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <i className="fas fa-cogs" style={{ color: '#38bdf8' }}></i> Academic Session Control
+                            </h3>
+                            
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '15px' }}>
+                                {['FE', 'SE', 'TE', 'BE'].map(year => {
+                                    // Determine options based on Year (Odd/Even pairs)
+                                    let options = [];
+                                    if(year === 'FE') options = [1, 2];
+                                    if(year === 'SE') options = [3, 4];
+                                    if(year === 'TE') options = [5, 6];
+                                    if(year === 'BE') options = [7, 8];
+
+                                    return (
+                                        <div key={year} style={{ background: 'rgba(255,255,255,0.1)', padding: '10px 15px', borderRadius: '12px' }}>
+                                            <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#94a3b8', display: 'block', marginBottom: '5px' }}>
+                                                {year} CURRENT
+                                            </label>
+                                            <select 
+                                                // Defaults to first option if state isn't loaded yet
+                                                value={activeSemesters[year] || options[0]} 
+                                                onChange={(e) => handleSemesterSwitch(year, e.target.value)}
+                                                style={{ 
+                                                    width: '100%', background: '#334155', color: 'white', 
+                                                    border: '1px solid #475569', padding: '6px', borderRadius: '6px', 
+                                                    fontWeight: 'bold', cursor: 'pointer', outline: 'none'
+                                                }}
+                                            >
+                                                {options.map(sem => (
+                                                    <option key={sem} value={sem}>Sem {sem}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </div>
+
                         <h2 className="content-title">Department Overview</h2>
 
                         {/* 1. Student Count by Year (Cards) */}
@@ -1430,7 +1537,7 @@ export default function HODDashboard() {
                                     <input type="text" value={hodInfo?.department || ''} disabled style={{ background: '#f1f5f9', cursor: 'not-allowed' }} />
                                 </div>
 
-                                {/* REPLACED ACADEMIC YEAR SELECT */}
+                                {/* ACADEMIC YEAR SELECT */}
                                 <div className="input-group">
                                     <label>Academic Year</label>
                                     <CustomDropdown
@@ -1444,36 +1551,73 @@ export default function HODDashboard() {
                                     />
                                 </div>
 
+                                {/* ✅ UPDATED: Assign Classes WITH SEMESTER */}
                                 <div className="input-group">
-                                    <label>Assign Classes & Subjects</label>
+                                    <label>Assign Classes, Semester & Subjects</label>
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
                                         {['FE', 'SE', 'TE', 'BE'].map(year => {
                                             const assigned = teacherForm.assignedClasses.find(c => c.year === year);
+
+                                            // Determine Semester Options based on Year
+                                            let semOptions = [];
+                                            if (year === 'FE') semOptions = [1, 2];
+                                            if (year === 'SE') semOptions = [3, 4];
+                                            if (year === 'TE') semOptions = [5, 6];
+                                            if (year === 'BE') semOptions = [7, 8];
+
                                             return (
-                                                <div key={year} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: assigned ? '#eff6ff' : '#f8fafc', padding: '10px', borderRadius: '8px', border: assigned ? '1px solid #bfdbfe' : '1px solid #e2e8f0' }}>
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={!!assigned}
-                                                        onChange={() => handleClassToggle(year)}
-                                                        style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                                                    />
-                                                    <span style={{ fontWeight: 'bold', width: '40px' }}>{year}</span>
+                                                <div key={year} style={{
+                                                    display: 'flex', alignItems: 'center', gap: '10px',
+                                                    background: assigned ? '#eff6ff' : '#f8fafc',
+                                                    padding: '10px', borderRadius: '8px',
+                                                    border: assigned ? '1px solid #bfdbfe' : '1px solid #e2e8f0',
+                                                    flexWrap: 'wrap'
+                                                }}>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: '80px' }}>
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={!!assigned}
+                                                            onChange={() => handleClassToggle(year)}
+                                                            style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                                                        />
+                                                        <span style={{ fontWeight: 'bold' }}>{year}</span>
+                                                    </div>
 
                                                     {assigned && (
-                                                        <input
-                                                            type="text"
-                                                            placeholder={`Subject for ${year} (e.g. Maths)`}
-                                                            value={assigned.subject}
-                                                            onChange={(e) => handleSubjectChange(year, e.target.value)}
-                                                            style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1' }}
-                                                            required
-                                                        />
+                                                        <>
+                                                            {/* ✅ NEW: SEMESTER DROPDOWN */}
+                                                            <select
+                                                                value={assigned.semester}
+                                                                onChange={(e) => handleSemesterChange(year, e.target.value)}
+                                                                style={{
+                                                                    padding: '8px', borderRadius: '6px',
+                                                                    border: '1px solid #cbd5e1', fontWeight: '600',
+                                                                    width: '90px', cursor: 'pointer', background: 'white'
+                                                                }}
+                                                            >
+                                                                {semOptions.map(s => (
+                                                                    <option key={s} value={s}>Sem {s}</option>
+                                                                ))}
+                                                            </select>
+
+                                                            {/* SUBJECT INPUT */}
+                                                            <input
+                                                                type="text"
+                                                                placeholder={`Subject (e.g. OOP)`}
+                                                                value={assigned.subject}
+                                                                onChange={(e) => handleSubjectChange(year, e.target.value)}
+                                                                style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', minWidth: '150px' }}
+                                                                required
+                                                            />
+                                                        </>
                                                     )}
                                                 </div>
                                             );
                                         })}
                                     </div>
-                                    <small style={{ color: '#64748b', display: 'block', marginTop: '5px' }}>Check the year box to assign a subject.</small>
+                                    <small style={{ color: '#64748b', display: 'block', marginTop: '5px' }}>
+                                        Select the specific Semester to ensure reports work correctly.
+                                    </small>
                                 </div>
 
                                 <div className="input-group"><label>Email</label><input type="email" required value={teacherForm.email} onChange={e => setTeacherForm({ ...teacherForm, email: e.target.value })} /></div>

@@ -572,7 +572,7 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
 // ------------------------------------
 //  COMPONENT: DASHBOARD HOME (With Violet Gradient Greeting)
 // ------------------------------------
-const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionToggle, viewMode, setViewMode, selectedDate, setSelectedDate, historySessions, selectedYear, sessionLoading, sessionType, setSessionType, selectedBatch, setSelectedBatch, rollStart, setRollStart, rollEnd, setRollEnd }) => {
+const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionToggle, viewMode, setViewMode, selectedDate, setSelectedDate, historySessions, selectedYear, sessionLoading, sessionType, setSessionType, selectedBatch, setSelectedBatch, rollStart, setRollStart, rollEnd, setRollEnd, historySemester, setHistorySemester, getSubjectForHistory }) => {
     const [qrCodeValue, setQrCodeValue] = useState('');
     const [timer, setTimer] = useState(10);
     const [manualRoll, setManualRoll] = useState("");
@@ -596,6 +596,8 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
         };
         fetchStrength();
     }, [teacherInfo, selectedYear]);
+
+   
 
     const getCurrentSubject = () => {
         if (!teacherInfo) return "Class";
@@ -861,8 +863,45 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
 
             {viewMode === 'history' && (
                 <div className="cards-grid">
-                    <div className="card card-full-width" style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '20px', background: '#f8fafc' }}>
-                        <div style={{ flex: 1 }}>
+                    <div className="card card-full-width" style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '20px', background: '#f8fafc', flexWrap: 'wrap' }}>
+                        
+                        {/* ✅ 1. NEW: SEMESTER SELECTOR */}
+                        <div style={{ flex: 1, minWidth: '150px' }}>
+                            <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', textTransform: 'uppercase', marginBottom: '5px' }}>
+                                Semester
+                            </label>
+                            <div style={{ position: 'relative' }}>
+                                <select
+                                    value={historySemester}
+                                    onChange={(e) => setHistorySemester(Number(e.target.value))}
+                                    style={{
+                                        width: '100%',
+                                        padding: '12px',
+                                        border: '1px solid #cbd5e1',
+                                        borderRadius: '8px',
+                                        fontSize: '14px',
+                                        background: '#ffffff',
+                                        fontWeight: '600',
+                                        color: '#334155',
+                                        outline: 'none',
+                                        appearance: 'none'
+                                    }}
+                                >
+                                    {/* Smart Options based on Year */}
+                                    {selectedYear === 'FE' && <><option value={1}>Sem 1</option><option value={2}>Sem 2</option></>}
+                                    {selectedYear === 'SE' && <><option value={3}>Sem 3</option><option value={4}>Sem 4</option></>}
+                                    {selectedYear === 'TE' && <><option value={5}>Sem 5</option><option value={6}>Sem 6</option></>}
+                                    {selectedYear === 'BE' && <><option value={7}>Sem 7</option><option value={8}>Sem 8</option></>}
+                                    
+                                    {/* Fallback if Year is unknown */}
+                                    {!['FE','SE','TE','BE'].includes(selectedYear) && <option value={historySemester}>Current</option>}
+                                </select>
+                                <i className="fas fa-chevron-down" style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none', fontSize: '12px' }}></i>
+                            </div>
+                        </div>
+
+                        {/* ✅ 2. DATE SELECTOR (Existing) */}
+                        <div style={{ flex: 1, minWidth: '200px' }}>
                             <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', textTransform: 'uppercase', marginBottom: '5px' }}>Select Date</label>
                             <div style={{ position: 'relative', width: '100%' }}>
                                 <input
@@ -878,15 +917,23 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                                         background: '#ffffff',
                                         color: '#334155',
                                         outline: 'none',
-                                        appearance: 'none' // Removes default browser styling
+                                        appearance: 'none'
                                     }}
                                 />
                                 <i className="fas fa-calendar-alt" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }}></i>
                             </div>
                         </div>
-                        <div style={{ flex: 2 }}>
+
+                        {/* ✅ 3. DYNAMIC HEADER */}
+                        <div style={{ flex: 2, minWidth: '200px' }}>
                             <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Viewing Report for:</p>
-                            <h3 style={{ margin: '4px 0 0 0', fontSize: '22px', color: '#1e293b' }}>{formattedDate} ({selectedYear})</h3>
+                            <h3 style={{ margin: '4px 0 0 0', fontSize: '22px', color: '#1e293b' }}>
+                                {formattedDate} <br/>
+                                {/* Shows the subject fetched by getSubjectForHistory() */}
+                                <span style={{ color: '#2563eb', fontSize: '18px' }}>
+                                    {getSubjectForHistory()}
+                                </span>
+                            </h3>
                         </div>
                     </div>
 
@@ -1048,9 +1095,24 @@ export default function TeacherDashboard() {
     // History State
     const [viewMode, setViewMode] = useState('live');
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    const [historySemester, setHistorySemester] = useState(4);
     // ✅ NEW: Store an array of SESSIONS, not just a flat list of students
     const [historySessions, setHistorySessions] = useState([]);
     const navigate = useNavigate();
+    const getSubjectForHistory = () => {
+        if (!teacherInfo) return "";
+        
+        // 1. Check assignedClasses array first
+        if (teacherInfo.assignedClasses) {
+            const pastClass = teacherInfo.assignedClasses.find(c => 
+                c.year === selectedYear && Number(c.semester) === Number(historySemester)
+            );
+            if (pastClass) return pastClass.subject;
+        }
+
+        // 2. Fallback
+        return teacherInfo.subject;
+    };
 
     const playSessionStartSound = () => { const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2578/2578-preview.mp3'); audio.play().catch(error => console.log("Audio play failed:", error)); };
 
@@ -1186,16 +1248,23 @@ export default function TeacherDashboard() {
         return () => { if (unsubscribe) unsubscribe(); };
     }, [activeSession, teacherInfo]);
 
-    // ✅ NEW HISTORY LOGIC: Group by Session (Separates Morning/Afternoon classes)
-    // ✅ NEW HISTORY LOGIC: Filter Student List by Roll Range for Practicals
+  // ✅ NEW HISTORY LOGIC: Group by Session (Now supports Semester Switching)
     useEffect(() => {
         const fetchHistory = async () => {
             if (!teacherInfo?.instituteId || !selectedYear) return;
 
-            let currentSubject = teacherInfo.subject;
-            if (teacherInfo.assignedClasses) {
-                const cls = teacherInfo.assignedClasses.find(c => c.year === selectedYear);
-                if (cls) currentSubject = cls.subject;
+            // ❌ REMOVED OLD LOGIC:
+            // let currentSubject = teacherInfo.subject;
+            // if (teacherInfo.assignedClasses) ...
+
+            // ✅ NEW LOGIC: Get subject from our new Helper Function
+            // (Make sure you added the 'getSubjectForHistory' function above this useEffect)
+            const targetSubject = getSubjectForHistory();
+
+            if (!targetSubject) {
+                // If no subject matches the selected semester, clear the list
+                setHistorySessions([]); 
+                return;
             }
 
             const start = new Date(selectedDate); start.setHours(0, 0, 0, 0);
@@ -1221,13 +1290,15 @@ export default function TeacherDashboard() {
                 const qAttendance = query(
                     collection(db, 'attendance'),
                     where('instituteId', '==', teacherInfo.instituteId),
-                    where('subject', '==', currentSubject),
+                    where('subject', '==', targetSubject), // 👈 UPDATED: Uses the semester-specific subject
                     where('timestamp', '>=', Timestamp.fromDate(start)),
                     where('timestamp', '<=', Timestamp.fromDate(end))
                 );
                 const attSnap = await getDocs(qAttendance);
 
-                // 3. FETCH SESSION DETAILS (Type, Batch, & Roll Range)
+                // --- (The rest of your logic remains exactly the same below) ---
+                
+                // 3. FETCH SESSION DETAILS 
                 const uniqueSessionIds = new Set();
                 attSnap.docs.forEach(d => uniqueSessionIds.add(d.data().sessionId));
 
@@ -1235,15 +1306,12 @@ export default function TeacherDashboard() {
                 await Promise.all(Array.from(uniqueSessionIds).map(async (sId) => {
                     try {
                         const sDoc = await getDoc(doc(db, 'live_sessions', sId));
-                        if (sDoc.exists()) {
-                            sessionMetaMap[sId] = sDoc.data();
-                        }
+                        if (sDoc.exists()) sessionMetaMap[sId] = sDoc.data();
                     } catch (e) { console.error("Error fetching session details", e); }
                 }));
 
                 // 4. GROUP BY SESSION ID
                 const sessionsMap = {};
-
                 attSnap.docs.forEach(doc => {
                     const data = doc.data();
                     const sId = data.sessionId;
@@ -1255,22 +1323,18 @@ export default function TeacherDashboard() {
                             startTime: data.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                             type: meta.type || 'theory',
                             batch: meta.batch || 'All',
-                            rollRange: meta.rollRange || null, // ✅ Capture Roll Range
+                            rollRange: meta.rollRange || null,
                             presentRolls: new Set()
                         };
                     }
                     sessionsMap[sId].presentRolls.add(parseInt(data.rollNo));
                 });
 
-                // 5. BUILD REPORT CARDS (With Range Filtering)
+                // 5. BUILD REPORT CARDS
                 const finalSessions = Object.values(sessionsMap).map(session => {
-
-                    // ✅ KEY FIX: Filter the Class List based on Roll Range
                     let targetStudents = allStudents;
-
                     if (session.type === 'practical' && session.rollRange) {
                         const { start, end } = session.rollRange;
-                        // Only include students who are inside the range [start, end]
                         targetStudents = allStudents.filter(s => s.rollNo >= start && s.rollNo <= end);
                     }
 
@@ -1287,7 +1351,6 @@ export default function TeacherDashboard() {
 
                     studentsWithStatus.sort((a, b) => a.rollNo - b.rollNo);
 
-                    // Recalculate stats based on the FILTERED list
                     const presentCount = studentsWithStatus.filter(s => s.status === 'Present').length;
                     const absentCount = studentsWithStatus.filter(s => s.status === 'Absent').length;
 
@@ -1296,7 +1359,7 @@ export default function TeacherDashboard() {
                         startTime: session.startTime,
                         type: session.type,
                         batch: session.batch,
-                        totalStudents: targetStudents.length, // Correct Total for Batch
+                        totalStudents: targetStudents.length,
                         presentCount: presentCount,
                         absentCount: absentCount,
                         students: studentsWithStatus
@@ -1312,7 +1375,9 @@ export default function TeacherDashboard() {
         };
 
         if (viewMode === 'history') fetchHistory();
-    }, [viewMode, selectedDate, teacherInfo, selectedYear]);
+
+    // ✅ IMPORTANT: Add 'historySemester' to the dependency array so it refreshes when you switch semesters
+    }, [viewMode, selectedDate, teacherInfo, selectedYear, historySemester]);
 
     const handleSession = async () => {
         if (activeSession) {
@@ -1432,6 +1497,9 @@ export default function TeacherDashboard() {
                 setSelectedBatch={setSelectedBatch}
                 rollStart={rollStart} setRollStart={setRollStart}
                 rollEnd={rollEnd} setRollEnd={setRollEnd}
+                historySemester={historySemester}
+                setHistorySemester={setHistorySemester}
+                getSubjectForHistory={getSubjectForHistory}
             />;
             case 'analytics': return <TeacherAnalytics teacherInfo={teacherInfo} selectedYear={selectedYear} />;
             case 'announcements': return <TeacherAnnouncements teacherInfo={teacherInfo} />;

@@ -299,7 +299,7 @@ export default function AddTasks({ teacherInfo }) {
                 .task-page-container {
                     max-width: 1200px;
                     margin: 0 auto;
-                    padding-bottom: 80px; /* Space for mobile footer */
+                    padding-bottom: 50px; /* Space for mobile footer */
                 }
 
                 /* Gradient Text */

@@ -8,11 +8,13 @@ import { auth, db } from './firebase';
 import { usePushNotifications } from './hooks/usePushNotifications';
 import IOSSplashScreen from "./components/IOSSplashScreen";
 import logo from "./assets/logo.png"; 
-import Onboarding from './pages/Onboarding'; 
 import DashboardSkeleton from "./components/DashboardSkeleton";
-import TwoFactorVerifyModal from "./components/TwoFactorVerifyModal"; // ✅ Import Modal
 
-// Lazy load components
+// ✅ OPTIMIZATION: Lazy load heavy components not needed for First Paint
+const Onboarding = lazy(() => import('./pages/Onboarding')); 
+const TwoFactorVerifyModal = lazy(() => import("./components/TwoFactorVerifyModal"));
+
+// Lazy load pages (Existing)
 const Login = lazy(() => import("./pages/Login"));
 const Signup = lazy(() => import("./pages/Signup"));
 const StudentRegister = lazy(() => import("./pages/StudentRegister"));
@@ -139,6 +141,7 @@ function App() {
 
   const hasSeenOnboarding = localStorage.getItem('hasSeenOnboarding');
 
+  // ✅ Keep Splash Screen fast and simple
   if (showSplash) {
     return <IOSSplashScreen logoSrc={logo} onComplete={() => setShowSplash(false)} />;
   }
@@ -151,13 +154,17 @@ function App() {
     <Suspense fallback={<DashboardSkeleton />}>
       <Toaster position="bottom-center" toastOptions={{ style: { background: '#1e293b', color: '#fff' } }} />
       
-      {/* 🔐 GLOBAL 2FA LOCK SCREEN - RESTORED */}
-      <TwoFactorVerifyModal 
-          isOpen={is2FARequired} 
-          isLoading={verifying}
-          onClose={handleLogout} 
-          onVerify={handleVerify2FA}
-      />
+      {/* 🔐 GLOBAL 2FA LOCK SCREEN - RESTORED & LAZY LOADED */}
+      {is2FARequired && (
+        <Suspense fallback={null}>
+            <TwoFactorVerifyModal 
+                isOpen={is2FARequired} 
+                isLoading={verifying}
+                onClose={handleLogout} 
+                onVerify={handleVerify2FA}
+            />
+        </Suspense>
+      )}
 
       {/* ✅ ONLY RENDER ROUTES IF 2FA IS NOT REQUIRED (OR VERIFIED) */}
       {!is2FARequired && (
