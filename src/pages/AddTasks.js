@@ -23,8 +23,12 @@ export default function AddTasks({ teacherInfo }) {
     const [marks, setMarks] = useState('');
     const [feedback, setFeedback] = useState('');
 
-    const assignedYears = teacherInfo?.assignedClasses
-        ? [...new Set(teacherInfo.assignedClasses.map(c => c.year))]
+    const assignedTargets = teacherInfo?.assignedClasses
+        ? [...new Set(teacherInfo.assignedClasses.flatMap(c => 
+            c.year === 'FE' && c.divisions 
+                ? c.divisions.split(',').map(d => `FE - Div ${d.trim()}`) 
+                : [c.year]
+          ))].map(t => ({ value: t, label: t }))
         : [];
 
     useEffect(() => {
@@ -170,13 +174,15 @@ export default function AddTasks({ teacherInfo }) {
 
                         {/* Sidebar Inputs */}
                         <div className="form-sidebar">
+                           {/* REPLACE the CustomDropdown block around line 140 with this: */}
                             <div className="input-group">
-                                <label>Class</label>
+                                <label>Target Class</label>
                                 <CustomDropdown
                                     value={form.targetYear}
                                     onChange={(e) => setForm({ ...form, targetYear: e.target.value })}
                                     placeholder="Select Class"
-                                    options={assignedYears.map(year => ({ value: year, label: `${year} Year` }))}
+                                    // ✅ UPDATED OPTIONS PROP
+                                    options={assignedTargets} 
                                 />
                             </div>
 

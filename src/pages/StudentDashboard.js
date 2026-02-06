@@ -832,12 +832,14 @@ export default function StudentDashboard() {
         return () => unsub();
     }, [user]);
 
-    // 3. GLOBAL SCHEDULE LOGIC
+    // src/pages/StudentDashboard.js
+
+    // 3. GLOBAL SCHEDULE LOGIC (Fixed to match HOD's new format)
     useEffect(() => {
         const fetchSchedule = async () => {
-            if (!user?.department || !user?.year) return;
+            if (!user?.department || !user?.year || !user?.instituteId) return;
 
-            let sem = user.semester || (user.year === 'FE' ? '1' : user.year === 'SE' ? '3' : user.year === 'TE' ? '5' : '7');
+            // Get Current Day Name (e.g., "Monday")
             const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
             const today = days[new Date().getDay()];
 
@@ -847,38 +849,56 @@ export default function StudentDashboard() {
             }
 
             try {
-                const docSnap = await getDoc(doc(db, 'timetables', `${user.department}_Sem${sem}_${today}`));
+                // ✅ 1. Construct the EXACT ID that HOD Dashboard uses
+                let docId = `${user.instituteId}_${user.department}_${user.year}_Timetable`;
+                
+                // If FE, append the Division (e.g., _FE_A_Timetable)
+                if (user.year === 'FE' && user.division) {
+                    docId = `${user.instituteId}_${user.department}_${user.year}_${user.division}_Timetable`;
+                }
+
+                // ✅ 2. Fetch the Weekly Timetable Document
+                const docSnap = await getDoc(doc(db, 'timetables', docId));
+
                 if (docSnap.exists()) {
-                    const slots = docSnap.data().slots;
+                    const data = docSnap.data();
+                    const todaysSlots = data[today] || []; // Get array for "Monday" etc.
+
+                    // ✅ 3. Find Active Slot based on Current Time
                     const now = getCurrentTimeMinutes();
-                    const activeSlot = slots.find(slot => {
+                    const activeSlot = todaysSlots.find(slot => {
                         const start = getMinutesFromTime(slot.startTime);
                         const end = getMinutesFromTime(slot.endTime);
                         return now >= start && now < end;
                     });
 
-                    const slotData = activeSlot || { type: 'Free', subject: 'No active class.', startTime: '00:00', endTime: '00:00' };
-                    setCurrentSlot(slotData);
-
-                    const isNowFree = slotData.type === 'Free' || slotData.type === 'Break' || slotData.type === 'Holiday';
-
-                    if (isNowFree && !isFreePeriod) {
-                        toast("Free Period Detected! Curriculum Tasks generated.", { icon: '🤖', duration: 5000 });
-                        setIsFreePeriod(true);
-                    } else if (!isNowFree) {
-                        setIsFreePeriod(false);
+                    // Set State
+                    if (activeSlot) {
+                        setCurrentSlot(activeSlot);
+                        // Trigger Free Period logic if needed
+                        const isNowFree = activeSlot.type === 'Break' || activeSlot.type === 'Free';
+                        if (isNowFree && !isFreePeriod) {
+                            toast("Free Period Detected! Tasks generated.", { icon: '🤖' });
+                            setIsFreePeriod(true);
+                        } else if (!isNowFree) {
+                            setIsFreePeriod(false);
+                        }
+                    } else {
+                        // No slot right now (e.g. after college hours)
+                        setCurrentSlot({ type: 'Free', subject: 'No active class', startTime: '00:00', endTime: '00:00' });
                     }
                 } else {
-                    setCurrentSlot({ type: 'Free', subject: 'No Schedule Found', startTime: '00:00', endTime: '00:00' });
+                    console.log("Timetable document not found:", docId);
+                    setCurrentSlot({ type: 'Free', subject: 'No Schedule Set', startTime: '00:00', endTime: '00:00' });
                 }
             } catch (error) {
-                console.error(error);
+                console.error("Timetable Error:", error);
                 setCurrentSlot({ type: 'Free', subject: 'Error Loading', startTime: '00:00', endTime: '00:00' });
             }
         };
 
         fetchSchedule();
-        const interval = setInterval(fetchSchedule, 60000);
+        const interval = setInterval(fetchSchedule, 60000); // Update every minute
         return () => clearInterval(interval);
     }, [user, isFreePeriod]);
 

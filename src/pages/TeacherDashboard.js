@@ -36,8 +36,13 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
     const [activeTab, setActiveTab] = useState('create');
     const [selectedDiv, setSelectedDiv] = useState('');
 
+   // ✅ CORRECT LOGIC FOR DROPDOWN
     const assignedYears = teacherInfo?.assignedClasses
-        ? [...new Set(teacherInfo.assignedClasses.map(c => c.year))]
+        ? [...new Set(teacherInfo.assignedClasses.flatMap(c => 
+            c.year === 'FE' && c.divisions 
+                ? c.divisions.split(',').map(d => `FE - Div ${d.trim()}`) 
+                : [c.year]
+          ))]
         : [];
 
     useEffect(() => {
@@ -1090,6 +1095,39 @@ const MobileFooter = ({ activePage, setActivePage, unreadNoticeCount }) => {
     );
 };
 
+// --- 📅 CUSTOM DATE PICKER (Mobile Friendly) ---
+const CustomDatePicker = ({ label, value, onChange }) => {
+    const dateObj = value ? new Date(value) : new Date();
+    const currentDay = dateObj.getDate();
+    const currentMonth = dateObj.getMonth(); 
+    const currentYear = dateObj.getFullYear();
+
+    const days = Array.from({ length: 31 }, (_, i) => ({ value: i + 1, label: (i + 1).toString() }));
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].map((m, i) => ({ value: i, label: m }));
+    const years = Array.from({ length: 5 }, (_, i) => {
+        const y = new Date().getFullYear() - i;
+        return { value: y, label: y.toString() };
+    });
+
+    const updateDate = (d, m, y) => {
+        const newDate = new Date(y, m, d);
+        // Format to YYYY-MM-DD for consistency
+        const formatted = newDate.toISOString().split('T')[0];
+        onChange(formatted);
+    };
+
+    return (
+        <div style={{ width: '100%' }}>
+            <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>{label}</label>
+            <div style={{ display: 'flex', gap: '8px' }}>
+                <div style={{ flex: 1 }}><CustomDropdown options={days} value={currentDay} onChange={(val) => updateDate(val, currentMonth, currentYear)} placeholder="DD" /></div>
+                <div style={{ flex: 1.5 }}><CustomDropdown options={months} value={currentMonth} onChange={(val) => updateDate(currentDay, val, currentYear)} placeholder="MM" /></div>
+                <div style={{ flex: 1.5 }}><CustomDropdown options={years} value={currentYear} onChange={(val) => updateDate(currentDay, currentMonth, val)} placeholder="YYYY" /></div>
+            </div>
+        </div>
+    );
+};
+
 // ------------------------------------
 //  MAIN TEACHER DASHBOARD WRAPPER
 // ------------------------------------
@@ -1589,6 +1627,85 @@ export default function TeacherDashboard() {
                 setHistoryDivision={setHistoryDivision}
             />;
             case 'analytics': return <TeacherAnalytics teacherInfo={teacherInfo} selectedYear={selectedYear} />;
+            case 'reports':
+                return (
+                    <div className="content-section">
+                        <h2 className="content-title">Attendance Reports</h2>
+                        
+                        {/* ✅ NEW: Aligned Controls Container */}
+                        <div className="card fade-in-up" style={{ padding: '20px', marginBottom: '20px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '20px', alignItems: 'end' }}>
+                                
+                                {/* 1. Semester Selection (Custom Dropdown) */}
+                                <div>
+                                    <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>
+                                        Semester
+                                    </label>
+                                    <CustomDropdown 
+                                        value={historySemester}
+                                        onChange={setHistorySemester}
+                                        options={[
+                                            { value: 1, label: 'Sem 1' }, { value: 2, label: 'Sem 2' },
+                                            { value: 3, label: 'Sem 3' }, { value: 4, label: 'Sem 4' },
+                                            { value: 5, label: 'Sem 5' }, { value: 6, label: 'Sem 6' },
+                                            { value: 7, label: 'Sem 7' }, { value: 8, label: 'Sem 8' }
+                                        ]}
+                                    />
+                                </div>
+
+                                {/* 2. Date Selection (Mobile Fixed with CustomDatePicker) */}
+                                <div>
+                                    <CustomDatePicker 
+                                        label="Select Date" 
+                                        value={selectedDate} 
+                                        onChange={setSelectedDate} 
+                                    />
+                                </div>
+
+                                {/* 3. Subject Context Display */}
+                                <div>
+                                    <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>
+                                        Viewing Report For
+                                    </label>
+                                    <div style={{ 
+                                        padding: '12px', background: '#f1f5f9', borderRadius: '12px', 
+                                        border: '1px solid #e2e8f0', fontWeight: '600', color: '#334155', 
+                                        height: '48px', display: 'flex', alignItems: 'center', fontSize: '13px'
+                                    }}>
+                                        {selectedYear} {selectedYear === 'FE' && selectedDiv ? `- Div ${selectedDiv}` : ''} • {getSubjectForHistory()}
+                                    </div>
+                                </div>
+
+                                {/* 4. Export Button */}
+                                <div>
+                                    <CSVLink 
+                                        data={csvData} 
+                                        headers={csvHeaders}
+                                        filename={csvFilename}
+                                        className="btn-primary"
+                                        style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '48px', textDecoration: 'none', width: '100%', borderRadius: '12px', fontSize: '14px' }}
+                                    >
+                                        <i className="fas fa-download" style={{ marginRight: '8px' }}></i> Export
+                                    </CSVLink>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Chart / Data Area */}
+                        <div className="card fade-in-up" style={{ height: '400px', padding: '20px' }}>
+                            <ResponsiveContainer width="100%" height="100%">
+                                <BarChart data={historySessions.length ? [{ name: 'Present', value: historySessions.reduce((acc, s) => acc + s.presentCount, 0) }] : []}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                    <XAxis dataKey="name" axisLine={false} tickLine={false} />
+                                    <YAxis axisLine={false} tickLine={false} />
+                                    <Tooltip cursor={{ fill: '#f8fafc' }} />
+                                    <Bar dataKey="value" fill="#3b82f6" name="Total Present" radius={[10, 10, 0, 0]} barSize={60} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                            {historySessions.length === 0 && <p style={{textAlign: 'center', color: '#94a3b8', marginTop: '-200px'}}>No records found for this date.</p>}
+                        </div>
+                    </div>
+                );
             case 'announcements': return <TeacherAnnouncements teacherInfo={teacherInfo} />;
             case 'addTasks': return <AddTasks teacherInfo={teacherInfo} />;
             case 'adminNotices': return (
@@ -1759,53 +1876,95 @@ export default function TeacherDashboard() {
             )}
 
             {isMobileNavOpen && <div className="nav-overlay" onClick={() => setIsMobileNavOpen(false)}></div>}
-            <aside className={`sidebar ${isMobileNavOpen ? 'open' : ''}`}>
-                <div className="logo-container"><img src={logo} alt="Logo" className="sidebar-logo" /><span className="logo-text">Acadex</span></div>
+           <aside className={`sidebar ${isMobileNavOpen ? 'open' : ''}`}>
+                <div className="logo-container">
+                    <img src={logo} alt="Logo" className="sidebar-logo" />
+                    <span className="logo-text">AcadeX</span>
+                </div>
+                
                 {teacherInfo && (
                     <div className="teacher-info" onClick={() => { setActivePage('profile'); setIsMobileNavOpen(false); }} style={{ cursor: 'pointer' }}>
-                    <h4>{teacherInfo.firstName} {teacherInfo.lastName}</h4>
-                    <p style={{ opacity: 0.8, fontSize: '13px' }}>
-                        {/* Show Subject */}
-                        {teacherInfo.assignedClasses?.find(c => c.year === selectedYear)?.subject || "Select a Class"}
-                        
-                        {/* ✅ Show Selected Division for FE */}
-                        {selectedYear === 'FE' && selectedDiv && (
-                            <span style={{ color: '#93c5fd', fontWeight: '700' }}> • Div {selectedDiv}</span>
-                        )}
-                    </p>
-                    
-                    {/* Switch Class Button */}
-                    {(teacherInfo.assignedClasses?.length > 0 || teacherInfo.assignedYears?.length > 0) && (
-                        <div onClick={(e) => { e.stopPropagation(); setShowYearModal(true); }} className="edit-profile-pill" style={{ marginTop: '8px', background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', justifyContent: 'center' }}>
-                            <i className="fas fa-exchange-alt" style={{ fontSize: '10px' }}></i><span>Switch Class</span>
+                        <h4>{teacherInfo.firstName} {teacherInfo.lastName}</h4>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                            <p style={{ margin: 0, fontSize: '13px', opacity: 0.9 }}>
+                                {selectedYear} • {teacherInfo.assignedClasses?.find(c => c.year === selectedYear)?.subject || "Select Class"}
+                            </p>
+                            
+                            {/* ✅ BEAUTIFUL DIV BADGE (Only for FE) */}
+                            {selectedYear === 'FE' && selectedDiv && (
+                                <span style={{ 
+                                    background: 'rgba(59, 130, 246, 0.1)', 
+                                    color: '#3b82f6', 
+                                    fontSize: '11px', 
+                                    fontWeight: '700', 
+                                    padding: '2px 6px', 
+                                    borderRadius: '6px',
+                                    border: '1px solid rgba(59, 130, 246, 0.2)'
+                                }}>
+                                    Div {selectedDiv}
+                                </span>
+                            )}
                         </div>
-                    )}
-                </div>
+                        
+                        {/* ✅ SWITCH CLASS BUTTON (Hidden if only 1 class) */}
+                        {(teacherInfo.assignedClasses && teacherInfo.assignedClasses.length > 1) && (
+                            <div 
+                                onClick={(e) => { e.stopPropagation(); setShowYearModal(true); }} 
+                                className="edit-profile-pill" 
+                                style={{ 
+                                    marginTop: '12px', 
+                                    background: '#f8fafc', 
+                                    color: '#64748b', 
+                                    border: '1px solid #e2e8f0', 
+                                    justifyContent: 'center',
+                                    padding: '6px 12px',
+                                    borderRadius: '8px',
+                                    fontSize: '11px',
+                                    fontWeight: '600',
+                                    letterSpacing: '0.3px'
+                                }}
+                            >
+                                <i className="fas fa-exchange-alt" style={{ fontSize: '10px', color: '#94a3b8' }}></i>
+                                <span>Switch Class</span>
+                            </div>
+                        )}
+                    </div>
                 )}
+                
                 <ul className="menu">
                     <NavLink page="dashboard" iconClass="fa-th-large" label="Dashboard" />
                     <NavLink page="analytics" iconClass="fa-chart-bar" label="Analytics" />
                     <NavLink page="announcements" iconClass="fa-bullhorn" label="Announcements" />
                     <NavLink page="addTasks" iconClass="fa-tasks" label="Add Tasks" />
-                    {/* Add this item */}
+                    
+                    {/* ✅ ADDED PROFILE TAB */}
+                    <NavLink page="profile" iconClass="fa-user-circle" label="Profile" />
+
+                    {/* Staff Notices with Red Badge */}
                     <li className={activePage === 'adminNotices' ? 'active' : ''} onClick={() => { setActivePage('adminNotices'); setIsMobileNavOpen(false); }}>
                         <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '15px' }}>
                             <i className="fas fa-bell" style={{ width: '24px', textAlign: 'center' }}></i>
                             <span>Staff Notices</span>
-
-                            {/* ✅ UPDATED: Only show badge if count > 0 */}
                             {unreadNoticeCount > 0 && (
-                                <span className="nav-badge" style={{ background: '#ef4444', color: 'white', fontSize: '10px', padding: '2px 6px', borderRadius: '10px', marginLeft: 'auto' }}>
+                                <span className="nav-badge" style={{ background: '#ef4444', color: 'white', fontSize: '10px', padding: '2px 6px', borderRadius: '10px', marginLeft: 'auto', fontWeight: 'bold' }}>
                                     {unreadNoticeCount}
                                 </span>
                             )}
                         </div>
                     </li>
+
                     <li onClick={() => setIsMobileNavOpen(false)} style={{ marginTop: 'auto', marginBottom: '10px' }}>
-                        <CSVLink data={csvData} headers={csvHeaders} filename={csvFilename} className="csv-link"><i className="fas fa-file-download"></i><span>Download Sheet</span></CSVLink>
+                        <CSVLink data={csvData} headers={csvHeaders} filename={csvFilename} className="csv-link">
+                            <i className="fas fa-file-download"></i><span>Download Data</span>
+                        </CSVLink>
                     </li>
                 </ul>
-                <div className="sidebar-footer"><button onClick={handleLogout} className="logout-btn"><i className="fas fa-sign-out-alt"></i><span>Logout</span></button></div>
+                
+                <div className="sidebar-footer">
+                    <button onClick={handleLogout} className="logout-btn">
+                        <i className="fas fa-sign-out-alt"></i><span>Logout</span>
+                    </button>
+                </div>
             </aside>
             <main className="main-content">
                 <header className="mobile-header"><button className="hamburger-btn" onClick={() => setIsMobileNavOpen(true)}><i className="fas fa-bars"></i></button><div className="mobile-brand"><img src={logo} alt="Logo" className="mobile-logo-img" /><span className="mobile-logo-text">AcadeX</span></div><div style={{ width: '40px' }}></div></header>

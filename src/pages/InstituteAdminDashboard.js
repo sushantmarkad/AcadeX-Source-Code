@@ -8,9 +8,7 @@ import './Dashboard.css';
 import logo from "../assets/logo.png";
 import TwoFactorSetup from '../components/TwoFactorSetup';
 
-// Import components
-import AddTeacher from './AddTeacher';
-import AddStudent from './AddStudent';
+
 import AddHOD from './AddHOD';
 import AddDepartment from './AddDepartment';
 import ManageInstituteUsers from './ManageInstituteUsers';
@@ -265,8 +263,7 @@ export default function InstituteAdminDashboard() {
             case 'dashboard': return <DashboardHome instituteName={instituteName} instituteId={instituteId} />;
             case 'addDepartment': return <AddDepartment instituteId={instituteId} instituteName={instituteName} showModal={showModal} />;
             case 'addHOD': return <AddHOD instituteId={instituteId} instituteName={instituteName} showModal={showModal} />;
-            case 'addTeacher': return <AddTeacher instituteId={instituteId} instituteName={instituteName} showModal={showModal} />;
-            case 'addStudent': return <AddStudent instituteId={instituteId} instituteName={instituteName} showModal={showModal} />;
+            
             case 'bulkStudents': return <BulkAddStudents instituteId={instituteId} instituteName={instituteName} />;
             case 'manageUsers': return <ManageInstituteUsers instituteId={instituteId} showModal={showModal} />;
             
@@ -486,8 +483,6 @@ export default function InstituteAdminDashboard() {
                     <NavLink page="dashboard" iconClass="fa-tachometer-alt" label="Dashboard" />
                     <NavLink page="addDepartment" iconClass="fa-building" label="Departments" />
                     <NavLink page="addHOD" iconClass="fa-user-tie" label="Add HOD" />
-                    <NavLink page="addTeacher" iconClass="fa-chalkboard-teacher" label="Add Teacher" />
-                    <NavLink page="addStudent" iconClass="fa-user-graduate" label="Add Student" />
                     <NavLink page="bulkStudents" iconClass="fa-file-upload" label="Bulk Upload" />
                     <NavLink page="manageUsers" iconClass="fa-users" label="Manage Users" />
                     <NavLink page="security" iconClass="fa-user-circle" label="Profile & Security" />
