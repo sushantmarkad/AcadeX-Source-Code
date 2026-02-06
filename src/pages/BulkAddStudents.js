@@ -15,7 +15,10 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
     // Batch Configuration State
     const [selectedDept, setSelectedDept] = useState("");
     const [selectedYear, setSelectedYear] = useState("FE");
+    const [selectedDivision, setSelectedDivision] = useState("A");
     const [departments, setDepartments] = useState([]);
+
+    const DIVISIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'];
 
     // 1. Fetch Departments on Load
     useEffect(() => {
@@ -44,8 +47,16 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
             return;
         }
 
-        if (!selectedDept || !selectedYear) {
-            toast.error("⚠️ Please select a Department and Class Year first!");
+        // ✅ LOGIC CHANGE: Only check Dept if NOT FE
+        if (selectedYear !== 'FE' && !selectedDept) {
+            toast.error("⚠️ Please select a Department first!");
+            e.target.value = null; 
+            return;
+        }
+
+        // ✅ LOGIC CHANGE: Check Division if FE
+        if (selectedYear === 'FE' && !selectedDivision) {
+            toast.error("⚠️ Please select a Division for FE!");
             e.target.value = null; 
             return;
         }
@@ -62,7 +73,6 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                 
                 // 3. Find the Header Row dynamically
                 let headerIndex = -1;
-                // Scan first 20 rows to find the one with "Email" and "Roll"
                 for(let i=0; i<Math.min(rows.length, 20); i++) {
                     const rowStr = rows[i].map(c => String(c).toLowerCase()).join(' ');
                     if(rowStr.includes('email') && (rowStr.includes('roll') || rowStr.includes('name'))) {
@@ -80,7 +90,6 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                 // 4. Map Columns (The "Smart" Part)
                 const headers = rows[headerIndex].map(h => String(h).toLowerCase().trim());
                 
-                // Find where each piece of data lives (indexes)
                 const idxEmail = headers.findIndex(h => h.includes('email'));
                 const idxRoll = headers.findIndex(h => h.includes('roll'));
                 const idxName = headers.findIndex(h => h.includes('name') && !h.includes('user'));
@@ -94,29 +103,27 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                     setLoading(false); return;
                 }
 
-                // 5. Construct Objects matched to BACKEND expectations
-                // We map the data to "Roll No", "Name", "Email" keys exactly as your backend expects
+                // 5. Construct Objects
                 const cleanStudents = rows.slice(headerIndex + 1).map(row => {
-                    // Skip row if email is missing or invalid
                     if (!row[idxEmail] || !String(row[idxEmail]).includes('@')) return null;
 
                     return {
                         "email": row[idxEmail].trim(),
                         "name": idxName !== -1 ? row[idxName].trim() : "Student",
                         "rollNo": idxRoll !== -1 ? row[idxRoll] : "",
-                        
-                        // ✅ FIX: Map 'Student Id' from CSV to 'collegeId' for your App
                         "collegeId": idxId !== -1 ? row[idxId] : "",
-                        
                         "sex": idxSex !== -1 ? row[idxSex] : "",
                         "category": idxCat !== -1 ? row[idxCat] : "",
                         "admissionType": idxAdmType !== -1 ? row[idxAdmType] : "",
                         
-                        // Add Batch Info (Backend uses this too)
-                        "department": selectedDept,
+                        // ✅ Division only for FE
+                        "division": selectedYear === 'FE' ? selectedDivision : null,
+
+                        // ✅ Department Logic: If FE, set as 'FE', else use selected
+                        "department": selectedYear === 'FE' ? 'FE' : selectedDept,
                         "year": selectedYear
                     };
-                }).filter(s => s !== null); // Remove null rows
+                }).filter(s => s !== null);
 
                 if (cleanStudents.length === 0) {
                     toast.error("❌ No valid students found in file.", { id: toastId });
@@ -124,13 +131,10 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                     return;
                 }
 
-               
-
                 toast.loading(`Uploading ${cleanStudents.length} students...`, { id: toastId });
 
                 try {
-                    // 6. Send to Backend with a DEFAULT PASSWORD
-                    // NOTE: Make sure your backend "bulkCreateStudents" uses this password!
+                    // 6. Send to Backend
                     const response = await fetch(`${BACKEND_URL}/bulkCreateStudents`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -138,9 +142,10 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                             students: cleanStudents, 
                             instituteId, 
                             instituteName,
-                            department: selectedDept, 
+                            // ✅ Send 'FE' as department if it's First Year
+                            department: selectedYear === 'FE' ? 'FE' : selectedDept, 
                             year: selectedYear,
-                            defaultPassword: "Student@123" // ✅ All students get this password initially
+                            defaultPassword: "Student@123"
                         })
                     });
 
@@ -148,15 +153,12 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
 
                     if (!response.ok) throw new Error(data.error || "Upload failed");
 
-                    
-
                     setStats({ 
                         total: cleanStudents.length, 
                         success: data.success.length, 
                         failed: data.errors.length 
                     });
                     
-                    // ✅ Show Success Message with Instructions
                     toast.success(
                         <div>
                             Done! Created {data.success.length} accounts.<br/>
@@ -203,25 +205,10 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                         Batch Configuration
                     </h3>
                     
+                    {/* ✅ Two columns for both cases (Just different inputs) */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                        <div>
-                            <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#64748b', fontSize: '13px' }}>Select Department</label>
-                            <select 
-                                value={selectedDept} 
-                                onChange={(e) => setSelectedDept(e.target.value)}
-                                className="modern-input"
-                                style={{ width: '100%', padding: '12px', background: '#fff' }}
-                            >
-                                <option value="">-- Choose Department --</option>
-                                {departments.length > 0 ? (
-                                    departments.map((dept, idx) => (
-                                        <option key={idx} value={dept}>{dept}</option>
-                                    ))
-                                ) : (
-                                    <option disabled>No departments found</option>
-                                )}
-                            </select>
-                        </div>
+                        
+                        {/* 1. Year Selector (Always Visible) */}
                         <div>
                             <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#64748b', fontSize: '13px' }}>Select Class / Year</label>
                             <select 
@@ -236,6 +223,48 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                                 <option value="BE">BE (Final Year)</option>
                             </select>
                         </div>
+
+                        {/* 2. Logic Switch: Department OR Division */}
+                        {selectedYear === 'FE' ? (
+                            // ✅ Case A: FE -> Show Division
+                            <div className="animate-fade-in">
+                                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#64748b', fontSize: '13px' }}>
+                                    Select Division
+                                </label>
+                                <select 
+                                    value={selectedDivision} 
+                                    onChange={(e) => setSelectedDivision(e.target.value)}
+                                    className="modern-input"
+                                    style={{ width: '100%', padding: '12px', background: '#fff', borderColor: '#2563eb' }}
+                                >
+                                    {DIVISIONS.map(div => (
+                                        <option key={div} value={div}>Division {div}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        ) : (
+                            // ✅ Case B: SE/TE/BE -> Show Department
+                            <div className="animate-fade-in">
+                                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#64748b', fontSize: '13px' }}>
+                                    Select Department
+                                </label>
+                                <select 
+                                    value={selectedDept} 
+                                    onChange={(e) => setSelectedDept(e.target.value)}
+                                    className="modern-input"
+                                    style={{ width: '100%', padding: '12px', background: '#fff' }}
+                                >
+                                    <option value="">-- Choose Department --</option>
+                                    {departments.length > 0 ? (
+                                        departments.map((dept, idx) => (
+                                            <option key={idx} value={dept}>{dept}</option>
+                                        ))
+                                    ) : (
+                                        <option disabled>No departments found</option>
+                                    )}
+                                </select>
+                            </div>
+                        )}
                     </div>
                 </div>
 

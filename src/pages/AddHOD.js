@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
-import { db, auth } from '../firebase'; // Ensure auth is imported for password reset if needed
+import { db, auth } from '../firebase'; 
 import { collection, query, where, getDocs } from 'firebase/firestore';
 
+// ✅ Make sure this matches your deployed backend URL
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
 export default function AddHOD({ instituteId, instituteName, showModal }) {
@@ -13,8 +14,8 @@ export default function AddHOD({ instituteId, instituteName, showModal }) {
         email: '',
         password: '',
         department: '',
-        qualification: '', // ✅ New Field
-        phone: ''          // ✅ New Field
+        qualification: '', 
+        phone: ''          
     });
     const [loading, setLoading] = useState(false);
 
@@ -22,9 +23,15 @@ export default function AddHOD({ instituteId, instituteName, showModal }) {
     useEffect(() => {
         const fetchDepts = async () => {
             if (!instituteId) return;
-            const q = query(collection(db, 'departments'), where('instituteId', '==', instituteId));
-            const snap = await getDocs(q);
-            setDepartments(snap.docs.map(d => d.data().name));
+            try {
+                const q = query(collection(db, 'departments'), where('instituteId', '==', instituteId));
+                const snap = await getDocs(q);
+                // Filter out 'FE' if it exists in DB to avoid duplicates with our manual option
+                const deptList = snap.docs.map(d => d.data().name).filter(name => name !== 'FE');
+                setDepartments(deptList.sort());
+            } catch (err) {
+                console.error("Error fetching departments", err);
+            }
         };
         fetchDepts();
     }, [instituteId]);
@@ -43,16 +50,14 @@ export default function AddHOD({ instituteId, instituteName, showModal }) {
                     lastName: form.lastName,
                     email: form.email,
                     password: form.password,
-                    role: 'hod', // Explicitly setting role
+                    role: 'hod', 
                     instituteId,
                     instituteName,
-                    department: form.department,
-                    // ✅ Sending Extra Fields in 'extras' object or top-level depending on backend
-                    // If your backend handles top-level fields, use this:
+                    department: form.department, // Will be 'FE' or actual department name
                     phone: form.phone,
                     qualification: form.qualification,
                     
-                    // If your backend puts unknown fields into 'extras', use this:
+                    // Sending extra fields for Firestore storage
                     extras: {
                         qualification: form.qualification,
                         phone: form.phone
@@ -63,7 +68,7 @@ export default function AddHOD({ instituteId, instituteName, showModal }) {
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || "Failed to create HOD");
 
-            toast.success("HOD Added Successfully!", { id: toastId });
+            toast.success(`HOD Appointed for ${form.department}!`, { id: toastId });
             setForm({ firstName: '', lastName: '', email: '', password: '', department: '', qualification: '', phone: '' });
             
         } catch (error) {
@@ -77,7 +82,7 @@ export default function AddHOD({ instituteId, instituteName, showModal }) {
     return (
         <div className="content-section">
             <h2 className="content-title">Add Head of Department</h2>
-            <p className="content-subtitle">Appoint an HOD for a department.</p>
+            <p className="content-subtitle">Appoint an HOD for a department or First Year.</p>
 
             <div className="card" style={{ maxWidth: '800px' }}>
                 <form onSubmit={handleSubmit}>
@@ -104,14 +109,30 @@ export default function AddHOD({ instituteId, instituteName, showModal }) {
                     </div>
 
                     <div className="input-group">
-                        <label>Department</label>
-                        <select required value={form.department} onChange={e => setForm({ ...form, department: e.target.value })} className="modern-select">
+                        <label>Department / Class</label>
+                        <select 
+                            required 
+                            value={form.department} 
+                            onChange={e => setForm({ ...form, department: e.target.value })} 
+                            className="modern-select"
+                        >
                             <option value="">Select Department</option>
-                            {departments.map(dept => <option key={dept} value={dept}>{dept}</option>)}
+                            
+                            {/* ✅ SPECIAL FE OPTION (Always Visible) */}
+                            <option value="FE" style={{ fontWeight: 'bold', color: '#2563eb', background: '#eff6ff' }}>
+                                First Year (FE) - General Science
+                            </option>
+                            
+                            {/* Standard Departments */}
+                            {departments.map(dept => (
+                                <option key={dept} value={dept}>{dept}</option>
+                            ))}
                         </select>
+                        <small style={{ color: '#64748b', marginTop: '5px', display: 'block' }}>
+                            Select "First Year (FE)" to appoint the FE Coordinator/HOD.
+                        </small>
                     </div>
 
-                    {/* ✅ NEW FIELDS */}
                     <div style={{ display: 'flex', gap: '15px', flexWrap:'wrap' }}>
                         <div className="input-group" style={{ flex: 1 }}>
                             <label>Qualification</label>

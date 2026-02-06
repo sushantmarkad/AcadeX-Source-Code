@@ -34,6 +34,7 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
     const [announcements, setAnnouncements] = useState([]);
     const [loading, setLoading] = useState(false);
     const [activeTab, setActiveTab] = useState('create');
+    const [selectedDiv, setSelectedDiv] = useState('');
 
     const assignedYears = teacherInfo?.assignedClasses
         ? [...new Set(teacherInfo.assignedClasses.map(c => c.year))]
@@ -570,9 +571,16 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
 };
 
 // ------------------------------------
-//  COMPONENT: DASHBOARD HOME (With Violet Gradient Greeting)
+//  COMPONENT: DASHBOARD HOME
 // ------------------------------------
-const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionToggle, viewMode, setViewMode, selectedDate, setSelectedDate, historySessions, selectedYear, sessionLoading, sessionType, setSessionType, selectedBatch, setSelectedBatch, rollStart, setRollStart, rollEnd, setRollEnd, historySemester, setHistorySemester, getSubjectForHistory }) => {
+const DashboardHome = ({ 
+    teacherInfo, activeSession, attendanceList, onSessionToggle, viewMode, setViewMode, 
+    selectedDate, setSelectedDate, historySessions, selectedYear, sessionLoading, 
+    sessionType, setSessionType, selectedBatch, setSelectedBatch, 
+    rollStart, setRollStart, rollEnd, setRollEnd, 
+    historySemester, setHistorySemester, getSubjectForHistory,
+    selectedDiv // ✅ We rely ONLY on this now
+}) => {
     const [qrCodeValue, setQrCodeValue] = useState('');
     const [timer, setTimer] = useState(10);
     const [manualRoll, setManualRoll] = useState("");
@@ -596,8 +604,6 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
         };
         fetchStrength();
     }, [teacherInfo, selectedYear]);
-
-   
 
     const getCurrentSubject = () => {
         if (!teacherInfo) return "Class";
@@ -705,9 +711,7 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
             {/* --- HEADER SECTION --- */}
             <div style={{ marginBottom: '25px', display: 'flex', justifyContent: 'space-between', alignItems: 'end', flexWrap: 'wrap', gap: '15px' }}>
                 <div>
-                    {/* ✅ UPDATED: Applied gradient-text class here */}
                     <h2 className="gradient-text">{getGreeting()}, {teacherInfo.firstName}!</h2>
-
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '5px' }}>
                         <span style={{ background: '#2563eb', color: 'white', padding: '6px 14px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '6px', boxShadow: '0 2px 5px rgba(37,99,235,0.2)' }}>
                             <i className="fas fa-graduation-cap"></i> {selectedYear} Year • {currentSubject}
@@ -720,7 +724,7 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                 </div>
             </div>
 
-            {viewMode === 'live' && (
+           {viewMode === 'live' && (
                 <div className="cards-grid">
                     {/* 1. START/STOP SESSION CARD */}
                     <div className="card" style={{ background: isSessionRelevant ? 'linear-gradient(135deg, #d1fae5 0%, #ecfdf5 100%)' : 'linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%)', border: isSessionRelevant ? '1px solid #a7f3d0' : '1px solid #bfdbfe', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
@@ -734,12 +738,16 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                                     {isSessionRelevant && <span className="status-badge-pill" style={{ background: 'white', color: '#15803d', fontSize: '10px', padding: '2px 8px', marginTop: '4px', borderRadius: '10px', fontWeight: 'bold' }}>ACTIVE</span>}
                                 </div>
                             </div>
+                            
                             {!isSessionRelevant && (
                                 <div style={{ marginBottom: '15px' }}>
+                                    {/* Session Type Toggle (Theory / Practical) */}
                                     <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
                                         <button onClick={() => setSessionType('theory')} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: sessionType === 'theory' ? '#2563eb' : 'white', color: sessionType === 'theory' ? 'white' : '#64748b', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold', boxShadow: sessionType === 'theory' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none' }}>Theory</button>
                                         <button onClick={() => setSessionType('practical')} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: sessionType === 'practical' ? '#2563eb' : 'white', color: sessionType === 'practical' ? 'white' : '#64748b', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold', boxShadow: sessionType === 'practical' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none' }}>Practical</button>
                                     </div>
+
+                                    {/* Practical Config */}
                                     {sessionType === 'practical' && (
                                         <div style={{ marginTop: '10px', background: 'white', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                                             <div className="input-group" style={{ marginBottom: '8px' }}>
@@ -758,10 +766,15 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                                     )}
                                 </div>
                             )}
+                            
                             <p style={{ color: isSessionRelevant ? '#166534' : '#1e40af', marginBottom: '20px', fontSize: '12px', opacity: 0.8 }}>
-                                {isSessionRelevant ? `Code updates in ${timer}s` : `Configure session for ${selectedYear} Year.`}
+                                {isSessionRelevant 
+                                    ? `Code updates in ${timer}s` 
+                                    : `Configure session for ${selectedYear} ${selectedYear === 'FE' ? `(Div ${selectedDiv})` : ''}.`
+                                }
                             </p>
                         </div>
+                        
                         <button onClick={onSessionToggle} className={isSessionRelevant ? "btn-modern-danger" : "btn-modern-primary"} disabled={!teacherInfo || (activeSession && !isSessionRelevant) || sessionLoading} style={{ marginTop: 'auto', boxShadow: 'none' }}>
                             {sessionLoading ? <i className="fas fa-spinner fa-spin"></i> : (activeSession && !isSessionRelevant ? 'Other Class Active' : isSessionRelevant ? 'End Session' : 'Start Session')}
                         </button>
@@ -796,7 +809,6 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                     {/* 4. ACTIONS */}
                     {isSessionRelevant && (
                         <div className="card-full-width" style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                            {/* Option A: Quick Absentee */}
                             <div className="card" style={{ borderLeft: '4px solid #f59e0b', padding: '15px', background: '#fffbeb' }}>
                                 <h3 style={{ fontSize: '14px', color: '#b45309', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', fontWeight: '700' }}>
                                     <i className="fas fa-user-minus" style={{ color: '#f59e0b' }}></i> Quick Absentee
@@ -807,7 +819,6 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                                 </button>
                             </div>
 
-                            {/* Option B: Manual Mark Present */}
                             <div className="card" style={{ borderLeft: '4px solid #2563eb', padding: '15px', background: '#eff6ff' }}>
                                 <h3 style={{ fontSize: '14px', color: '#1e3a8a', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', fontWeight: '700' }}>
                                     <i className="fas fa-user-check" style={{ color: '#2563eb' }}></i> Manual Present
@@ -861,11 +872,11 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                 </div>
             )}
 
-            {viewMode === 'history' && (
+           {viewMode === 'history' && (
                 <div className="cards-grid">
                     <div className="card card-full-width" style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '20px', background: '#f8fafc', flexWrap: 'wrap' }}>
-                        
-                        {/* ✅ 1. NEW: SEMESTER SELECTOR */}
+
+                        {/* 1. SEMESTER SELECTOR */}
                         <div style={{ flex: 1, minWidth: '150px' }}>
                             <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', textTransform: 'uppercase', marginBottom: '5px' }}>
                                 Semester
@@ -887,20 +898,19 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                                         appearance: 'none'
                                     }}
                                 >
-                                    {/* Smart Options based on Year */}
                                     {selectedYear === 'FE' && <><option value={1}>Sem 1</option><option value={2}>Sem 2</option></>}
                                     {selectedYear === 'SE' && <><option value={3}>Sem 3</option><option value={4}>Sem 4</option></>}
                                     {selectedYear === 'TE' && <><option value={5}>Sem 5</option><option value={6}>Sem 6</option></>}
                                     {selectedYear === 'BE' && <><option value={7}>Sem 7</option><option value={8}>Sem 8</option></>}
-                                    
-                                    {/* Fallback if Year is unknown */}
-                                    {!['FE','SE','TE','BE'].includes(selectedYear) && <option value={historySemester}>Current</option>}
+                                    {!['FE', 'SE', 'TE', 'BE'].includes(selectedYear) && <option value={historySemester}>Current</option>}
                                 </select>
                                 <i className="fas fa-chevron-down" style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none', fontSize: '12px' }}></i>
                             </div>
                         </div>
 
-                        {/* ✅ 2. DATE SELECTOR (Existing) */}
+                        {/* ✅ DROPDOWN REMOVED - Using selectedDiv via header below */}
+
+                        {/* 2. DATE SELECTOR */}
                         <div style={{ flex: 1, minWidth: '200px' }}>
                             <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', textTransform: 'uppercase', marginBottom: '5px' }}>Select Date</label>
                             <div style={{ position: 'relative', width: '100%' }}>
@@ -910,7 +920,7 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                                     onChange={(e) => setSelectedDate(e.target.value)}
                                     style={{
                                         width: '100%',
-                                        padding: '12px 12px 12px 40px', // Space for icon
+                                        padding: '12px 12px 12px 40px',
                                         border: '1px solid #cbd5e1',
                                         borderRadius: '8px',
                                         fontSize: '14px',
@@ -924,26 +934,28 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                             </div>
                         </div>
 
-                        {/* ✅ 3. DYNAMIC HEADER */}
+                        {/* 3. DYNAMIC HEADER */}
                         <div style={{ flex: 2, minWidth: '200px' }}>
                             <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Viewing Report for:</p>
                             <h3 style={{ margin: '4px 0 0 0', fontSize: '22px', color: '#1e293b' }}>
-                                {formattedDate} <br/>
-                                {/* Shows the subject fetched by getSubjectForHistory() */}
+                                {formattedDate} <br />
                                 <span style={{ color: '#2563eb', fontSize: '18px' }}>
-                                    {getSubjectForHistory()}
+                                    {getSubjectForHistory()} 
+                                    {/* ✅ Shows Division implicitly from Context */}
+                                    {selectedYear === 'FE' && selectedDiv ? ` (Div ${selectedDiv})` : ''}
                                 </span>
                             </h3>
                         </div>
                     </div>
 
+                    {/* 4. SESSION LIST */}
                     {historySessions.length === 0 ? (
                         <div className="card card-full-width" style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
                             <i className="fas fa-calendar-times" style={{ fontSize: '30px', marginBottom: '10px' }}></i>
                             <p>No sessions found for this date.</p>
                         </div>
                     ) : (
-                        historySessions.map((session, index) => (
+                        historySessions.map((session) => (
                             <div key={session.sessionId} className="card card-full-width" style={{ marginTop: '20px', borderLeft: session.type === 'practical' ? '5px solid #8b5cf6' : '5px solid #3b82f6' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '15px', marginBottom: '15px' }}>
                                     <div>
@@ -951,6 +963,14 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                                             <span style={{ background: '#f1f5f9', color: '#64748b', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>
                                                 {session.startTime}
                                             </span>
+                                            
+                                            {/* ✅ Show Division Badge */}
+                                            {selectedYear === 'FE' && session.division && (
+                                                <span style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>
+                                                    Div {session.division}
+                                                </span>
+                                            )}
+
                                             {session.type === 'practical' ? (
                                                 <span style={{ background: '#ede9fe', color: '#7c3aed', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>
                                                     🧪 Practical (Batch {session.batch})
@@ -965,11 +985,13 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                                             Present: <strong style={{ color: '#166534' }}>{session.presentCount}</strong> | Absent: <strong style={{ color: '#dc2626' }}>{session.absentCount}</strong>
                                         </p>
                                     </div>
+                                    
                                     <CSVLink
                                         data={session.students.map(s => ({
                                             ...s,
                                             type: session.type === 'practical' ? 'Practical' : 'Theory',
-                                            batch: session.type === 'practical' ? session.batch : 'All'
+                                            batch: session.type === 'practical' ? session.batch : 'All',
+                                            division: session.division || 'All'
                                         }))}
                                         headers={[
                                             { label: "Roll No", key: "rollNo" },
@@ -977,9 +999,10 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                                             { label: "Status", key: "status" },
                                             { label: "Time In", key: "timeIn" },
                                             { label: "Type", key: "type" },
-                                            { label: "Batch", key: "batch" }
+                                            { label: "Batch", key: "batch" },
+                                            { label: "Division", key: "division" }
                                         ]}
-                                        filename={`${session.type}-Attendance-${formattedDate}-${session.batch}.csv`}
+                                        filename={`${session.type}-Attendance-${formattedDate}${selectedYear === 'FE' ? `-${session.division}` : ''}.csv`}
                                         style={{ fontSize: '13px', color: '#3b82f6', textDecoration: 'none', fontWeight: '600' }}
                                     >
                                         <i className="fas fa-download"></i> CSV
@@ -1011,7 +1034,7 @@ const DashboardHome = ({ teacherInfo, activeSession, attendanceList, onSessionTo
                 </div>
             )}
 
-            {/* ✅ ADDED: Theme CSS for the Greeting */}
+            {/* ✅ CSS For Gradient Text */}
             <style>{`
                 .gradient-text {
                     background: linear-gradient(135deg, #7c3aed 0%, #db2777 100%);
@@ -1081,6 +1104,7 @@ export default function TeacherDashboard() {
     const [activeTab, setActiveTab] = useState('dashboard');
     const [adminNotices, setAdminNotices] = useState([]);
     const [unreadNoticeCount, setUnreadNoticeCount] = useState(0);
+    const [historyDivision, setHistoryDivision] = useState('All');
 
     // Year & Subject Logic
     const [selectedYear, setSelectedYear] = useState(null);
@@ -1091,20 +1115,22 @@ export default function TeacherDashboard() {
     const [selectedBatch, setSelectedBatch] = useState('A');
     const [rollStart, setRollStart] = useState(1);
     const [rollEnd, setRollEnd] = useState(20);
+    const [selectedDiv, setSelectedDiv] = useState('A');
 
     // History State
     const [viewMode, setViewMode] = useState('live');
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-    const [historySemester, setHistorySemester] = useState(4);
+    const [historySemester, setHistorySemester] = useState(1);
+    const [activeSemesters, setActiveSemesters] = useState({});
     // ✅ NEW: Store an array of SESSIONS, not just a flat list of students
     const [historySessions, setHistorySessions] = useState([]);
     const navigate = useNavigate();
     const getSubjectForHistory = () => {
         if (!teacherInfo) return "";
-        
+
         // 1. Check assignedClasses array first
         if (teacherInfo.assignedClasses) {
-            const pastClass = teacherInfo.assignedClasses.find(c => 
+            const pastClass = teacherInfo.assignedClasses.find(c =>
                 c.year === selectedYear && Number(c.semester) === Number(historySemester)
             );
             if (pastClass) return pastClass.subject;
@@ -1122,6 +1148,8 @@ export default function TeacherDashboard() {
             if (doc.exists()) {
                 const data = doc.data();
                 setTeacherInfo(data);
+
+                // 1. Auto-Select Year if teacher has only one class
                 if (data.assignedClasses && data.assignedClasses.length === 1) {
                     setSelectedYear(data.assignedClasses[0].year);
                 } else if (data.assignedYears && data.assignedYears.length === 1 && !data.assignedClasses) {
@@ -1131,10 +1159,51 @@ export default function TeacherDashboard() {
                 } else if (!selectedYear) {
                     setSelectedYear('All');
                 }
+
+                // ✅ NEW: Auto-select default Division if FE is active
+                if (selectedYear === 'FE' && data.assignedClasses) {
+                    const feClass = data.assignedClasses.find(c => c.year === 'FE');
+                    // If teacher has "A, B" assigned, auto-select "A"
+                    if (feClass && feClass.divisions) {
+                        const firstDiv = feClass.divisions.split(',')[0].trim();
+                        setSelectedDiv(firstDiv);
+                    }
+                }
             }
         });
         return () => unsub();
     }, [auth.currentUser, selectedYear]);
+
+    useEffect(() => {
+        const fetchStats = async () => {
+            if (!teacherInfo?.instituteId || !teacherInfo?.department) return;
+            try {
+                // Fetch the same document the HOD updates
+                const docRef = doc(db, "department_stats", `${teacherInfo.instituteId}_${teacherInfo.department}`);
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    setActiveSemesters(docSnap.data().activeSemesters || {});
+                }
+            } catch (err) {
+                console.error("Error fetching dept stats:", err);
+            }
+        };
+        fetchStats();
+    }, [teacherInfo]);
+
+    // ✅ NEW: Auto-select the correct semester when Teacher switches Year
+    useEffect(() => {
+        if (selectedYear && activeSemesters[selectedYear]) {
+            // If HOD set a semester, use it
+            setHistorySemester(activeSemesters[selectedYear]);
+        } else {
+            // Fallback defaults if HOD hasn't configured it yet
+            if (selectedYear === 'FE') setHistorySemester(1);
+            else if (selectedYear === 'SE') setHistorySemester(3);
+            else if (selectedYear === 'TE') setHistorySemester(5);
+            else if (selectedYear === 'BE') setHistorySemester(7);
+        }
+    }, [selectedYear, activeSemesters]);
 
     // ✅ REGISTER TEACHER FOR PUSH NOTIFICATIONS (Fixed Dependency)
     useEffect(() => {
@@ -1248,7 +1317,7 @@ export default function TeacherDashboard() {
         return () => { if (unsubscribe) unsubscribe(); };
     }, [activeSession, teacherInfo]);
 
-  // ✅ NEW HISTORY LOGIC: Group by Session (Now supports Semester Switching)
+    // ✅ NEW HISTORY LOGIC: Group by Session (Now supports Semester Switching)
     useEffect(() => {
         const fetchHistory = async () => {
             if (!teacherInfo?.instituteId || !selectedYear) return;
@@ -1263,7 +1332,7 @@ export default function TeacherDashboard() {
 
             if (!targetSubject) {
                 // If no subject matches the selected semester, clear the list
-                setHistorySessions([]); 
+                setHistorySessions([]);
                 return;
             }
 
@@ -1297,7 +1366,7 @@ export default function TeacherDashboard() {
                 const attSnap = await getDocs(qAttendance);
 
                 // --- (The rest of your logic remains exactly the same below) ---
-                
+
                 // 3. FETCH SESSION DETAILS 
                 const uniqueSessionIds = new Set();
                 attSnap.docs.forEach(d => uniqueSessionIds.add(d.data().sessionId));
@@ -1311,11 +1380,22 @@ export default function TeacherDashboard() {
                 }));
 
                 // 4. GROUP BY SESSION ID
+                // 4. GROUP BY SESSION ID
+               // 4. GROUP BY SESSION ID
                 const sessionsMap = {};
                 attSnap.docs.forEach(doc => {
                     const data = doc.data();
                     const sId = data.sessionId;
                     const meta = sessionMetaMap[sId] || {};
+
+                    // ✅ FILTER LOGIC: Strict filter by selectedDiv for FE
+                    if (selectedYear === 'FE') {
+                        // If session has division 'B' but we are in context 'A', SKIP.
+                        if (meta.division && meta.division !== selectedDiv) return;
+                        // Optional: if meta.division is missing, you might want to default to 'A' 
+                        // or show it anyway. For strictness:
+                        // if (!meta.division && selectedDiv !== 'A') return; 
+                    }
 
                     if (!sessionsMap[sId]) {
                         sessionsMap[sId] = {
@@ -1323,6 +1403,7 @@ export default function TeacherDashboard() {
                             startTime: data.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                             type: meta.type || 'theory',
                             batch: meta.batch || 'All',
+                            division: meta.division || (selectedYear === 'FE' ? 'A' : null),
                             rollRange: meta.rollRange || null,
                             presentRolls: new Set()
                         };
@@ -1376,7 +1457,7 @@ export default function TeacherDashboard() {
 
         if (viewMode === 'history') fetchHistory();
 
-    // ✅ IMPORTANT: Add 'historySemester' to the dependency array so it refreshes when you switch semesters
+        // ✅ IMPORTANT: Add 'historySemester' to the dependency array so it refreshes when you switch semesters
     }, [viewMode, selectedDate, teacherInfo, selectedYear, historySemester]);
 
     const handleSession = async () => {
@@ -1428,6 +1509,8 @@ export default function TeacherDashboard() {
                                 },
                                 type: sessionType,
                                 batch: sessionType === 'practical' ? selectedBatch : 'All',
+                                // ✅ NEW: Send Division for FE
+                                division: selectedYear === 'FE' ? selectedDiv : null,
                                 rollRange: sessionType === 'practical'
                                     ? { start: parseInt(rollStart), end: parseInt(rollEnd) }
                                     : null
@@ -1500,6 +1583,10 @@ export default function TeacherDashboard() {
                 historySemester={historySemester}
                 setHistorySemester={setHistorySemester}
                 getSubjectForHistory={getSubjectForHistory}
+                selectedDiv={selectedDiv}       // ✅ Pass Prop
+                setSelectedDiv={setSelectedDiv}
+                historyDivision={historyDivision}
+                setHistoryDivision={setHistoryDivision}
             />;
             case 'analytics': return <TeacherAnalytics teacherInfo={teacherInfo} selectedYear={selectedYear} />;
             case 'announcements': return <TeacherAnnouncements teacherInfo={teacherInfo} />;
@@ -1611,16 +1698,58 @@ export default function TeacherDashboard() {
 
     return (
         <div className="dashboard-container">
-            {showYearModal && (
+          {showYearModal && (
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div className="card" style={{ width: '90%', maxWidth: '350px', textAlign: 'center', padding: '30px' }}>
-                        <h2 style={{ color: '#1e293b', marginBottom: '10px' }}>Select Classroom</h2>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                            {teacherInfo?.assignedClasses?.map(cls => (
-                                <button key={cls.year} onClick={() => { setSelectedYear(cls.year); setShowYearModal(false); toast.success(`Entered ${cls.year} (${cls.subject})`); }} style={{ padding: '15px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <span>{cls.year} - {cls.subject}</span><i className="fas fa-arrow-right" style={{ color: '#3b82f6' }}></i>
+                        <h2 style={{ color: '#1e293b', marginBottom: '15px' }}>Select Classroom</h2>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            
+                            {/* ✅ LOGIC: Generate specific buttons for EACH Division */}
+                            {teacherInfo?.assignedClasses?.flatMap(cls => {
+                                // 1. If FE, split into separate buttons for each assigned Division
+                                if (cls.year === 'FE' && cls.divisions) {
+                                    if(cls.divisions.toLowerCase() === 'all') {
+                                        return [{ ...cls, displayDiv: 'All', uniqueKey: 'FE-All' }];
+                                    }
+                                    // Split "A, B" -> Objects for A and B
+                                    return cls.divisions.split(',').map(d => ({
+                                        ...cls,
+                                        displayDiv: d.trim(),
+                                        uniqueKey: `${cls.year}-${d.trim()}`
+                                    }));
+                                }
+                                // 2. Default for SE/TE/BE
+                                return [{ ...cls, displayDiv: null, uniqueKey: cls.year }];
+                            }).map(cls => (
+                                <button 
+                                    key={cls.uniqueKey} 
+                                    onClick={() => { 
+                                        setSelectedYear(cls.year); 
+                                        // ✅ SET DIVISION STATE IMMEDIATELY
+                                        if (cls.displayDiv) setSelectedDiv(cls.displayDiv); 
+                                        setShowYearModal(false); 
+                                        toast.success(`Entered ${cls.year} ${cls.displayDiv ? `(Div ${cls.displayDiv})` : ''}`); 
+                                    }} 
+                                    style={{ 
+                                        padding: '15px', background: '#fff', border: '1px solid #e2e8f0', 
+                                        borderRadius: '12px', fontSize: '15px', fontWeight: 'bold', 
+                                        cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                        boxShadow: '0 2px 5px rgba(0,0,0,0.05)'
+                                    }}
+                                >
+                                    <div style={{ textAlign: 'left' }}>
+                                        <span style={{ display: 'block', color: '#1e293b' }}>
+                                            {cls.year} {cls.displayDiv && <span style={{ color: '#2563eb' }}>(Div {cls.displayDiv})</span>}
+                                        </span>
+                                        <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '500' }}>
+                                            {cls.subject}
+                                        </span>
+                                    </div>
+                                    <i className="fas fa-chevron-right" style={{ color: '#cbd5e1' }}></i>
                                 </button>
                             ))}
+
+                            {/* Fallback for old accounts */}
                             {!teacherInfo?.assignedClasses && teacherInfo?.assignedYears?.map(y => (
                                 <button key={y} onClick={() => { setSelectedYear(y); setShowYearModal(false); }} style={{ padding: '15px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer' }}><span>{y} Year</span></button>
                             ))}
@@ -1634,16 +1763,24 @@ export default function TeacherDashboard() {
                 <div className="logo-container"><img src={logo} alt="Logo" className="sidebar-logo" /><span className="logo-text">Acadex</span></div>
                 {teacherInfo && (
                     <div className="teacher-info" onClick={() => { setActivePage('profile'); setIsMobileNavOpen(false); }} style={{ cursor: 'pointer' }}>
-                        <h4>{teacherInfo.firstName} {teacherInfo.lastName}</h4>
-                        <p style={{ opacity: 0.8, fontSize: '13px' }}>
-                            {teacherInfo.assignedClasses?.find(c => c.year === selectedYear)?.subject || "Select a Class"}
-                        </p>
-                        {(teacherInfo.assignedClasses?.length > 1 || teacherInfo.assignedYears?.length > 1) && (
-                            <div onClick={(e) => { e.stopPropagation(); setShowYearModal(true); }} className="edit-profile-pill" style={{ marginTop: '8px', background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', justifyContent: 'center' }}>
-                                <i className="fas fa-exchange-alt" style={{ fontSize: '10px' }}></i><span>Switch Class ({selectedYear})</span>
-                            </div>
+                    <h4>{teacherInfo.firstName} {teacherInfo.lastName}</h4>
+                    <p style={{ opacity: 0.8, fontSize: '13px' }}>
+                        {/* Show Subject */}
+                        {teacherInfo.assignedClasses?.find(c => c.year === selectedYear)?.subject || "Select a Class"}
+                        
+                        {/* ✅ Show Selected Division for FE */}
+                        {selectedYear === 'FE' && selectedDiv && (
+                            <span style={{ color: '#93c5fd', fontWeight: '700' }}> • Div {selectedDiv}</span>
                         )}
-                    </div>
+                    </p>
+                    
+                    {/* Switch Class Button */}
+                    {(teacherInfo.assignedClasses?.length > 0 || teacherInfo.assignedYears?.length > 0) && (
+                        <div onClick={(e) => { e.stopPropagation(); setShowYearModal(true); }} className="edit-profile-pill" style={{ marginTop: '8px', background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', justifyContent: 'center' }}>
+                            <i className="fas fa-exchange-alt" style={{ fontSize: '10px' }}></i><span>Switch Class</span>
+                        </div>
+                    )}
+                </div>
                 )}
                 <ul className="menu">
                     <NavLink page="dashboard" iconClass="fa-th-large" label="Dashboard" />

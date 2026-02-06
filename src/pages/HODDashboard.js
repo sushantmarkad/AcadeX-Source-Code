@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { signOut, updatePassword } from 'firebase/auth';
+import { signOut, updatePassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { auth, db, storage, sendPasswordResetEmail } from '../firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -20,6 +20,68 @@ import CustomDropdown from '../components/CustomDropdown';
 import ManageTimetable from './ManageTimetable';
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
+
+// --- 📱 SPECIAL MOBILE DROPDOWN (Fixed Spacing) ---
+const CustomMobileSelect = ({ label, value, onChange, options, icon }) => {
+    const [isOpen, setIsOpen] = useState(false);
+
+    return (
+        // ✅ Removed marginBottom: '15px' to fix gap issue
+        <div className="custom-select-container" style={{ position: 'relative', width: '100%' }}>
+            <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                {label}
+            </label>
+            
+            <div 
+                onClick={() => setIsOpen(!isOpen)}
+                style={{
+                    padding: '14px 16px', borderRadius: '12px', background: '#f8fafc',
+                    border: isOpen ? '2px solid #3b82f6' : '2px solid #e2e8f0', 
+                    color: '#1e293b', fontWeight: '700', cursor: 'pointer', 
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
+                    transition: 'all 0.2s ease', width: '100%' // ✅ Force full width
+                }}
+            >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', overflow: 'hidden' }}>
+                    {icon && <i className={`fas ${icon}`} style={{ color: '#3b82f6' }}></i>}
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {options.find(o => o.value == value)?.label || "Select..."}
+                    </span>
+                </div>
+                <i className={`fas fa-chevron-down ${isOpen ? 'fa-rotate-180' : ''}`} style={{ transition: '0.3s', color: isOpen ? '#3b82f6' : '#94a3b8' }}></i>
+            </div>
+
+            {isOpen && (
+                <>
+                    <div className="mobile-dropdown-menu" style={{
+                        position: 'absolute', top: '110%', left: 0, right: 0,
+                        background: 'white', borderRadius: '12px',
+                        boxShadow: '0 10px 40px -10px rgba(0,0,0,0.2), 0 0 0 1px rgba(0,0,0,0.05)',
+                        zIndex: 100, maxHeight: '250px', overflowY: 'auto'
+                    }}>
+                        {options.map((opt) => (
+                            <div 
+                                key={opt.value}
+                                onClick={() => { onChange(opt.value); setIsOpen(false); }}
+                                style={{
+                                    padding: '12px 16px', borderBottom: '1px solid #f8fafc',
+                                    color: value == opt.value ? '#2563eb' : '#475569',
+                                    fontWeight: value == opt.value ? '700' : '600',
+                                    background: value == opt.value ? '#eff6ff' : 'transparent',
+                                    cursor: 'pointer', fontSize: '13px'
+                                }}
+                            >
+                                {opt.label}
+                            </div>
+                        ))}
+                    </div>
+                    {/* Overlay to close when clicking outside */}
+                    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99 }} onClick={() => setIsOpen(false)}></div>
+                </>
+            )}
+        </div>
+    );
+};
 
 export default function HODDashboard() {
     const [hodInfo, setHodInfo] = useState(null);
@@ -71,6 +133,9 @@ export default function HODDashboard() {
 
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
+    const [analyticsDivision, setAnalyticsDivision] = useState('All');
+    const DIVISIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'];
+    const isFE = hodInfo?.department === 'FE';
 
     useEffect(() => {
         const init = async () => {
@@ -124,10 +189,20 @@ export default function HODDashboard() {
         };
         init();
     }, []);
+    useEffect(() => {
+        if (hodInfo) {
+            // Check if department is First Year
+            if (hodInfo.department === 'FE' || hodInfo.department === 'First Year') {
+                setAnalyticsDivision('A'); // Select first division by default
+            } else {
+                setAnalyticsYear('SE');    // Select first valid year (SE) by default
+            }
+        }
+    }, [hodInfo]);
 
 
 
-    // --- 1. FUNCTIONAL ATTENDANCE GRAPH ---
+    // --- 1. FUNCTIONAL ATTENDANCE GRAPH (UPDATED) ---
     useEffect(() => {
         if (!hodInfo || deptUsers.length === 0) return;
         const fetchAttendanceStats = async () => {
@@ -137,7 +212,6 @@ export default function HODDashboard() {
             else startDate.setDate(now.getDate() - 30);
 
             try {
-                // Fetch attendance for the selected time range
                 const q = query(
                     collection(db, 'attendance'),
                     where('instituteId', '==', hodInfo.instituteId),
@@ -146,40 +220,51 @@ export default function HODDashboard() {
                 );
 
                 onSnapshot(q, (snap) => {
-                    const yearCounts = { FE: 0, SE: 0, TE: 0, BE: 0 };
-                    const sessionsByYear = { FE: new Set(), SE: new Set(), TE: new Set(), BE: new Set() };
-
-                    // Create a map of student ID -> Year for quick lookup
-                    const studentYearMap = {};
-                    deptUsers.forEach(u => { if (u.role === 'student') studentYearMap[u.id] = u.year; });
-
-                    snap.docs.forEach(doc => {
-                        const data = doc.data();
-                        const year = studentYearMap[data.studentId];
-                        if (year && yearCounts[year] !== undefined) {
-                            yearCounts[year]++;
-                            sessionsByYear[year].add(data.sessionId);
+                    // Create Map: StudentID -> Division (for FE) OR Year (for Others)
+                    const studentMap = {};
+                    deptUsers.forEach(u => {
+                        if (u.role === 'student') {
+                            // If FE, map to Division (default 'A'), else map to Year
+                            studentMap[u.id] = isFE ? (u.division || 'A') : u.year;
                         }
                     });
 
-                    // Calculate Student Counts per year
-                    const studentsByYear = { FE: 0, SE: 0, TE: 0, BE: 0 };
-                    deptUsers.forEach(u => { if (u.role === 'student' && u.year) studentsByYear[u.year]++; });
+                    const groupCounts = {}; // { 'A': 10, 'B': 5 } or { 'SE': 20, 'TE': 15 }
+                    const groupSessions = {};
 
-                    // Generate Graph Data
-                    const graphData = ['FE', 'SE', 'TE', 'BE'].map(year => {
-                        const totalStudents = studentsByYear[year] || 1;
-                        const totalSessions = sessionsByYear[year].size || 1;
-                        const totalPresent = yearCounts[year];
-                        const avgPct = Math.round((totalPresent / (totalSessions * totalStudents)) * 100) || 0;
-                        return { name: year, attendance: avgPct };
+                    snap.docs.forEach(doc => {
+                        const data = doc.data();
+                        const key = studentMap[data.studentId]; // Key is Division or Year
+
+                        if (key) {
+                            if (!groupCounts[key]) { groupCounts[key] = 0; groupSessions[key] = new Set(); }
+                            groupCounts[key]++;
+                            groupSessions[key].add(data.sessionId);
+                        }
                     });
+
+                    // Generate Data based on HOD Type
+                    const LABELS = isFE ? DIVISIONS : ['SE', 'TE', 'BE']; // Hide FE for Dept HODs
+
+                    const graphData = LABELS.map(label => {
+                        // Count students in this Group (Division or Year)
+                        const totalStudents = deptUsers.filter(u =>
+                            u.role === 'student' && (isFE ? u.division === label : u.year === label)
+                        ).length || 1;
+
+                        const totalSessions = groupSessions[label]?.size || 1;
+                        const totalPresent = groupCounts[label] || 0;
+                        const avgPct = Math.round((totalPresent / (totalSessions * totalStudents)) * 100) || 0;
+
+                        return { name: label, attendance: avgPct };
+                    });
+
                     setAttendanceGraph(graphData);
                 });
             } catch (err) { console.error(err); }
         };
         fetchAttendanceStats();
-    }, [hodInfo, deptUsers, timeRange]);
+    }, [hodInfo, deptUsers, timeRange, isFE]); // Added isFE dependency
 
     // --- 4. PASSWORD CHANGE HANDLER ---
     const handleChangePassword = async (e) => {
@@ -203,24 +288,39 @@ export default function HODDashboard() {
     const teachersList = deptUsers.filter(u => u.role === 'teacher');
 
     // --- ✅ UPDATED: ANALYTICS PROCESSING (Dynamic Criteria) ---
+    // --- ✅ UPDATED: ANALYTICS PROCESSING ---
     const getYearAnalytics = () => {
-        // 1. Filter students based on selected analyticsYear
-        const yearStudents = studentsList.filter(s => s.year === analyticsYear);
-        const threshold = criteria[analyticsYear] || 75; // Get custom criteria for this year
+        let targetStudents = studentsList;
 
-        // 2. Calculate percentage
-        const processed = yearStudents.map(s => {
+        // 1. Filter Students based on Role (FE HOD vs Dept HOD)
+        if (isFE) {
+            // FE HOD: Only see FE students
+            targetStudents = studentsList.filter(s => s.year === 'FE');
+
+            // Apply Division Filter if selected
+            if (analyticsDivision !== 'All') {
+                targetStudents = targetStudents.filter(s => s.division === analyticsDivision);
+            }
+        } else {
+            // Dept HOD: Filter by selected Year (SE, TE, BE)
+            targetStudents = studentsList.filter(s => s.year === analyticsYear);
+        }
+
+        // Get Threshold
+        const threshold = criteria[analyticsYear] || 75;
+
+        // 2. Calculate Percentage
+        const processed = targetStudents.map(s => {
             const attended = s.attendanceCount || 0;
-            // Formula: (Attended / Total Classes) * 100
             const percentage = totalClasses > 0 ? (attended / totalClasses) * 100 : (attended > 0 ? 100 : 0);
             return { ...s, percentage };
         });
 
-        // 3. Categorize based on Dynamic Threshold
+        // 3. Categorize
         const safe = processed.filter(s => s.percentage >= threshold);
         const defaulters = processed.filter(s => s.percentage < threshold);
 
-        // 4. Search Filter for Defaulters
+        // 4. Search Filter
         const filteredDefaulters = defaulters.filter(s =>
             (s.firstName && s.firstName.toLowerCase().includes(searchQuery.toLowerCase())) ||
             (s.rollNo && s.rollNo.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -256,6 +356,16 @@ export default function HODDashboard() {
     const toggleSelectRequestAll = () => {
         if (selectedRequestIds.length === studentRequests.length) setSelectedRequestIds([]);
         else setSelectedRequestIds(studentRequests.map(r => r.id));
+    };
+
+    // ✅ HANDLE DIVISION CHANGE (Allows typing "A, B" etc.)
+    const handleDivisionChange = (year, divisionVal) => {
+        setTeacherForm(prev => ({
+            ...prev,
+            assignedClasses: prev.assignedClasses.map(c =>
+                c.year === year ? { ...c, divisions: divisionVal } : c
+            )
+        }));
     };
 
     // ✅ NEW: Handle Semester Selection
@@ -490,42 +600,70 @@ export default function HODDashboard() {
         } catch (e) { toast.error("Error rejecting", { id: toastId }); }
     };
 
-    // 3. Add Teacher (Sends assignedClasses and Academic Year)
+  // --- ✅ ADD TEACHER (With Toasts & Backend Creation) ---
     const handleAddTeacher = async (e) => {
         e.preventDefault();
-
-        if (teacherForm.assignedClasses.length === 0) {
-            toast.error("Please assign at least one class.");
-            return;
-        }
-        const incomplete = teacherForm.assignedClasses.find(c => !c.subject || c.subject.trim() === "");
-        if (incomplete) {
-            toast.error(`Please enter a subject for ${incomplete.year} year.`);
-            return;
-        }
-
+        
+        // 1. Show "Loading" Toast immediately
+        const toastId = toast.loading("Creating Teacher Account...");
         setLoading(true);
-        const toastId = toast.loading("Adding Teacher...");
+
         try {
-            await fetch(`${BACKEND_URL}/createUser`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
+            // 2. Create User via Backend API 
+            // (Using backend prevents the HOD from being auto-logged out)
+            const response = await fetch(`${BACKEND_URL}/createUser`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    ...teacherForm,
+                    email: teacherForm.email,
+                    password: teacherForm.password,
+                    firstName: teacherForm.firstName,
+                    lastName: teacherForm.lastName,
                     role: 'teacher',
                     instituteId: hodInfo.instituteId,
-                    instituteName: hodInfo.instituteName,
+                    instituteName: hodInfo.instituteName || 'AcadeX Institute',
                     department: hodInfo.department,
+                    academicYear: teacherForm.academicYear,
                     assignedClasses: teacherForm.assignedClasses,
-                    extras: {
-                        academicYear: teacherForm.academicYear,
-                        qualification: 'Added by HOD'
+                    extras: { 
+                        createdAt: new Date().toISOString() 
                     }
                 })
             });
-            await sendPasswordResetEmail(auth, teacherForm.email);
-            toast.success(`Teacher Added!`, { id: toastId });
-            setTeacherForm({ firstName: '', lastName: '', email: '', password: '', academicYear: '2024-2025', assignedClasses: [] });
-        } catch (error) { toast.error("Error: " + error.message, { id: toastId }); } finally { setLoading(false); }
+
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || "Failed to create teacher");
+
+            // 3. Trigger Email Sending
+            await fetch(`${BACKEND_URL}/sendTeacherCredentials`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: teacherForm.email,
+                    password: teacherForm.password, // Send raw password so teacher knows it
+                    firstName: teacherForm.firstName,
+                    department: hodInfo.department,
+                    assignedClasses: teacherForm.assignedClasses,
+                    academicYear: teacherForm.academicYear
+                })
+            });
+
+            // 4. Update Toast to Success
+            toast.success("Teacher Added & Email Sent!", { id: toastId });
+            
+            // 5. Clear Form
+            setTeacherForm({
+                firstName: '', lastName: '', email: '', password: '',
+                academicYear: '2025-2026', assignedClasses: []
+            });
+
+        } catch (error) {
+            console.error("Error adding teacher:", error);
+            // 6. Update Toast to Error if something fails
+            toast.error(error.message || "Failed to add teacher.", { id: toastId });
+        } finally {
+            setLoading(false);
+        }
     };
 
     const MobileFooter = () => (
@@ -554,15 +692,15 @@ export default function HODDashboard() {
         </li>
     );
 
-// ✅ NEW: Handle Year-Wise Switching via Backend API
+    // ✅ NEW: Handle Year-Wise Switching via Backend API
     const handleSemesterSwitch = async (year, newSem) => {
         if (!hodInfo) return;
-        
+
         const toastId = toast.loading(`Updating ${year} to Sem ${newSem}...`);
-        
+
         try {
             const semInt = parseInt(newSem);
-            
+
             // 1. Create the updated state object locally first
             const updatedSems = { ...activeSemesters, [year]: semInt };
 
@@ -592,6 +730,8 @@ export default function HODDashboard() {
             toast.error(error.message || "Failed to update semester", { id: toastId });
         }
     };
+
+
 
     return (
         <div className="dashboard-container">
@@ -657,78 +797,126 @@ export default function HODDashboard() {
 
                 {activeTab === 'dashboard' && (
                     <div className="content-section">
-                        
-                        {/* ✅ NEW: YEAR-WISE SEMESTER CONTROL */}
-                        {/* This allows the HOD to set the semester for each year independently */}
-                        <div className="card" style={{ background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', color: 'white', marginBottom: '30px', padding: '25px' }}>
-                            <h3 style={{ margin: '0 0 15px 0', fontSize: '18px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <i className="fas fa-cogs" style={{ color: '#38bdf8' }}></i> Academic Session Control
-                            </h3>
-                            
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '15px' }}>
-                                {['FE', 'SE', 'TE', 'BE'].map(year => {
-                                    // Determine options based on Year (Odd/Even pairs)
-                                    let options = [];
-                                    if(year === 'FE') options = [1, 2];
-                                    if(year === 'SE') options = [3, 4];
-                                    if(year === 'TE') options = [5, 6];
-                                    if(year === 'BE') options = [7, 8];
 
-                                    return (
-                                        <div key={year} style={{ background: 'rgba(255,255,255,0.1)', padding: '10px 15px', borderRadius: '12px' }}>
-                                            <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#94a3b8', display: 'block', marginBottom: '5px' }}>
-                                                {year} CURRENT
-                                            </label>
-                                            <select 
-                                                // Defaults to first option if state isn't loaded yet
-                                                value={activeSemesters[year] || options[0]} 
-                                                onChange={(e) => handleSemesterSwitch(year, e.target.value)}
-                                                style={{ 
-                                                    width: '100%', background: '#334155', color: 'white', 
-                                                    border: '1px solid #475569', padding: '6px', borderRadius: '6px', 
-                                                    fontWeight: 'bold', cursor: 'pointer', outline: 'none'
-                                                }}
-                                            >
-                                                {options.map(sem => (
-                                                    <option key={sem} value={sem}>Sem {sem}</option>
-                                                ))}
-                                            </select>
-                                        </div>
-                                    )
-                                })}
+                        {/* --- 🎓 ACADEMIC SESSION CONTROL (Dynamic for FE/Dept) --- */}
+                        <div className="card fade-in-up" style={{
+                            background: 'white',
+                            borderRadius: '24px',
+                            border: 'none',
+                            boxShadow: '0 20px 50px -10px rgba(0,0,0,0.1)',
+                            overflow: 'visible',
+                            position: 'relative',
+                            marginBottom: '30px',
+                            zIndex: 10
+                        }}>
+                            {/* Decorative Header */}
+                            <div style={{
+                                background: 'linear-gradient(135deg, #0f172a 0%, #334155 100%)',
+                                padding: '25px',
+                                position: 'relative',
+                                borderRadius: '24px 24px 0 0',
+                                overflow: 'hidden'
+                            }}>
+                                <div style={{ position: 'relative', zIndex: 2 }}>
+                                    <h3 style={{ color: 'white', margin: 0, fontSize: '18px', fontWeight: '800', letterSpacing: '0.5px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <i className="fas fa-university" style={{ color: '#38bdf8' }}></i>
+                                        Academic Session Control
+                                    </h3>
+                                    <p style={{ color: 'rgba(255,255,255,0.7)', margin: '6px 0 0 0', fontSize: '13px', maxWidth: '90%' }}>
+                                        {hodInfo?.department === 'FE' ? 'Manage First Year Semesters' : 'Manage Department Semesters'}
+                                    </p>
+                                </div>
+                                <div style={{ position: 'absolute', top: '-30px', right: '-20px', width: '120px', height: '120px', background: 'radial-gradient(circle, rgba(56,189,248,0.2) 0%, rgba(255,255,255,0) 70%)', borderRadius: '50%' }}></div>
+                            </div>
+
+                            <div style={{ padding: '30px 25px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '20px' }}>
+
+                                    {/* ✅ LOGIC: Show 'FE' only if Dept is FE, otherwise show SE, TE, BE */}
+                                    {(hodInfo?.department === 'FE' || hodInfo?.department === 'First Year'
+                                        ? ['FE']
+                                        : ['SE', 'TE', 'BE']
+                                    ).map(year => {
+                                        // Define Options Per Year
+                                        let options = [];
+                                        if (year === 'FE') options = [{ value: 1, label: 'Semester 1' }, { value: 2, label: 'Semester 2' }];
+                                        if (year === 'SE') options = [{ value: 3, label: 'Semester 3' }, { value: 4, label: 'Semester 4' }];
+                                        if (year === 'TE') options = [{ value: 5, label: 'Semester 5' }, { value: 6, label: 'Semester 6' }];
+                                        if (year === 'BE') options = [{ value: 7, label: 'Semester 7' }, { value: 8, label: 'Semester 8' }];
+
+                                        return (
+                                            <div key={year}>
+                                                <CustomMobileSelect
+                                                    label={`${year} Session`}
+                                                    icon="fa-graduation-cap"
+                                                    value={activeSemesters[year] || options[0].value}
+                                                    onChange={(val) => handleSemesterSwitch(year, val)}
+                                                    options={options}
+                                                />
+                                            </div>
+                                        )
+                                    })}
+
+                                </div>
+
+                                <div style={{ marginTop: '10px', padding: '15px', background: '#eff6ff', borderRadius: '12px', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                                    <i className="fas fa-info-circle" style={{ color: '#2563eb', marginTop: '3px' }}></i>
+                                    <p style={{ margin: 0, fontSize: '12px', color: '#475569', lineHeight: '1.5' }}>
+                                        <strong>Note:</strong> Selected semester will apply to all students and teachers in {hodInfo?.department === 'FE' ? 'First Year' : 'the department'}.
+                                    </p>
+                                </div>
                             </div>
                         </div>
 
                         <h2 className="content-title">Department Overview</h2>
 
                         {/* 1. Student Count by Year (Cards) */}
-                        <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: '20px' }}>
-                            {['FE', 'SE', 'TE', 'BE'].map(year => {
-                                const count = studentsList.filter(s => s.year === year).length;
-                                const colors = { FE: '#3b82f6', SE: '#8b5cf6', TE: '#f59e0b', BE: '#10b981' };
-                                const bgs = { FE: '#eff6ff', SE: '#f5f3ff', TE: '#fffbeb', BE: '#ecfdf5' };
+                        <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', marginBottom: '20px' }}>
+
+                            {/* ✅ LOGIC: Show Divisions for FE, Years for Dept HOD */}
+                            {(isFE ? DIVISIONS : ['SE', 'TE', 'BE']).map(label => {
+
+                                // Count Logic
+                                const count = studentsList.filter(s =>
+                                    isFE ? s.division === label : s.year === label
+                                ).length;
+
+                                // Dynamic Colors
+                                const colors = {
+                                    'A': '#3b82f6', 'B': '#8b5cf6', 'C': '#f59e0b', 'D': '#10b981',
+                                    'E': '#ef4444', 'F': '#06b6d4', 'G': '#ec4899', 'H': '#6366f1',
+                                    'SE': '#8b5cf6', 'TE': '#f59e0b', 'BE': '#10b981'
+                                };
+                                const color = colors[label] || '#64748b';
+
                                 return (
-                                    <div key={year} className="card" style={{ background: bgs[year], border: 'none', borderLeft: `4px solid ${colors[year]}` }}>
-                                        <h3 style={{ margin: 0, color: colors[year], fontSize: '14px' }}>{year} Students</h3>
-                                        <p style={{ margin: '5px 0 0', fontSize: '28px', fontWeight: '800', color: '#1e293b' }}>{count}</p>
+                                    <div key={label} className="card" style={{ border: 'none', borderLeft: `4px solid ${color}`, background: '#fff' }}>
+                                        <h3 style={{ margin: 0, color: color, fontSize: '14px' }}>
+                                            {isFE ? `Div ${label}` : `${label}`} Students
+                                        </h3>
+                                        <p style={{ margin: '5px 0 0', fontSize: '28px', fontWeight: '800', color: '#1e293b' }}>
+                                            {count}
+                                        </p>
                                     </div>
                                 );
                             })}
+
                             <div className="card" style={{ background: '#f8fafc', border: 'none', borderLeft: '4px solid #64748b' }}>
                                 <h3 style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>Total Faculty</h3>
                                 <p style={{ margin: '5px 0 0', fontSize: '28px', fontWeight: '800', color: '#1e293b' }}>{teachersList.length}</p>
                             </div>
                         </div>
 
-                        {/* 2. Attendance Analytics Graph (Functional) */}
+                        {/* 2. Attendance Analytics Graph */}
                         <div className="card" style={{ height: '400px', display: 'flex', flexDirection: 'column' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                                 <div>
                                     <h3 style={{ margin: 0, color: '#1e293b' }}>Average Attendance</h3>
-                                    <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>Performance by Class Year</p>
+                                    <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
+                                        {isFE ? 'Performance by Division' : 'Performance by Class Year'}
+                                    </p>
                                 </div>
 
-                                {/* Time Range Toggles */}
                                 <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '8px', display: 'flex' }}>
                                     <button
                                         onClick={() => setTimeRange('week')}
@@ -755,7 +943,6 @@ export default function HODDashboard() {
                                 </div>
                             </div>
 
-                            {/* Dynamic Bar Chart */}
                             <ResponsiveContainer width="100%" height="100%">
                                 <BarChart data={attendanceGraph} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
@@ -775,13 +962,8 @@ export default function HODDashboard() {
                                         cursor={{ fill: '#f1f5f9' }}
                                         contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
                                     />
-                                    <Bar dataKey="attendance" name="Avg Attendance %" radius={[6, 6, 0, 0]} barSize={50}>
-                                        {attendanceGraph.map((entry, index) => (
-                                            <Cell
-                                                key={`cell-${index}`}
-                                                fill={entry.name === 'FE' ? '#3b82f6' : entry.name === 'SE' ? '#8b5cf6' : entry.name === 'TE' ? '#f59e0b' : '#10b981'}
-                                            />
-                                        ))}
+                                    <Bar dataKey="attendance" name="Avg Attendance %" radius={[6, 6, 0, 0]} barSize={isFE ? 20 : 50} fill="#3b82f6">
+                                        {/* Optional: Individual Colors logic if needed */}
                                     </Bar>
                                 </BarChart>
                             </ResponsiveContainer>
@@ -792,16 +974,21 @@ export default function HODDashboard() {
                 {/* ✅ UPDATED ANALYTICS TAB */}
                 {activeTab === 'analytics' && (
                     <div className="content-section">
-                        {/* Header: Title & Year Selector */}
+                        {/* Header: Title & Year/Division Selector */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '15px', marginTop: '15px' }}>
                             <div>
                                 <h2 className="content-title" style={{ margin: 0 }}>Attendance Analytics</h2>
                                 <p style={{ margin: '5px 0 0', fontSize: '13px', color: '#64748b' }}>
-                                    Managing criteria for <strong>{analyticsYear}</strong> (Current: {analyticsData.threshold}%)
+                                    {isFE
+                                        ? `Viewing FE Data ${analyticsDivision !== 'All' ? `- Division ${analyticsDivision}` : ''}`
+                                        : `Managing criteria for ${analyticsYear}`
+                                    }
+                                    {' '}(Current: {analyticsData.threshold}%)
                                 </p>
                             </div>
 
                             <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+
                                 {/* Criteria Changer */}
                                 <div style={{ background: 'white', padding: '5px 10px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                     <span style={{ fontSize: '12px', fontWeight: '600', color: '#64748b' }}>Min %:</span>
@@ -813,25 +1000,40 @@ export default function HODDashboard() {
                                     />
                                 </div>
 
-                                {/* Year Tabs */}
-                                <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '12px', display: 'flex', gap: '5px' }}>
-                                    {['FE', 'SE', 'TE', 'BE'].map(year => (
-                                        <button
-                                            key={year}
-                                            onClick={() => setAnalyticsYear(year)}
-                                            style={{
-                                                padding: '8px 16px', border: 'none', borderRadius: '10px', cursor: 'pointer',
-                                                fontSize: '13px', fontWeight: '700',
-                                                background: analyticsYear === year ? '#ffffff' : 'transparent',
-                                                color: analyticsYear === year ? '#2563eb' : '#64748b',
-                                                boxShadow: analyticsYear === year ? '0 4px 12px rgba(0,0,0,0.05)' : 'none',
-                                                transition: 'all 0.2s ease'
-                                            }}
-                                        >
-                                            {year}
-                                        </button>
-                                    ))}
-                                </div>
+                                {/* ✅ FE HOD: Show Division Dropdown | Dept HOD: Show Year Tabs */}
+                                {isFE ? (
+                                    <select
+                                        value={analyticsDivision}
+                                        onChange={(e) => setAnalyticsDivision(e.target.value)}
+                                        className="modern-select"
+                                        style={{
+                                            padding: '8px 12px', borderRadius: '8px', border: '1px solid #cbd5e1',
+                                            cursor: 'pointer', background: 'white', fontWeight: '600', color: '#334155', outline: 'none'
+                                        }}
+                                    >
+                                        <option value="All">All Divisions</option>
+                                        {DIVISIONS.map(div => <option key={div} value={div}>Division {div}</option>)}
+                                    </select>
+                                ) : (
+                                    <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '12px', display: 'flex', gap: '5px' }}>
+                                        {['SE', 'TE', 'BE'].map(year => (
+                                            <button
+                                                key={year}
+                                                onClick={() => setAnalyticsYear(year)}
+                                                style={{
+                                                    padding: '8px 16px', border: 'none', borderRadius: '10px', cursor: 'pointer',
+                                                    fontSize: '13px', fontWeight: '700',
+                                                    background: analyticsYear === year ? '#ffffff' : 'transparent',
+                                                    color: analyticsYear === year ? '#2563eb' : '#64748b',
+                                                    boxShadow: analyticsYear === year ? '0 4px 12px rgba(0,0,0,0.05)' : 'none',
+                                                    transition: 'all 0.2s ease'
+                                                }}
+                                            >
+                                                {year}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
 
@@ -840,7 +1042,9 @@ export default function HODDashboard() {
                             <div className="card" style={{ padding: '20px', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                     <div>
-                                        <span style={{ fontSize: '11px', color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>Total {analyticsYear}</span>
+                                        <span style={{ fontSize: '11px', color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>
+                                            {isFE ? `Total Students` : `Total ${analyticsYear}`}
+                                        </span>
                                         <div style={{ fontSize: '28px', fontWeight: '800', color: '#1e293b', marginTop: '5px' }}>{analyticsData.total}</div>
                                     </div>
                                     <div style={{ background: '#f1f5f9', padding: '10px', borderRadius: '12px', color: '#64748b' }}><i className="fas fa-users"></i></div>
@@ -871,7 +1075,7 @@ export default function HODDashboard() {
                             <i className="fas fa-search search-icon"></i>
                             <input
                                 type="text"
-                                placeholder={`Search ${analyticsYear} defaulters...`}
+                                placeholder={`Search ${isFE ? 'FE' : analyticsYear} defaulters...`}
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 className="search-input-modern"
@@ -883,7 +1087,9 @@ export default function HODDashboard() {
 
                             {/* Card 1: Pie Chart with Center Count */}
                             <div className="card" style={{ minHeight: '420px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '25px', position: 'relative' }}>
-                                <h3 style={{ alignSelf: 'flex-start', marginBottom: '15px', fontSize: '16px', color: '#334155', fontWeight: '700' }}>Status Distribution ({analyticsYear})</h3>
+                                <h3 style={{ alignSelf: 'flex-start', marginBottom: '15px', fontSize: '16px', color: '#334155', fontWeight: '700' }}>
+                                    Status Distribution ({isFE ? (analyticsDivision === 'All' ? 'FE Total' : `Div ${analyticsDivision}`) : analyticsYear})
+                                </h3>
 
                                 <div style={{ width: '100%', height: '300px', position: 'relative' }}>
 
@@ -950,7 +1156,9 @@ export default function HODDashboard() {
                                                             <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '13px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '120px' }}>
                                                                 {s.firstName} {s.lastName}
                                                             </div>
-                                                            <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>{s.rollNo}</div>
+                                                            <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                                                                {s.rollNo} {isFE && s.division && <span style={{ color: '#3b82f6' }}>({s.division})</span>}
+                                                            </div>
                                                         </td>
                                                         <td style={{ textAlign: 'center', padding: '12px' }}>
                                                             <span className="status-badge-pill" style={{ background: '#fef2f2', color: '#dc2626', fontSize: '11px', padding: '4px 10px' }}>
@@ -1170,19 +1378,30 @@ export default function HODDashboard() {
 
                                 <form onSubmit={handlePostAnnouncement} style={{ padding: '30px 40px' }}>
                                     {/* Target Audience */}
+                                    {/* Target Audience */}
                                     <div style={{ marginBottom: '25px' }}>
-                                        <label style={{ display: 'block', fontWeight: '700', color: '#64748b', fontSize: '12px', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.5px' }}>Target Audience</label>
+                                        <label style={{ display: 'block', fontWeight: '700', color: '#64748b', fontSize: '12px', textTransform: 'uppercase', marginBottom: '10px' }}>Target Audience</label>
                                         <CustomDropdown
                                             value={announcementForm.targetYear}
                                             onChange={(e) => setAnnouncementForm({ ...announcementForm, targetYear: e.target.value })}
-                                            options={[
-                                                { value: 'All', label: <span><i className="fas fa-users" style={{ marginRight: '10px', color: '#3b82f6' }}></i> All Students</span> },
-                                                { value: 'FE', label: <span><i className="fas fa-graduation-cap" style={{ marginRight: '10px', color: '#8b5cf6' }}></i> First Year (FE)</span> },
-                                                { value: 'SE', label: <span><i className="fas fa-graduation-cap" style={{ marginRight: '10px', color: '#ec4899' }}></i> Second Year (SE)</span> },
-                                                { value: 'TE', label: <span><i className="fas fa-graduation-cap" style={{ marginRight: '10px', color: '#f59e0b' }}></i> Third Year (TE)</span> },
-                                                { value: 'BE', label: <span><i className="fas fa-graduation-cap" style={{ marginRight: '10px', color: '#10b981' }}></i> Final Year (BE)</span> },
-                                                { value: 'Teachers', label: <span><i className="fas fa-chalkboard-teacher" style={{ marginRight: '10px', color: '#ef4444' }}></i> Faculty & Staff</span> }
-                                            ]}
+                                            options={
+                                                isFE ? [
+                                                    // ✅ FE OPTIONS: All FE, Specific Divisions, Faculty
+                                                    { value: 'All', label: <span><i className="fas fa-users" style={{ marginRight: '10px', color: '#3b82f6' }}></i> All FE Students</span> },
+                                                    ...DIVISIONS.map(div => ({
+                                                        value: `Division ${div}`,
+                                                        label: <span><i className="fas fa-layer-group" style={{ marginRight: '10px', color: '#8b5cf6' }}></i> Division {div}</span>
+                                                    })),
+                                                    { value: 'Teachers', label: <span><i className="fas fa-chalkboard-teacher" style={{ marginRight: '10px', color: '#ef4444' }}></i> Faculty</span> }
+                                                ] : [
+                                                    // STANDARD OPTIONS: Years, Faculty
+                                                    { value: 'All', label: <span><i className="fas fa-users" style={{ marginRight: '10px', color: '#3b82f6' }}></i> All Students</span> },
+                                                    { value: 'SE', label: <span><i className="fas fa-graduation-cap" style={{ marginRight: '10px', color: '#ec4899' }}></i> Second Year (SE)</span> },
+                                                    { value: 'TE', label: <span><i className="fas fa-graduation-cap" style={{ marginRight: '10px', color: '#f59e0b' }}></i> Third Year (TE)</span> },
+                                                    { value: 'BE', label: <span><i className="fas fa-graduation-cap" style={{ marginRight: '10px', color: '#10b981' }}></i> Final Year (BE)</span> },
+                                                    { value: 'Teachers', label: <span><i className="fas fa-chalkboard-teacher" style={{ marginRight: '10px', color: '#ef4444' }}></i> Faculty</span> }
+                                                ]
+                                            }
                                         />
                                     </div>
 
@@ -1430,7 +1649,6 @@ export default function HODDashboard() {
                         </div>
                     </div>
                 )}
-
                 {/* ✅ DEPT USERS - Year-wise Scrollable Cards */}
                 {activeTab === 'manage' && (
                     <div className="content-section">
@@ -1446,7 +1664,7 @@ export default function HODDashboard() {
                                             <th style={{ width: '40px' }}></th>
                                             <th>Name</th>
                                             <th>Email</th>
-                                            <th>Classes</th>
+                                            <th>Assigned Classes</th> {/* Renamed Header */}
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -1458,17 +1676,30 @@ export default function HODDashboard() {
                                                 <td>{t.firstName} {t.lastName}</td>
                                                 <td>{t.email}</td>
                                                 <td>
-                                                    <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                                         {t.assignedClasses && t.assignedClasses.length > 0 ?
                                                             t.assignedClasses.map((cls, idx) => (
-                                                                <span key={idx} className="status-badge-pill" style={{ fontSize: '11px', padding: '2px 8px' }}>
-                                                                    {cls.year} - {cls.subject}
-                                                                </span>
+                                                                <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                                    {/* Year Badge */}
+                                                                    <span className="status-badge-pill" style={{ fontSize: '11px', padding: '2px 8px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0' }}>
+                                                                        {cls.year}
+                                                                    </span>
+
+                                                                    {/* Division Badge (Only if exists) */}
+                                                                    {cls.divisions && (
+                                                                        <span style={{ fontSize: '11px', fontWeight: '700', color: '#2563eb', background: '#eff6ff', padding: '2px 6px', borderRadius: '4px' }}>
+                                                                            Div {cls.divisions}
+                                                                        </span>
+                                                                    )}
+
+                                                                    {/* Subject */}
+                                                                    <span style={{ fontSize: '12px', color: '#1e293b', fontWeight: '600' }}>
+                                                                        {cls.subject}
+                                                                    </span>
+                                                                </div>
                                                             ))
                                                             : (
-                                                                <span className="status-badge-pill" style={{ background: '#f1f5f9', color: '#64748b' }}>
-                                                                    {t.subject || 'N/A'}
-                                                                </span>
+                                                                <span style={{ color: '#94a3b8', fontSize: '12px', fontStyle: 'italic' }}>No classes assigned</span>
                                                             )
                                                         }
                                                     </div>
@@ -1480,27 +1711,49 @@ export default function HODDashboard() {
                             </div>
                         </div>
 
-                        {/* Students Section - Year Wise Scrollable Cards */}
+                        {/* Students Section - Scrollable Cards */}
                         <h3 style={{ margin: '0 0 15px 0' }}>Students ({studentsList.length})</h3>
                         <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
-                            {['FE', 'SE', 'TE', 'BE'].map(year => {
-                                const yearStudents = studentsList.filter(s => s.year === year);
+
+                            {/* ✅ LOGIC: Iterate Divisions for FE, Years for Others */}
+                            {(isFE ? DIVISIONS : ['SE', 'TE', 'BE']).map(label => {
+
+                                // Filter Students
+                                const groupStudents = studentsList.filter(s =>
+                                    isFE ? s.division === label : s.year === label
+                                );
+
+                                // Hide empty cards for Divisions to keep it clean (Optional, currently showing all)
+                                // if (groupStudents.length === 0) return null; 
+
                                 return (
-                                    <div key={year} className="card" style={{ display: 'flex', flexDirection: 'column', height: '350px' }}>
+                                    <div key={label} className="card" style={{ display: 'flex', flexDirection: 'column', height: '350px' }}>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '10px', marginBottom: '10px' }}>
-                                            <h3 style={{ margin: 0, color: '#2563eb' }}>{year} Students</h3>
-                                            <span className="nav-badge" style={{ background: '#eff6ff', color: '#2563eb', fontSize: '12px' }}>{yearStudents.length}</span>
+                                            <h3 style={{ margin: 0, color: '#2563eb' }}>
+                                                {isFE ? `Division ${label}` : `${label} Class`}
+                                            </h3>
+                                            <span className="nav-badge" style={{ background: '#eff6ff', color: '#2563eb', fontSize: '12px' }}>
+                                                {groupStudents.length}
+                                            </span>
                                         </div>
 
                                         <div className="custom-scroll" style={{ flex: 1, overflowY: 'auto' }}>
-                                            {yearStudents.length > 0 ? (
+                                            {groupStudents.length > 0 ? (
                                                 <table className="attendance-table" style={{ fontSize: '13px' }}>
                                                     <thead><tr><th>Roll</th><th>Name</th></tr></thead>
                                                     <tbody>
-                                                        {yearStudents.sort((a, b) => (a.rollNo || "").localeCompare(b.rollNo, undefined, { numeric: true })).map(s => (
+                                                        {groupStudents.sort((a, b) => (a.rollNo || "").localeCompare(b.rollNo, undefined, { numeric: true })).map(s => (
                                                             <tr key={s.id}>
                                                                 <td style={{ fontWeight: 'bold' }}>{s.rollNo}</td>
-                                                                <td>{s.firstName} {s.lastName}</td>
+                                                                <td>
+                                                                    {s.firstName} {s.lastName}
+                                                                    {/* Show Division Badge only if NOT in FE View (since card is already Div) */}
+                                                                    {!isFE && s.year === 'FE' && s.division && (
+                                                                        <span style={{ marginLeft: '5px', fontSize: '10px', background: '#e0f2fe', color: '#0284c7', padding: '2px 4px', borderRadius: '4px' }}>
+                                                                            {s.division}
+                                                                        </span>
+                                                                    )}
+                                                                </td>
                                                             </tr>
                                                         ))}
                                                     </tbody>
@@ -1521,112 +1774,135 @@ export default function HODDashboard() {
                 )}
 
                 {activeTab === 'timetable' && <ManageTimetable hodInfo={hodInfo} />}
-
-                {activeTab === 'addTeacher' && (
-                    <div className="content-section">
-                        <h2 className="content-title">Add New Teacher</h2>
-                        <div className="card">
-                            <form onSubmit={handleAddTeacher}>
-                                <div style={{ display: 'flex', gap: '15px' }}>
-                                    <div className="input-group" style={{ flex: 1 }}><label>First Name</label><input type="text" required value={teacherForm.firstName} onChange={e => setTeacherForm({ ...teacherForm, firstName: e.target.value })} /></div>
-                                    <div className="input-group" style={{ flex: 1 }}><label>Last Name</label><input type="text" required value={teacherForm.lastName} onChange={e => setTeacherForm({ ...teacherForm, lastName: e.target.value })} /></div>
-                                </div>
-
-                                <div className="input-group">
-                                    <label>Department</label>
-                                    <input type="text" value={hodInfo?.department || ''} disabled style={{ background: '#f1f5f9', cursor: 'not-allowed' }} />
-                                </div>
-
-                                {/* ACADEMIC YEAR SELECT */}
-                                <div className="input-group">
-                                    <label>Academic Year</label>
-                                    <CustomDropdown
-                                        value={teacherForm.academicYear}
-                                        onChange={(e) => setTeacherForm({ ...teacherForm, academicYear: e.target.value })}
-                                        options={[
-                                            { value: '2024-2025', label: '2024-2025' },
-                                            { value: '2025-2026', label: '2025-2026' },
-                                            { value: '2026-2027', label: '2026-2027' }
-                                        ]}
-                                    />
-                                </div>
-
-                                {/* ✅ UPDATED: Assign Classes WITH SEMESTER */}
-                                <div className="input-group">
-                                    <label>Assign Classes, Semester & Subjects</label>
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '10px' }}>
-                                        {['FE', 'SE', 'TE', 'BE'].map(year => {
-                                            const assigned = teacherForm.assignedClasses.find(c => c.year === year);
-
-                                            // Determine Semester Options based on Year
-                                            let semOptions = [];
-                                            if (year === 'FE') semOptions = [1, 2];
-                                            if (year === 'SE') semOptions = [3, 4];
-                                            if (year === 'TE') semOptions = [5, 6];
-                                            if (year === 'BE') semOptions = [7, 8];
-
-                                            return (
-                                                <div key={year} style={{
-                                                    display: 'flex', alignItems: 'center', gap: '10px',
-                                                    background: assigned ? '#eff6ff' : '#f8fafc',
-                                                    padding: '10px', borderRadius: '8px',
-                                                    border: assigned ? '1px solid #bfdbfe' : '1px solid #e2e8f0',
-                                                    flexWrap: 'wrap'
-                                                }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: '80px' }}>
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={!!assigned}
-                                                            onChange={() => handleClassToggle(year)}
-                                                            style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                                                        />
-                                                        <span style={{ fontWeight: 'bold' }}>{year}</span>
-                                                    </div>
-
-                                                    {assigned && (
-                                                        <>
-                                                            {/* ✅ NEW: SEMESTER DROPDOWN */}
-                                                            <select
-                                                                value={assigned.semester}
-                                                                onChange={(e) => handleSemesterChange(year, e.target.value)}
-                                                                style={{
-                                                                    padding: '8px', borderRadius: '6px',
-                                                                    border: '1px solid #cbd5e1', fontWeight: '600',
-                                                                    width: '90px', cursor: 'pointer', background: 'white'
-                                                                }}
-                                                            >
-                                                                {semOptions.map(s => (
-                                                                    <option key={s} value={s}>Sem {s}</option>
-                                                                ))}
-                                                            </select>
-
-                                                            {/* SUBJECT INPUT */}
-                                                            <input
-                                                                type="text"
-                                                                placeholder={`Subject (e.g. OOP)`}
-                                                                value={assigned.subject}
-                                                                onChange={(e) => handleSubjectChange(year, e.target.value)}
-                                                                style={{ flex: 1, padding: '8px', borderRadius: '6px', border: '1px solid #cbd5e1', minWidth: '150px' }}
-                                                                required
-                                                            />
-                                                        </>
-                                                    )}
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                    <small style={{ color: '#64748b', display: 'block', marginTop: '5px' }}>
-                                        Select the specific Semester to ensure reports work correctly.
-                                    </small>
-                                </div>
-
-                                <div className="input-group"><label>Email</label><input type="email" required value={teacherForm.email} onChange={e => setTeacherForm({ ...teacherForm, email: e.target.value })} /></div>
-                                <div className="input-group"><label>Password</label><input type="password" required value={teacherForm.password} onChange={e => setTeacherForm({ ...teacherForm, password: e.target.value })} /></div>
-                                <button className="btn-primary" disabled={loading}>{loading ? 'Adding...' : 'Add Teacher'}</button>
-                            </form>
+            {/* --- 2. THE UPDATED BEAUTIFUL TAB UI --- */}
+    {activeTab === 'addTeacher' && (
+        <div className="content-section">
+            <h2 className="content-title">Add New Teacher</h2>
+            <div className="card fade-in-up" style={{ padding: '25px', border: 'none' }}>
+                <form onSubmit={handleAddTeacher}>
+                    
+                    {/* Personal Info Grid */}
+                    <div className="teacher-form-grid">
+                        <div className="input-group">
+                            <label>First Name</label>
+                            <input type="text" required placeholder="e.g. Rohini" value={teacherForm.firstName} onChange={e => setTeacherForm({ ...teacherForm, firstName: e.target.value })} />
+                        </div>
+                        <div className="input-group">
+                            <label>Last Name</label>
+                            <input type="text" required placeholder="e.g. Sharma" value={teacherForm.lastName} onChange={e => setTeacherForm({ ...teacherForm, lastName: e.target.value })} />
+                        </div>
+                        <div className="input-group">
+                            <label>Department</label>
+                            <input type="text" value={hodInfo?.department || ''} disabled style={{ background: '#f1f5f9', color: '#94a3b8' }} />
+                        </div>
+                        <div style={{ position: 'relative', zIndex: 20 }}>
+                            <CustomMobileSelect
+                                label="Academic Year"
+                                value={teacherForm.academicYear}
+                                onChange={(val) => setTeacherForm({ ...teacherForm, academicYear: val })}
+                                options={[{ value: '2024-2025', label: '2024-2025' }, { value: '2025-2026', label: '2025-2026' }]}
+                            />
                         </div>
                     </div>
-                )}
+
+                    {/* ✨ BEAUTIFUL ASSIGNMENT SECTION */}
+                    <div className="class-assignment-container">
+                        <label style={{ fontSize: '12px', fontWeight: '800', color: '#64748b', marginBottom: '15px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                            <i className="fas fa-book-open" style={{marginRight: '8px'}}></i>
+                            Assign Classes & Subjects
+                        </label>
+                        
+                        {teacherForm.assignedClasses.map((cls, index) => {
+                             const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year';
+                             const yearOptions = isFE ? [{ value: 'FE', label: 'First Year' }] : [{ value: 'SE', label: 'SE' }, { value: 'TE', label: 'TE' }, { value: 'BE', label: 'BE' }];
+                             
+                             let semOptions = [];
+                             if (cls.year === 'FE') semOptions = [{value: 1, label: 'Sem 1'}, {value: 2, label: 'Sem 2'}];
+                             if (cls.year === 'SE') semOptions = [{value: 3, label: 'Sem 3'}, {value: 4, label: 'Sem 4'}];
+                             if (cls.year === 'TE') semOptions = [{value: 5, label: 'Sem 5'}, {value: 6, label: 'Sem 6'}];
+                             if (cls.year === 'BE') semOptions = [{value: 7, label: 'Sem 7'}, {value: 8, label: 'Sem 8'}];
+
+                            return (
+                                <div key={index} className="subject-card" style={{ zIndex: 10 - index }}>
+                                    
+                                    {/* 🔴 NEW BEAUTIFUL DELETE BUTTON */}
+                                    <button type="button" className="delete-subject-btn" onClick={() => {
+                                        const updated = teacherForm.assignedClasses.filter((_, i) => i !== index);
+                                        setTeacherForm({ ...teacherForm, assignedClasses: updated });
+                                    }}>
+                                        <i className="fas fa-trash"></i>
+                                    </button>
+
+                                    <div style={{ flex: '1 1 120px' }}>
+                                        <CustomMobileSelect label="Class" value={cls.year} onChange={(val) => {
+                                            const updated = [...teacherForm.assignedClasses];
+                                            updated[index] = { ...updated[index], year: val, semester: val === 'FE' ? 1 : 3 };
+                                            setTeacherForm({ ...teacherForm, assignedClasses: updated });
+                                        }} options={yearOptions} />
+                                    </div>
+
+                                    <div style={{ flex: '1 1 100px' }}>
+                                        <CustomMobileSelect label="Semester" value={cls.semester} onChange={(val) => {
+                                            const updated = [...teacherForm.assignedClasses];
+                                            updated[index] = { ...updated[index], semester: Number(val) };
+                                            setTeacherForm({ ...teacherForm, assignedClasses: updated });
+                                        }} options={semOptions} />
+                                    </div>
+
+                                    {isFE && (
+                                        <div style={{ flex: '0 1 80px' }}>
+                                            <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block' }}>DIV</label>
+                                            <input type="text" placeholder="A" value={cls.divisions || ''} onChange={(e) => {
+                                                const updated = [...teacherForm.assignedClasses];
+                                                updated[index] = { ...updated[index], divisions: e.target.value };
+                                                setTeacherForm({ ...teacherForm, assignedClasses: updated });
+                                            }} style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '2px solid #e2e8f0', textAlign: 'center', fontWeight: 'bold' }} />
+                                        </div>
+                                    )}
+
+                                    <div style={{ flex: '2 1 180px' }}>
+                                        <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block' }}>SUBJECT NAME</label>
+                                        <input type="text" placeholder="e.g. Object Oriented Prog." value={cls.subject} onChange={(e) => {
+                                            const updated = [...teacherForm.assignedClasses];
+                                            updated[index] = { ...updated[index], subject: e.target.value };
+                                            setTeacherForm({ ...teacherForm, assignedClasses: updated });
+                                        }} style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '2px solid #e2e8f0', fontWeight: '600' }} required />
+                                    </div>
+                                </div>
+                            );
+                        })}
+
+                        <button type="button" className="add-subject-btn" onClick={() => {
+                            const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year';
+                            setTeacherForm({
+                                ...teacherForm,
+                                assignedClasses: [...teacherForm.assignedClasses, { year: isFE ? 'FE' : 'SE', semester: isFE ? 1 : 3, divisions: '', subject: '' }]
+                            });
+                        }}>
+                            <i className="fas fa-plus"></i> Add Another Subject
+                        </button>
+                    </div>
+
+                    {/* Credentials */}
+                    <div className="teacher-form-grid">
+                        <div className="input-group">
+                            <label>Email Address</label>
+                            <input type="email" required value={teacherForm.email} onChange={e => setTeacherForm({ ...teacherForm, email: e.target.value })} placeholder="teacher@institute.com" />
+                        </div>
+                        <div className="input-group">
+                            <label>Password</label>
+                            <input type="password" required value={teacherForm.password} onChange={e => setTeacherForm({ ...teacherForm, password: e.target.value })} placeholder="******" />
+                        </div>
+                    </div>
+
+                    <button className="submit-teacher-btn" disabled={loading}>
+                        {loading ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-paper-plane"></i>}
+                        {loading ? ' Creating & Sending Email...' : ' Create Account & Send Email'}
+                    </button>
+                </form>
+            </div>
+        </div>
+    )}
             </main>
 
             {/* Mobile Footer Bar */}
