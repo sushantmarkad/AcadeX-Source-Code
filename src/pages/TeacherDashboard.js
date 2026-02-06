@@ -12,6 +12,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import CustomDropdown from '../components/CustomDropdown';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { Capacitor } from '@capacitor/core';
+import { DatePicker } from '@capacitor-community/date-picker';
 
 // Component Imports
 import AddTasks from './AddTasks';
@@ -36,13 +37,13 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
     const [activeTab, setActiveTab] = useState('create');
     const [selectedDiv, setSelectedDiv] = useState('');
 
-   // ✅ CORRECT LOGIC FOR DROPDOWN
+    // ✅ CORRECT LOGIC FOR DROPDOWN
     const assignedYears = teacherInfo?.assignedClasses
-        ? [...new Set(teacherInfo.assignedClasses.flatMap(c => 
-            c.year === 'FE' && c.divisions 
-                ? c.divisions.split(',').map(d => `FE - Div ${d.trim()}`) 
+        ? [...new Set(teacherInfo.assignedClasses.flatMap(c =>
+            c.year === 'FE' && c.divisions
+                ? c.divisions.split(',').map(d => `FE - Div ${d.trim()}`)
                 : [c.year]
-          ))]
+        ))]
         : [];
 
     useEffect(() => {
@@ -169,11 +170,18 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                                 <label>Target Class</label>
                                 <CustomDropdown
                                     value={form.targetYear}
-                                    onChange={(e) => setForm({ ...form, targetYear: e.target.value })}
+                                    /* ✅ FIX: Handles whether 'e' is an event object OR a direct value string */
+                                    onChange={(e) => {
+                                        const val = (e && e.target) ? e.target.value : e;
+                                        setForm({ ...form, targetYear: val });
+                                    }}
                                     placeholder="Select Class"
                                     options={[
                                         { value: 'All', label: 'All My Classes' },
-                                        ...assignedYears.map(year => ({ value: year, label: `${year} Year` }))
+                                        ...assignedYears.map(year => ({ 
+                                            value: year, 
+                                            label: year.includes('Div') ? year : `${year} Year` 
+                                        }))
                                     ]}
                                 />
                             </div>
@@ -358,6 +366,9 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                     /* Adjust cards for mobile */
                     .tasks-grid { grid-template-columns: 1fr; }
                 }
+                    .card, .task-card-modern, .create-card {
+    overflow: visible !important;
+}
             `}</style>
         </div>
     );
@@ -578,11 +589,11 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
 // ------------------------------------
 //  COMPONENT: DASHBOARD HOME
 // ------------------------------------
-const DashboardHome = ({ 
-    teacherInfo, activeSession, attendanceList, onSessionToggle, viewMode, setViewMode, 
-    selectedDate, setSelectedDate, historySessions, selectedYear, sessionLoading, 
-    sessionType, setSessionType, selectedBatch, setSelectedBatch, 
-    rollStart, setRollStart, rollEnd, setRollEnd, 
+const DashboardHome = ({
+    teacherInfo, activeSession, attendanceList, onSessionToggle, viewMode, setViewMode,
+    selectedDate, setSelectedDate, historySessions, selectedYear, sessionLoading,
+    sessionType, setSessionType, selectedBatch, setSelectedBatch,
+    rollStart, setRollStart, rollEnd, setRollEnd,
     historySemester, setHistorySemester, getSubjectForHistory,
     selectedDiv // ✅ We rely ONLY on this now
 }) => {
@@ -609,6 +620,30 @@ const DashboardHome = ({
         };
         fetchStrength();
     }, [teacherInfo, selectedYear]);
+
+    // --- 📱 NATIVE DATE PICKER LOGIC ---
+    const openNativeDatePicker = async () => {
+        try {
+            const { value } = await DatePicker.present({
+                mode: 'date',
+                locale: 'en_GB',
+                format: 'yyyy-MM-dd',
+                date: selectedDate, // Opens with currently selected date
+                theme: 'light',
+                android: {
+                    calendar: false, // Set true if you want calendar view, false for spinner
+                    mode: 'spinner'
+                }
+            });
+
+            if (value) {
+                setSelectedDate(value);
+            }
+        } catch (error) {
+            console.log("Native picker not available (likely on web)", error);
+            // Optional: fallback logic for web testing if needed
+        }
+    };
 
     const getCurrentSubject = () => {
         if (!teacherInfo) return "Class";
@@ -729,10 +764,20 @@ const DashboardHome = ({
                 </div>
             </div>
 
-           {viewMode === 'live' && (
+            {viewMode === 'live' && (
                 <div className="cards-grid">
                     {/* 1. START/STOP SESSION CARD */}
-                    <div className="card" style={{ background: isSessionRelevant ? 'linear-gradient(135deg, #d1fae5 0%, #ecfdf5 100%)' : 'linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%)', border: isSessionRelevant ? '1px solid #a7f3d0' : '1px solid #bfdbfe', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                    <div className="card" style={{
+                        /* ✅ FIX: Force card to stack ABOVE the next card */
+                        position: 'relative',
+                        zIndex: 20,
+                        overflow: 'visible',
+                        background: isSessionRelevant ? 'linear-gradient(135deg, #d1fae5 0%, #ecfdf5 100%)' : 'linear-gradient(135deg, #dbeafe 0%, #eff6ff 100%)',
+                        border: isSessionRelevant ? '1px solid #a7f3d0' : '1px solid #bfdbfe',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between'
+                    }}>
                         <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
                                 <div className="icon-box-modern" style={{ background: 'white', color: isSessionRelevant ? '#15803d' : '#1e40af', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '10px', boxShadow: '0 2px 5px rgba(0,0,0,0.05)' }}>
@@ -743,7 +788,7 @@ const DashboardHome = ({
                                     {isSessionRelevant && <span className="status-badge-pill" style={{ background: 'white', color: '#15803d', fontSize: '10px', padding: '2px 8px', marginTop: '4px', borderRadius: '10px', fontWeight: 'bold' }}>ACTIVE</span>}
                                 </div>
                             </div>
-                            
+
                             {!isSessionRelevant && (
                                 <div style={{ marginBottom: '15px' }}>
                                     {/* Session Type Toggle (Theory / Practical) */}
@@ -754,32 +799,45 @@ const DashboardHome = ({
 
                                     {/* Practical Config */}
                                     {sessionType === 'practical' && (
-                                        <div style={{ marginTop: '10px', background: 'white', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                        <div style={{ marginTop: '10px', background: 'white', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', overflow: 'visible' }}>
                                             <div className="input-group" style={{ marginBottom: '8px' }}>
                                                 <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b' }}>Batch</label>
                                                 <CustomDropdown
                                                     value={selectedBatch}
-                                                    onChange={(e) => setSelectedBatch(e.target.value)}
-                                                    options={['A', 'B', 'C', 'D', 'E'].map(b => ({ value: b, label: `Batch ${b}` }))}
+                                                    onChange={(val) => setSelectedBatch(val)}
+                                                    // ✅ Includes Batch F
+                                                    options={['A', 'B', 'C', 'D', 'E', 'F'].map(b => ({ value: b, label: `Batch ${b}` }))}
                                                 />
                                             </div>
                                             <div style={{ display: 'flex', gap: '5px' }}>
-                                                <input type="number" value={rollStart} onChange={(e) => setRollStart(e.target.value)} placeholder="Start" style={{ flex: 1, minWidth: 0, padding: '6px', borderRadius: '6px', border: '1px solid #bfdbfe' }} />
-                                                <input type="number" value={rollEnd} onChange={(e) => setRollEnd(e.target.value)} placeholder="End" style={{ flex: 1, minWidth: 0, padding: '6px', borderRadius: '6px', border: '1px solid #bfdbfe' }} />
+                                                <input
+                                                    type="number"
+                                                    value={rollStart}
+                                                    onChange={(e) => setRollStart(e.target.value)}
+                                                    placeholder="Start"
+                                                    style={{ flex: 1, minWidth: 0, padding: '6px', borderRadius: '6px', border: '1px solid #bfdbfe' }}
+                                                />
+                                                <input
+                                                    type="number"
+                                                    value={rollEnd}
+                                                    onChange={(e) => setRollEnd(e.target.value)}
+                                                    placeholder="End"
+                                                    style={{ flex: 1, minWidth: 0, padding: '6px', borderRadius: '6px', border: '1px solid #bfdbfe' }}
+                                                />
                                             </div>
                                         </div>
                                     )}
                                 </div>
                             )}
-                            
+
                             <p style={{ color: isSessionRelevant ? '#166534' : '#1e40af', marginBottom: '20px', fontSize: '12px', opacity: 0.8 }}>
-                                {isSessionRelevant 
-                                    ? `Code updates in ${timer}s` 
+                                {isSessionRelevant
+                                    ? `Code updates in ${timer}s`
                                     : `Configure session for ${selectedYear} ${selectedYear === 'FE' ? `(Div ${selectedDiv})` : ''}.`
                                 }
                             </p>
                         </div>
-                        
+
                         <button onClick={onSessionToggle} className={isSessionRelevant ? "btn-modern-danger" : "btn-modern-primary"} disabled={!teacherInfo || (activeSession && !isSessionRelevant) || sessionLoading} style={{ marginTop: 'auto', boxShadow: 'none' }}>
                             {sessionLoading ? <i className="fas fa-spinner fa-spin"></i> : (activeSession && !isSessionRelevant ? 'Other Class Active' : isSessionRelevant ? 'End Session' : 'Start Session')}
                         </button>
@@ -877,8 +935,9 @@ const DashboardHome = ({
                 </div>
             )}
 
-           {viewMode === 'history' && (
+            {viewMode === 'history' && (
                 <div className="cards-grid">
+                    {/* FILTERS CONTAINER */}
                     <div className="card card-full-width" style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '20px', background: '#f8fafc', flexWrap: 'wrap' }}>
 
                         {/* 1. SEMESTER SELECTOR */}
@@ -886,56 +945,68 @@ const DashboardHome = ({
                             <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', textTransform: 'uppercase', marginBottom: '5px' }}>
                                 Semester
                             </label>
-                            <div style={{ position: 'relative' }}>
-                                <select
-                                    value={historySemester}
-                                    onChange={(e) => setHistorySemester(Number(e.target.value))}
-                                    style={{
-                                        width: '100%',
-                                        padding: '12px',
-                                        border: '1px solid #cbd5e1',
-                                        borderRadius: '8px',
-                                        fontSize: '14px',
-                                        background: '#ffffff',
-                                        fontWeight: '600',
-                                        color: '#334155',
-                                        outline: 'none',
-                                        appearance: 'none'
-                                    }}
-                                >
-                                    {selectedYear === 'FE' && <><option value={1}>Sem 1</option><option value={2}>Sem 2</option></>}
-                                    {selectedYear === 'SE' && <><option value={3}>Sem 3</option><option value={4}>Sem 4</option></>}
-                                    {selectedYear === 'TE' && <><option value={5}>Sem 5</option><option value={6}>Sem 6</option></>}
-                                    {selectedYear === 'BE' && <><option value={7}>Sem 7</option><option value={8}>Sem 8</option></>}
-                                    {!['FE', 'SE', 'TE', 'BE'].includes(selectedYear) && <option value={historySemester}>Current</option>}
-                                </select>
-                                <i className="fas fa-chevron-down" style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', pointerEvents: 'none', fontSize: '12px' }}></i>
-                            </div>
+                            <CustomDropdown
+                                value={historySemester}
+                                onChange={(val) => setHistorySemester(Number(val))}
+                                options={[
+                                    ...(selectedYear === 'FE' ? [{ value: 1, label: 'Sem 1' }, { value: 2, label: 'Sem 2' }] : []),
+                                    ...(selectedYear === 'SE' ? [{ value: 3, label: 'Sem 3' }, { value: 4, label: 'Sem 4' }] : []),
+                                    ...(selectedYear === 'TE' ? [{ value: 5, label: 'Sem 5' }, { value: 6, label: 'Sem 6' }] : []),
+                                    ...(selectedYear === 'BE' ? [{ value: 7, label: 'Sem 7' }, { value: 8, label: 'Sem 8' }] : []),
+                                    // Fallback
+                                    ...(!['FE', 'SE', 'TE', 'BE'].includes(selectedYear) ? [{ value: 1, label: 'Sem 1' }, { value: 2, label: 'Sem 2' }] : [])
+                                ]}
+                                placeholder="Select Sem"
+                            />
                         </div>
 
-                        {/* ✅ DROPDOWN REMOVED - Using selectedDiv via header below */}
-
-                        {/* 2. DATE SELECTOR */}
+                        {/* 2. DATE SELECTOR (Hybrid: Native Mobile + Web Overlay) */}
                         <div style={{ flex: 1, minWidth: '200px' }}>
-                            <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', textTransform: 'uppercase', marginBottom: '5px' }}>Select Date</label>
-                            <div style={{ position: 'relative', width: '100%' }}>
-                                <input
-                                    type="date"
-                                    value={selectedDate}
-                                    onChange={(e) => setSelectedDate(e.target.value)}
-                                    style={{
-                                        width: '100%',
-                                        padding: '12px 12px 12px 40px',
-                                        border: '1px solid #cbd5e1',
-                                        borderRadius: '8px',
-                                        fontSize: '14px',
-                                        background: '#ffffff',
-                                        color: '#334155',
-                                        outline: 'none',
-                                        appearance: 'none'
-                                    }}
-                                />
-                                <i className="fas fa-calendar-alt" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#64748b' }}></i>
+                            <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>
+                                Select Date
+                            </label>
+
+                            <div
+                                /* Mobile: Click triggers Native Plugin */
+                                onClick={Capacitor.isNativePlatform() ? openNativeDatePicker : undefined}
+                                className="card-hover"
+                                style={{
+                                    background: 'white',
+                                    padding: '12px',
+                                    borderRadius: '12px',
+                                    border: '1px solid #cbd5e1',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    cursor: 'pointer',
+                                    height: '48px',
+                                    userSelect: 'none',
+                                    position: 'relative' /* Essential for Web Overlay */
+                                }}
+                            >
+                                <span style={{ color: '#334155', fontWeight: '600', fontSize: '14px' }}>
+                                    {new Date(selectedDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                </span>
+                                <i className="fas fa-calendar-alt" style={{ color: '#64748b' }}></i>
+
+                                {/* Web/PC: Transparent Input Overlay */}
+                                {!Capacitor.isNativePlatform() && (
+                                    <input
+                                        type="date"
+                                        value={selectedDate}
+                                        onChange={(e) => setSelectedDate(e.target.value)}
+                                        style={{
+                                            position: 'absolute',
+                                            top: 0,
+                                            left: 0,
+                                            width: '100%',
+                                            height: '100%',
+                                            opacity: 0, // Invisible but clickable
+                                            cursor: 'pointer',
+                                            zIndex: 10
+                                        }}
+                                    />
+                                )}
                             </div>
                         </div>
 
@@ -945,8 +1016,7 @@ const DashboardHome = ({
                             <h3 style={{ margin: '4px 0 0 0', fontSize: '22px', color: '#1e293b' }}>
                                 {formattedDate} <br />
                                 <span style={{ color: '#2563eb', fontSize: '18px' }}>
-                                    {getSubjectForHistory()} 
-                                    {/* ✅ Shows Division implicitly from Context */}
+                                    {getSubjectForHistory()}
                                     {selectedYear === 'FE' && selectedDiv ? ` (Div ${selectedDiv})` : ''}
                                 </span>
                             </h3>
@@ -968,8 +1038,7 @@ const DashboardHome = ({
                                             <span style={{ background: '#f1f5f9', color: '#64748b', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>
                                                 {session.startTime}
                                             </span>
-                                            
-                                            {/* ✅ Show Division Badge */}
+
                                             {selectedYear === 'FE' && session.division && (
                                                 <span style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>
                                                     Div {session.division}
@@ -990,7 +1059,7 @@ const DashboardHome = ({
                                             Present: <strong style={{ color: '#166534' }}>{session.presentCount}</strong> | Absent: <strong style={{ color: '#dc2626' }}>{session.absentCount}</strong>
                                         </p>
                                     </div>
-                                    
+
                                     <CSVLink
                                         data={session.students.map(s => ({
                                             ...s,
@@ -1038,7 +1107,6 @@ const DashboardHome = ({
                     )}
                 </div>
             )}
-
             {/* ✅ CSS For Gradient Text */}
             <style>{`
                 .gradient-text {
@@ -1048,6 +1116,29 @@ const DashboardHome = ({
                     font-size: 24px;
                     margin: 0;
                     font-weight: 700;
+                }
+            `}</style>
+            {/* ✅ GLOBAL CSS FIXES */}
+            <style>{`
+                .gradient-text {
+                    background: linear-gradient(135deg, #7c3aed 0%, #db2777 100%);
+                    -webkit-background-clip: text;
+                    -webkit-text-fill-color: transparent;
+                    font-size: 24px;
+                    margin: 0;
+                    font-weight: 700;
+                }
+                
+                /* FIX: Ensure dropdowns options are scrollable and visible */
+                .custom-dropdown-options {
+                    max-height: 200px; /* Limit height */
+                    overflow-y: auto !important; /* Force scroll */
+                    z-index: 9999 !important; /* Ensure it floats on top */
+                }
+                
+                /* FIX: Ensure cards don't clip the dropdown */
+                .card, .task-card-modern, .create-card {
+                    overflow: visible !important; 
                 }
             `}</style>
         </div>
@@ -1097,37 +1188,75 @@ const MobileFooter = ({ activePage, setActivePage, unreadNoticeCount }) => {
 
 // --- 📅 CUSTOM DATE PICKER (Mobile Friendly) ---
 const CustomDatePicker = ({ label, value, onChange }) => {
+    // Helper: Parse 'YYYY-MM-DD' or use today
     const dateObj = value ? new Date(value) : new Date();
     const currentDay = dateObj.getDate();
-    const currentMonth = dateObj.getMonth(); 
+    const currentMonth = dateObj.getMonth();
     const currentYear = dateObj.getFullYear();
 
+    // 1. Days Array (1-31)
     const days = Array.from({ length: 31 }, (_, i) => ({ value: i + 1, label: (i + 1).toString() }));
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].map((m, i) => ({ value: i, label: m }));
+
+    // 2. Months Array (Full Jan-Dec)
+    const months = [
+        { value: 0, label: "Jan" },
+        { value: 1, label: "Feb" },
+        { value: 2, label: "Mar" },
+        { value: 3, label: "Apr" },
+        { value: 4, label: "May" },
+        { value: 5, label: "Jun" },
+        { value: 6, label: "Jul" },
+        { value: 7, label: "Aug" },
+        { value: 8, label: "Sep" },
+        { value: 9, label: "Oct" },
+        { value: 10, label: "Nov" },
+        { value: 11, label: "Dec" }
+    ];
+
+    // 3. Years Array (Current Year - 5 Years back)
     const years = Array.from({ length: 5 }, (_, i) => {
         const y = new Date().getFullYear() - i;
         return { value: y, label: y.toString() };
     });
 
+    // Handle updates and return 'YYYY-MM-DD' string to parent
     const updateDate = (d, m, y) => {
-        const newDate = new Date(y, m, d);
-        // Format to YYYY-MM-DD for consistency
-        const formatted = newDate.toISOString().split('T')[0];
+        const formatted = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
         onChange(formatted);
     };
 
     return (
         <div style={{ width: '100%' }}>
-            <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>{label}</label>
+            {label && <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', textTransform: 'uppercase', marginBottom: '5px' }}>{label}</label>}
             <div style={{ display: 'flex', gap: '8px' }}>
-                <div style={{ flex: 1 }}><CustomDropdown options={days} value={currentDay} onChange={(val) => updateDate(val, currentMonth, currentYear)} placeholder="DD" /></div>
-                <div style={{ flex: 1.5 }}><CustomDropdown options={months} value={currentMonth} onChange={(val) => updateDate(currentDay, val, currentYear)} placeholder="MM" /></div>
-                <div style={{ flex: 1.5 }}><CustomDropdown options={years} value={currentYear} onChange={(val) => updateDate(currentDay, currentMonth, val)} placeholder="YYYY" /></div>
+                {/* DAY */}
+                <div style={{ flex: 1 }}>
+                    <CustomDropdown
+                        value={currentDay}
+                        onChange={(val) => updateDate(Number(val), currentMonth, currentYear)}
+                        options={days}
+                    />
+                </div>
+                {/* MONTH */}
+                <div style={{ flex: 1.5 }}>
+                    <CustomDropdown
+                        value={currentMonth}
+                        onChange={(val) => updateDate(currentDay, Number(val), currentYear)}
+                        options={months}
+                    />
+                </div>
+                {/* YEAR */}
+                <div style={{ flex: 1.5 }}>
+                    <CustomDropdown
+                        value={currentYear}
+                        onChange={(val) => updateDate(currentDay, currentMonth, Number(val))}
+                        options={years}
+                    />
+                </div>
             </div>
         </div>
     );
 };
-
 // ------------------------------------
 //  MAIN TEACHER DASHBOARD WRAPPER
 // ------------------------------------
@@ -1419,7 +1548,7 @@ export default function TeacherDashboard() {
 
                 // 4. GROUP BY SESSION ID
                 // 4. GROUP BY SESSION ID
-               // 4. GROUP BY SESSION ID
+                // 4. GROUP BY SESSION ID
                 const sessionsMap = {};
                 attSnap.docs.forEach(doc => {
                     const data = doc.data();
@@ -1631,17 +1760,17 @@ export default function TeacherDashboard() {
                 return (
                     <div className="content-section">
                         <h2 className="content-title">Attendance Reports</h2>
-                        
+
                         {/* ✅ NEW: Aligned Controls Container */}
                         <div className="card fade-in-up" style={{ padding: '20px', marginBottom: '20px' }}>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '20px', alignItems: 'end' }}>
-                                
+
                                 {/* 1. Semester Selection (Custom Dropdown) */}
                                 <div>
                                     <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>
                                         Semester
                                     </label>
-                                    <CustomDropdown 
+                                    <CustomDropdown
                                         value={historySemester}
                                         onChange={setHistorySemester}
                                         options={[
@@ -1655,10 +1784,10 @@ export default function TeacherDashboard() {
 
                                 {/* 2. Date Selection (Mobile Fixed with CustomDatePicker) */}
                                 <div>
-                                    <CustomDatePicker 
-                                        label="Select Date" 
-                                        value={selectedDate} 
-                                        onChange={setSelectedDate} 
+                                    <CustomDatePicker
+                                        label="Select Date"
+                                        value={selectedDate}
+                                        onChange={setSelectedDate}
                                     />
                                 </div>
 
@@ -1667,9 +1796,9 @@ export default function TeacherDashboard() {
                                     <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>
                                         Viewing Report For
                                     </label>
-                                    <div style={{ 
-                                        padding: '12px', background: '#f1f5f9', borderRadius: '12px', 
-                                        border: '1px solid #e2e8f0', fontWeight: '600', color: '#334155', 
+                                    <div style={{
+                                        padding: '12px', background: '#f1f5f9', borderRadius: '12px',
+                                        border: '1px solid #e2e8f0', fontWeight: '600', color: '#334155',
                                         height: '48px', display: 'flex', alignItems: 'center', fontSize: '13px'
                                     }}>
                                         {selectedYear} {selectedYear === 'FE' && selectedDiv ? `- Div ${selectedDiv}` : ''} • {getSubjectForHistory()}
@@ -1678,8 +1807,8 @@ export default function TeacherDashboard() {
 
                                 {/* 4. Export Button */}
                                 <div>
-                                    <CSVLink 
-                                        data={csvData} 
+                                    <CSVLink
+                                        data={csvData}
                                         headers={csvHeaders}
                                         filename={csvFilename}
                                         className="btn-primary"
@@ -1702,7 +1831,7 @@ export default function TeacherDashboard() {
                                     <Bar dataKey="value" fill="#3b82f6" name="Total Present" radius={[10, 10, 0, 0]} barSize={60} />
                                 </BarChart>
                             </ResponsiveContainer>
-                            {historySessions.length === 0 && <p style={{textAlign: 'center', color: '#94a3b8', marginTop: '-200px'}}>No records found for this date.</p>}
+                            {historySessions.length === 0 && <p style={{ textAlign: 'center', color: '#94a3b8', marginTop: '-200px' }}>No records found for this date.</p>}
                         </div>
                     </div>
                 );
@@ -1815,17 +1944,17 @@ export default function TeacherDashboard() {
 
     return (
         <div className="dashboard-container">
-          {showYearModal && (
+            {showYearModal && (
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.85)', zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div className="card" style={{ width: '90%', maxWidth: '350px', textAlign: 'center', padding: '30px' }}>
                         <h2 style={{ color: '#1e293b', marginBottom: '15px' }}>Select Classroom</h2>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            
+
                             {/* ✅ LOGIC: Generate specific buttons for EACH Division */}
                             {teacherInfo?.assignedClasses?.flatMap(cls => {
                                 // 1. If FE, split into separate buttons for each assigned Division
                                 if (cls.year === 'FE' && cls.divisions) {
-                                    if(cls.divisions.toLowerCase() === 'all') {
+                                    if (cls.divisions.toLowerCase() === 'all') {
                                         return [{ ...cls, displayDiv: 'All', uniqueKey: 'FE-All' }];
                                     }
                                     // Split "A, B" -> Objects for A and B
@@ -1838,18 +1967,18 @@ export default function TeacherDashboard() {
                                 // 2. Default for SE/TE/BE
                                 return [{ ...cls, displayDiv: null, uniqueKey: cls.year }];
                             }).map(cls => (
-                                <button 
-                                    key={cls.uniqueKey} 
-                                    onClick={() => { 
-                                        setSelectedYear(cls.year); 
+                                <button
+                                    key={cls.uniqueKey}
+                                    onClick={() => {
+                                        setSelectedYear(cls.year);
                                         // ✅ SET DIVISION STATE IMMEDIATELY
-                                        if (cls.displayDiv) setSelectedDiv(cls.displayDiv); 
-                                        setShowYearModal(false); 
-                                        toast.success(`Entered ${cls.year} ${cls.displayDiv ? `(Div ${cls.displayDiv})` : ''}`); 
-                                    }} 
-                                    style={{ 
-                                        padding: '15px', background: '#fff', border: '1px solid #e2e8f0', 
-                                        borderRadius: '12px', fontSize: '15px', fontWeight: 'bold', 
+                                        if (cls.displayDiv) setSelectedDiv(cls.displayDiv);
+                                        setShowYearModal(false);
+                                        toast.success(`Entered ${cls.year} ${cls.displayDiv ? `(Div ${cls.displayDiv})` : ''}`);
+                                    }}
+                                    style={{
+                                        padding: '15px', background: '#fff', border: '1px solid #e2e8f0',
+                                        borderRadius: '12px', fontSize: '15px', fontWeight: 'bold',
                                         cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                                         boxShadow: '0 2px 5px rgba(0,0,0,0.05)'
                                     }}
@@ -1876,12 +2005,12 @@ export default function TeacherDashboard() {
             )}
 
             {isMobileNavOpen && <div className="nav-overlay" onClick={() => setIsMobileNavOpen(false)}></div>}
-           <aside className={`sidebar ${isMobileNavOpen ? 'open' : ''}`}>
+            <aside className={`sidebar ${isMobileNavOpen ? 'open' : ''}`}>
                 <div className="logo-container">
                     <img src={logo} alt="Logo" className="sidebar-logo" />
                     <span className="logo-text">AcadeX</span>
                 </div>
-                
+
                 {teacherInfo && (
                     <div className="teacher-info" onClick={() => { setActivePage('profile'); setIsMobileNavOpen(false); }} style={{ cursor: 'pointer' }}>
                         <h4>{teacherInfo.firstName} {teacherInfo.lastName}</h4>
@@ -1889,15 +2018,15 @@ export default function TeacherDashboard() {
                             <p style={{ margin: 0, fontSize: '13px', opacity: 0.9 }}>
                                 {selectedYear} • {teacherInfo.assignedClasses?.find(c => c.year === selectedYear)?.subject || "Select Class"}
                             </p>
-                            
+
                             {/* ✅ BEAUTIFUL DIV BADGE (Only for FE) */}
                             {selectedYear === 'FE' && selectedDiv && (
-                                <span style={{ 
-                                    background: 'rgba(59, 130, 246, 0.1)', 
-                                    color: '#3b82f6', 
-                                    fontSize: '11px', 
-                                    fontWeight: '700', 
-                                    padding: '2px 6px', 
+                                <span style={{
+                                    background: 'rgba(59, 130, 246, 0.1)',
+                                    color: '#3b82f6',
+                                    fontSize: '11px',
+                                    fontWeight: '700',
+                                    padding: '2px 6px',
                                     borderRadius: '6px',
                                     border: '1px solid rgba(59, 130, 246, 0.2)'
                                 }}>
@@ -1905,17 +2034,17 @@ export default function TeacherDashboard() {
                                 </span>
                             )}
                         </div>
-                        
+
                         {/* ✅ SWITCH CLASS BUTTON (Hidden if only 1 class) */}
                         {(teacherInfo.assignedClasses && teacherInfo.assignedClasses.length > 1) && (
-                            <div 
-                                onClick={(e) => { e.stopPropagation(); setShowYearModal(true); }} 
-                                className="edit-profile-pill" 
-                                style={{ 
-                                    marginTop: '12px', 
-                                    background: '#f8fafc', 
-                                    color: '#64748b', 
-                                    border: '1px solid #e2e8f0', 
+                            <div
+                                onClick={(e) => { e.stopPropagation(); setShowYearModal(true); }}
+                                className="edit-profile-pill"
+                                style={{
+                                    marginTop: '12px',
+                                    background: '#f8fafc',
+                                    color: '#64748b',
+                                    border: '1px solid #e2e8f0',
                                     justifyContent: 'center',
                                     padding: '6px 12px',
                                     borderRadius: '8px',
@@ -1930,13 +2059,13 @@ export default function TeacherDashboard() {
                         )}
                     </div>
                 )}
-                
+
                 <ul className="menu">
                     <NavLink page="dashboard" iconClass="fa-th-large" label="Dashboard" />
                     <NavLink page="analytics" iconClass="fa-chart-bar" label="Analytics" />
                     <NavLink page="announcements" iconClass="fa-bullhorn" label="Announcements" />
                     <NavLink page="addTasks" iconClass="fa-tasks" label="Add Tasks" />
-                    
+
                     {/* ✅ ADDED PROFILE TAB */}
                     <NavLink page="profile" iconClass="fa-user-circle" label="Profile" />
 
@@ -1959,7 +2088,7 @@ export default function TeacherDashboard() {
                         </CSVLink>
                     </li>
                 </ul>
-                
+
                 <div className="sidebar-footer">
                     <button onClick={handleLogout} className="logout-btn">
                         <i className="fas fa-sign-out-alt"></i><span>Logout</span>

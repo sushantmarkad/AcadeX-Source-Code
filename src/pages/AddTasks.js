@@ -4,6 +4,8 @@ import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import toast from 'react-hot-toast';
 import CustomDropdown from '../components/CustomDropdown';
+import { DatePicker } from '@capacitor-community/date-picker';
+import { Capacitor } from '@capacitor/core';
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
@@ -42,6 +44,29 @@ export default function AddTasks({ teacherInfo }) {
         return () => unsub();
     }, []);
 
+    // --- 📱 NATIVE DATE PICKER LOGIC ---
+    const openNativeDatePicker = async () => {
+        try {
+            const { value } = await DatePicker.present({
+                mode: 'date',
+                locale: 'en_GB',
+                format: 'yyyy-MM-dd',
+                date: form.dueDate || new Date().toISOString().split('T')[0],
+                theme: 'light',
+                android: {
+                    calendar: false,
+                    mode: 'spinner'
+                }
+            });
+
+            if (value) {
+                setForm(prev => ({ ...prev, dueDate: value }));
+            }
+        } catch (error) {
+            console.log("Native picker not available", error);
+        }
+    };
+
     const handleCreate = async (e) => {
         e.preventDefault();
         if (!form.targetYear) return toast.error("Please select a class.");
@@ -73,8 +98,7 @@ export default function AddTasks({ teacherInfo }) {
                 })
             }).then(res => { if(!res.ok) throw new Error("Backend failed"); });
 
-            // 2. Trigger Notification (✅ NEW CODE)
-            // Re-using the same notification endpoint but customizing the title
+            // 2. Trigger Notification
             fetch(`${BACKEND_URL}/sendAnnouncementNotification`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -174,21 +198,65 @@ export default function AddTasks({ teacherInfo }) {
 
                         {/* Sidebar Inputs */}
                         <div className="form-sidebar">
-                           {/* REPLACE the CustomDropdown block around line 140 with this: */}
                             <div className="input-group">
                                 <label>Target Class</label>
                                 <CustomDropdown
                                     value={form.targetYear}
-                                    onChange={(e) => setForm({ ...form, targetYear: e.target.value })}
+                                    /* ✅ SAFE FIX: Checks if 'e' is an event object or direct value */
+                                    onChange={(e) => {
+                                        const val = e.target ? e.target.value : e;
+                                        setForm({ ...form, targetYear: val });
+                                    }}
                                     placeholder="Select Class"
-                                    // ✅ UPDATED OPTIONS PROP
                                     options={assignedTargets} 
                                 />
                             </div>
 
+                            {/* --- 📅 DATE PICKER (HYBRID) --- */}
                             <div className="input-group">
                                 <label>Deadline</label>
-                                <input type="date" required value={form.dueDate} onChange={e => setForm({ ...form, dueDate: e.target.value })} />
+                                <div 
+                                    /* Mobile Trigger */
+                                    onClick={Capacitor.isNativePlatform() ? openNativeDatePicker : undefined}
+                                    style={{ 
+                                        background: '#f8fafc', 
+                                        padding: '12px', 
+                                        borderRadius: '10px', 
+                                        border: '2px solid #f1f5f9',
+                                        display: 'flex', 
+                                        justifyContent: 'space-between', 
+                                        alignItems: 'center', 
+                                        cursor: 'pointer',
+                                        position: 'relative' // Essential for Web Overlay
+                                    }}
+                                >
+                                    <span style={{ color: form.dueDate ? '#334155' : '#94a3b8', fontSize: '14px' }}>
+                                        {form.dueDate 
+                                            ? new Date(form.dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) 
+                                            : 'Select Date'}
+                                    </span>
+                                    <i className="fas fa-calendar-alt" style={{ color: '#d946ef' }}></i>
+
+                                    {/* Web Overlay Input */}
+                                    {!Capacitor.isNativePlatform() && (
+                                        <input 
+                                            type="date" 
+                                            required 
+                                            value={form.dueDate} 
+                                            onChange={e => setForm({ ...form, dueDate: e.target.value })}
+                                            style={{
+                                                position: 'absolute',
+                                                top: 0,
+                                                left: 0,
+                                                width: '100%',
+                                                height: '100%',
+                                                opacity: 0,
+                                                cursor: 'pointer',
+                                                zIndex: 10
+                                            }}
+                                        />
+                                    )}
+                                </div>
                             </div>
 
                             {/* File Upload */}
@@ -354,13 +422,15 @@ export default function AddTasks({ teacherInfo }) {
                     background: white;
                     border-radius: 20px;
                     box-shadow: 0 10px 30px rgba(0,0,0,0.08);
-                    overflow: hidden;
+                    overflow: visible !important; /* ✅ Allow Dropdown Overflow */
                     border: 1px solid #f1f5f9;
                 }
                 .create-card-header {
                     background: linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%);
                     padding: 15px 25px;
                     color: white;
+                    border-top-left-radius: 20px;
+                    border-top-right-radius: 20px;
                 }
                 .create-card-header h3 { margin: 0; font-size: 16px; font-weight: 600; }
 
