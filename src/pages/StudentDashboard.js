@@ -217,7 +217,7 @@ const NoticesView = ({ notices }) => {
                                     <span className="notice-time">{getRelativeTime(n.createdAt)}</span>
                                 </div>
                                 <p className="notice-body">{n.message}</p>
-                                
+
                                 {/* Attachment Button */}
                                 {n.attachmentUrl && (
                                     <div style={{ marginBottom: '12px', marginTop: '10px' }}>
@@ -243,10 +243,15 @@ const NoticesView = ({ notices }) => {
                                 )}
 
                                 <div className="notice-footer">
+                                    {/* 1. Department Badge */}
                                     <span className="notice-dept-badge">{n.department || 'General'}</span>
-                                    {n.targetYear !== 'All' && <span className="notice-year-badge">{n.targetYear}</span>}
-                                    
-                                    {/* ✅ ADDED: Show Division Badge (e.g. "Div A") */}
+
+                                    {/* 2. Year Badge (Hide if it duplicates the Department) */}
+                                    {n.targetYear !== 'All' && n.targetYear !== n.department && (
+                                        <span className="notice-year-badge">{n.targetYear}</span>
+                                    )}
+
+                                    {/* 3. Division Badge */}
                                     {n.division && n.division !== 'All' && (
                                         <span className="notice-year-badge" style={{ background: '#dbeafe', color: '#1e40af', marginLeft: '6px' }}>
                                             Div {n.division}
@@ -589,7 +594,7 @@ const MobileFooter = ({ activePage, setActivePage, badgeCount, taskBadgeCount, l
                 <i className="fas fa-home"></i>
                 <span>Home</span>
             </button>
-            
+
             <button className={`nav-item ${activePage === 'notices' ? 'active' : ''}`} onClick={() => setActivePage('notices')} style={{ position: 'relative' }}>
                 <i className="fas fa-bullhorn"></i>
                 <span>Updates</span>
@@ -643,7 +648,7 @@ export default function StudentDashboard() {
     const [recentAttendance, setRecentAttendance] = useState([]);
     const [zoom, setZoom] = useState(1);
     const [zoomCap, setZoomCap] = useState(null);
-    
+
 
     // ✅ GLOBAL SCHEDULE STATE
     const [currentSlot, setCurrentSlot] = useState(null);
@@ -784,7 +789,7 @@ export default function StudentDashboard() {
         return () => authUnsub();
     }, []);
 
-   // ✅ 2. Listen for Active Session (Filtered by Year AND Division)
+    // ✅ 2. Listen for Active Session (Filtered by Year AND Division)
     useEffect(() => {
         if (!auth.currentUser || !user) return;
 
@@ -809,17 +814,17 @@ export default function StudentDashboard() {
                     // If the session has a specific division (e.g. "A"), the student MUST match it.
                     if (data.division) {
                         // Support both 'division' and 'div' field names for students
-                        const myDiv = user.division || user.div; 
-                        
+                        const myDiv = user.division || user.div;
+
                         // If student has no division or it doesn't match the session's division -> Hide it
                         if (!myDiv || data.division !== myDiv) {
-                            return false; 
+                            return false;
                         }
                     }
 
                     // 3. Check Roll Number Range (For Practical Labs)
                     if (data.type === 'practical' && data.rollRange) {
-                        const myRoll = parseInt(user.rollNo); 
+                        const myRoll = parseInt(user.rollNo);
                         const min = parseInt(data.rollRange.start);
                         const max = parseInt(data.rollRange.end);
 
@@ -864,7 +869,7 @@ export default function StudentDashboard() {
             try {
                 // ✅ 1. Construct the EXACT ID that HOD Dashboard uses
                 let docId = `${user.instituteId}_${user.department}_${user.year}_Timetable`;
-                
+
                 // If FE, append the Division (e.g., _FE_A_Timetable)
                 if (user.year === 'FE' && user.division) {
                     docId = `${user.instituteId}_${user.department}_${user.year}_${user.division}_Timetable`;
@@ -914,60 +919,62 @@ export default function StudentDashboard() {
         const interval = setInterval(fetchSchedule, 60000); // Update every minute
         return () => clearInterval(interval);
     }, [user, isFreePeriod]);
-
-  // ✅ 5. ASSIGNMENTS Fetching Logic (Complete)
+    // ✅ FIX: FETCH ANNOUNCEMENTS (Notices) & Filter by Division
     useEffect(() => {
         if (!user?.instituteId) return;
-        
-        // Listen to 'assignments' collection
-        const q = query(collection(db, 'assignments'), where('instituteId', '==', user.instituteId));
-        
+
+        // Query the 'announcements' collection (where HOD posts notices)
+        const q = query(collection(db, 'announcements'), where('instituteId', '==', user.instituteId));
+
         const unsub = onSnapshot(q, (snapshot) => {
-            const all = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-            
-           // ✅ CLIENT-SIDE FILTERING (Robust & Normalized)
-            const relevant = all.filter(n => {
-                // Helper to normalize strings (lowercase, trim)
-                const norm = (str) => str ? str.toString().toLowerCase().trim() : '';
+            const allNotices = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            const relevantNotices = allNotices.filter(notice => {
+                // 1. Helper to normalize strings (lowercase, trim)
+                const norm = (str) => str ? str.toString().trim().toLowerCase() : '';
 
                 const userDept = norm(user.department);
-                const noticeDept = norm(n.department);
-                
-                // 1. Department Check (Smart Match: FE == First Year)
-                const isDeptMatch = 
-                    noticeDept === userDept || 
-                    noticeDept === 'general' ||
-                    (noticeDept === 'first year' && userDept === 'fe') ||
-                    (noticeDept === 'fe' && userDept === 'first year');
-                
-                // 2. Year Check (Smart Match: FE == First Year)
+                const noticeDept = norm(notice.department);
                 const userYear = norm(user.year);
-                const noticeYear = norm(n.targetYear);
-                const isYearMatch = 
-                    noticeYear === 'all' || 
+                const noticeYear = norm(notice.targetYear);
+
+                // 2. Department Match (Handle 'FE' vs 'First Year')
+                const isDeptMatch =
+                    noticeDept === userDept ||
+                    noticeDept === 'general' ||
+                    (noticeDept === 'fe' && userDept === 'first year') ||
+                    (noticeDept === 'first year' && userDept === 'fe');
+
+                if (!isDeptMatch) return false;
+
+                // 3. Year Match (e.g. 'FE' matches 'First Year')
+                const isYearMatch =
+                    noticeYear === 'all' ||
                     noticeYear === userYear ||
-                    (noticeYear === 'first year' && userYear === 'fe') ||
-                    (noticeYear === 'fe' && userYear === 'first year');
-                
-                // 3. Division Check
-                let isDivMatch = true;
-                if (n.division && n.division !== 'All') {
-                    const noticeDiv = norm(n.division);
-                    const userDiv = norm(user.division || user.div);
-                    
-                    // If student has no division, or divisions don't match
+                    (noticeYear === 'fe' && userYear === 'first year') ||
+                    (noticeYear === 'first year' && userYear === 'fe');
+
+                if (!isYearMatch) return false;
+
+                // 4. ✅ DIVISION MATCH (The Fix)
+                // If notice is for specific division (e.g. "A"), student must match it.
+                if (notice.division && notice.division !== 'All') {
+                    const userDiv = norm(user.division || user.div); // Handle 'division' or 'div'
+                    const noticeDiv = norm(notice.division);
+
                     if (!userDiv || userDiv !== noticeDiv) {
-                        isDivMatch = false;
+                        return false; // Hide if division doesn't match
                     }
                 }
 
-                return isDeptMatch && isYearMatch && isDivMatch;
+                return true;
             });
 
             // Sort: Newest First
-            relevant.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
-            setAssignments(relevant);
+            relevantNotices.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+            setNotices(relevantNotices);
         });
+
         return () => unsub();
     }, [user?.instituteId, user?.department, user?.year, user?.division]);
 
@@ -978,7 +985,7 @@ export default function StudentDashboard() {
             setReadCount(notices.length);
             localStorage.setItem('seenNoticesCount', notices.length.toString());
         }
-        
+
         // Hide Task Badge
         if (activePage === 'tasks' && assignments.length > taskReadCount) {
             setTaskReadCount(assignments.length);
@@ -1265,7 +1272,7 @@ export default function StudentDashboard() {
     return (
         <div className="dashboard-container">
 
-        
+
 
             {isMobileNavOpen && <div className="nav-overlay" onClick={() => setIsMobileNavOpen(false)} />}
 
@@ -1291,7 +1298,7 @@ export default function StudentDashboard() {
                             <span>Dashboard</span>
                         </div>
                     </li>
-                   {/* ✅ UPDATED: Notice Board with Badge */}
+                    {/* ✅ UPDATED: Notice Board with Badge */}
                     <li className={activePage === 'notices' ? 'active' : ''} onClick={() => { setActivePage('notices'); setIsMobileNavOpen(false); }}>
                         <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '15px' }}>
                             <i className="fas fa-bullhorn" style={{ width: '24px', textAlign: 'center' }}></i>
@@ -1309,7 +1316,7 @@ export default function StudentDashboard() {
                         <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '15px' }}>
                             <i className="fas fa-check-circle" style={{ width: '24px', textAlign: 'center' }}></i>
                             <span>Free Period Tasks</span>
-                            
+
                             <div style={{ marginLeft: 'auto', display: 'flex', gap: '5px' }}>
                                 {/* Show Red Badge for New Tasks */}
                                 {taskBadgeCount > 0 && (
@@ -1432,7 +1439,7 @@ export default function StudentDashboard() {
                     badgeCount={badgeCount}
                     taskBadgeCount={taskBadgeCount} // ✅ Pass the new count
                     liveSession={liveSession}
-                    onScan={openNativeCameraForQR} 
+                    onScan={openNativeCameraForQR}
                     onChat={() => setIsChatOpen(true)}
                 />
             </main>
