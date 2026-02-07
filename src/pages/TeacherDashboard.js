@@ -37,13 +37,17 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
     const [activeTab, setActiveTab] = useState('create');
     const [selectedDiv, setSelectedDiv] = useState('');
 
-    // ✅ CORRECT LOGIC FOR DROPDOWN
-    const assignedYears = teacherInfo?.assignedClasses
-        ? [...new Set(teacherInfo.assignedClasses.flatMap(c =>
-            c.year === 'FE' && c.divisions
-                ? c.divisions.split(',').map(d => `FE - Div ${d.trim()}`)
-                : [c.year]
-        ))]
+   const assignedYears = teacherInfo?.assignedClasses
+        ? [...new Set(teacherInfo.assignedClasses.flatMap(c => {
+            if (c.year === 'FE' && c.divisions) {
+                // Split FE into divisions
+                return c.divisions.split(',').map(div => ({
+                    label: `FE - Div ${div.trim()}`,
+                    value: `FE|${div.trim()}` 
+                }));
+            }
+            return [{ label: `${c.year} Year (All)`, value: `${c.year}|All` }];
+        }))]
         : [];
 
     useEffect(() => {
@@ -62,13 +66,19 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
         return () => { if (unsubscribe) unsubscribe(); };
     }, [teacherInfo]);
 
-    const handlePost = async (e) => {
+   const handlePost = async (e) => {
         e.preventDefault();
         if (!form.targetYear) return toast.error("Please select a target class.");
 
         setLoading(true);
         const toastId = toast.loading("Uploading & Posting...");
+        
         try {
+            // ✅ Parse "Year|Div" into separate variables
+            // Fallback: If value has no pipe (e.g. legacy data), treat as "Year|All"
+            const rawTarget = form.targetYear.includes('|') ? form.targetYear : `${form.targetYear}|All`;
+            const [targetYear, targetDivision] = rawTarget.split('|');
+
             let attachmentUrl = "";
             if (file) {
                 const fileRef = ref(storage, `notices/${auth.currentUser.uid}/${Date.now()}_${file.name}`);
@@ -76,9 +86,12 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                 attachmentUrl = await getDownloadURL(fileRef);
             }
 
-            // 1. Save to Firestore
+            // 1. Save to Firestore (Now saving 'division')
             await addDoc(collection(db, 'announcements'), {
-                ...form,
+                title: form.title,
+                message: form.message,
+                targetYear: targetYear,        // ✅ Save Clean Year
+                division: targetDivision,      // ✅ Save Clean Division
                 attachmentUrl,
                 teacherId: auth.currentUser.uid,
                 teacherName: `${teacherInfo.firstName} ${teacherInfo.lastName}`,
@@ -88,14 +101,15 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                 createdAt: serverTimestamp()
             });
 
-            // 2. Trigger Notification (✅ NEW CODE)
+            // 2. Trigger Notification (Send Division too)
             fetch(`${BACKEND_URL}/sendAnnouncementNotification`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     title: `📢 New Notice: ${form.title}`,
-                    message: form.message, // Or a substring if too long
-                    targetYear: form.targetYear,
+                    message: form.message, 
+                    targetYear: targetYear,    // ✅ Use cleaned year
+                    division: targetDivision,  // ✅ Use cleaned division
                     instituteId: teacherInfo.instituteId,
                     department: teacherInfo.department,
                     senderName: `${teacherInfo.firstName} ${teacherInfo.lastName}`
@@ -107,7 +121,7 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
             setFile(null);
             setActiveTab('history');
         } catch (err) {
-            toast.error("Failed to post.", { id: toastId });
+            toast.error("Failed to post: " + err.message, { id: toastId });
         } finally {
             setLoading(false);
         }
@@ -168,20 +182,17 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                         <div className="form-sidebar">
                             <div className="input-group">
                                 <label>Target Class</label>
-                                <CustomDropdown
+                               <CustomDropdown
                                     value={form.targetYear}
-                                    /* ✅ FIX: Handles whether 'e' is an event object OR a direct value string */
+                                    /* ✅ SAFE FIX: Checks if 'e' is an event object or direct value */
                                     onChange={(e) => {
                                         const val = (e && e.target) ? e.target.value : e;
                                         setForm({ ...form, targetYear: val });
                                     }}
                                     placeholder="Select Class"
                                     options={[
-                                        { value: 'All', label: 'All My Classes' },
-                                        ...assignedYears.map(year => ({ 
-                                            value: year, 
-                                            label: year.includes('Div') ? year : `${year} Year` 
-                                        }))
+                                        { value: 'All|All', label: 'All My Classes' },
+                                        ...assignedYears // This now contains objects { value: 'FE|A', label: 'FE - Div A' }
                                     ]}
                                 />
                             </div>
@@ -269,9 +280,22 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                 .active-create { background: #f3e8ff; color: #7c3aed; }
                 .active-eval { background: #fce7f3; color: #db2777; } /* Using pink/violet theme */
 
-                /* Create Card */
-                .create-card { background: white; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); overflow: hidden; border: 1px solid #f1f5f9; }
-                .create-card-header { background: linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%); padding: 15px 25px; color: white; }
+               .create-card { 
+    background: white; 
+    border-radius: 20px; 
+    box-shadow: 0 10px 30px rgba(0,0,0,0.08); 
+    overflow: visible !important; /* Key fix */
+    border: 1px solid #f1f5f9; 
+}
+
+/* Header - Explicitly Rounded Top Corners */
+.create-card-header { 
+    background: linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%); 
+    padding: 15px 25px; 
+    color: white; 
+    border-top-left-radius: 20px;  /* ✅ FIX: Curves top left */
+    border-top-right-radius: 20px; /* ✅ FIX: Curves top right */
+}
                 .create-card-header h3 { margin: 0; font-size: 16px; font-weight: 600; }
 
                 .create-form { padding: 25px; display: grid; grid-template-columns: 2fr 1fr; gap: 30px; }

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth, storage } from '../firebase';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import toast from 'react-hot-toast';
+import ReactDOM from 'react-dom';
 import CustomDropdown from '../components/CustomDropdown';
 import { DatePicker } from '@capacitor-community/date-picker';
 import { Capacitor } from '@capacitor/core';
@@ -15,17 +16,20 @@ export default function AddTasks({ teacherInfo }) {
     const [selectedTask, setSelectedTask] = useState(null);
     const [submissions, setSubmissions] = useState([]);
     const [loading, setLoading] = useState(false);
+    
+    // --- 🗑️ Delete Modal State ---
+    const [deleteModal, setDeleteModal] = useState({ open: false, taskId: null });
 
-    // Form State
+    // --- 📝 Form State ---
     const [form, setForm] = useState({ title: '', description: '', targetYear: '', dueDate: '' });
     const [file, setFile] = useState(null);
 
-    // Grading State
+    // --- 🎓 Grading State ---
     const [gradingId, setGradingId] = useState(null);
     const [marks, setMarks] = useState('');
     const [feedback, setFeedback] = useState('');
 
-    // ✅ UPDATED: Generate Options with Division Logic (Value = "Year|Div")
+    // --- ⚙️ Generate Options for Dropdown (Value = "Year|Div") ---
     const assignedTargets = teacherInfo?.assignedClasses
         ? [...new Set(teacherInfo.assignedClasses.flatMap(c => {
             if (c.year === 'FE' && c.divisions) {
@@ -40,6 +44,7 @@ export default function AddTasks({ teacherInfo }) {
         }))]
         : [];
 
+    // --- 📥 Fetch Tasks ---
     useEffect(() => {
         if (!auth.currentUser) return;
         const q = query(collection(db, 'assignments'), where('teacherId', '==', auth.currentUser.uid));
@@ -51,29 +56,39 @@ export default function AddTasks({ teacherInfo }) {
         return () => unsub();
     }, []);
 
-    // --- 📱 NATIVE DATE PICKER LOGIC ---
-    const openNativeDatePicker = async () => {
-        try {
-            const { value } = await DatePicker.present({
-                mode: 'date',
-                locale: 'en_GB',
-                format: 'yyyy-MM-dd',
-                date: form.dueDate || new Date().toISOString().split('T')[0],
-                theme: 'light',
-                android: {
-                    calendar: false,
-                    mode: 'spinner'
-                }
-            });
+    // --- 🗑️ DELETE LOGIC (Modal) ---
+    const promptDelete = (e, taskId) => {
+        e.stopPropagation(); // Stop click from opening submissions view
+        setDeleteModal({ open: true, taskId });
+    };
 
-            if (value) {
-                setForm(prev => ({ ...prev, dueDate: value }));
-            }
-        } catch (error) {
-            console.log("Native picker not available", error);
+    const confirmDelete = async () => {
+        if (!deleteModal.taskId) return;
+        
+        const toastId = toast.loading("Deleting assignment...");
+        try {
+            await deleteDoc(doc(db, 'assignments', deleteModal.taskId));
+            toast.success("Assignment deleted successfully!", { id: toastId });
+            setDeleteModal({ open: false, taskId: null }); // Close Modal
+        } catch (err) {
+            console.error(err);
+            toast.error("Failed to delete task.", { id: toastId });
         }
     };
 
+    // --- 📅 DATE PICKER LOGIC ---
+    const openNativeDatePicker = async () => {
+        try {
+            const { value } = await DatePicker.present({
+                mode: 'date', locale: 'en_GB', format: 'yyyy-MM-dd',
+                date: form.dueDate || new Date().toISOString().split('T')[0],
+                theme: 'light', android: { calendar: false, mode: 'spinner' }
+            });
+            if (value) setForm(prev => ({ ...prev, dueDate: value }));
+        } catch (error) { console.log("Native picker not available", error); }
+    };
+
+    // --- 🚀 SUBMIT / CREATE LOGIC ---
     const handleCreate = async (e) => {
         e.preventDefault();
         if (!form.targetYear) return toast.error("Please select a class.");
@@ -83,8 +98,7 @@ export default function AddTasks({ teacherInfo }) {
         const toastId = toast.loading("Publishing Task...");
         
         try {
-            // ✅ UPDATED: Parse "Year|Div" into separate variables
-            // If the value doesn't have a pipe (fallback safety), treat it as "Year|All"
+            // Parse "Year|Div" into separate variables
             const rawTarget = form.targetYear.includes('|') ? form.targetYear : `${form.targetYear}|All`;
             const [targetYear, targetDivision] = rawTarget.split('|');
 
@@ -95,14 +109,14 @@ export default function AddTasks({ teacherInfo }) {
                 attachmentUrl = await getDownloadURL(fileRef);
             }
 
-            // 1. Save Assignment (Now sending 'division')
+            // 1. Save Assignment
             await fetch(`${BACKEND_URL}/createAssignment`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     ...form,
-                    targetYear: targetYear,   // ✅ Send Clean Year (e.g. "FE")
-                    division: targetDivision, // ✅ Send Clean Division (e.g. "A")
+                    targetYear: targetYear,    // Clean Year (e.g. "FE")
+                    division: targetDivision,  // Clean Division (e.g. "A")
                     attachmentUrl,
                     teacherId: auth.currentUser.uid,
                     teacherName: `${teacherInfo.firstName} ${teacherInfo.lastName}`,
@@ -119,8 +133,8 @@ export default function AddTasks({ teacherInfo }) {
                 body: JSON.stringify({
                     title: `📝 New Assignment: ${form.title}`,
                     message: `Due Date: ${new Date(form.dueDate).toLocaleDateString()}. Check app for details.`,
-                    targetYear: targetYear,        // ✅ Use cleaned year
-                    division: targetDivision,      // ✅ Use cleaned division
+                    targetYear: targetYear,
+                    division: targetDivision,
                     instituteId: teacherInfo.instituteId,
                     department: teacherInfo.department,
                     senderName: `${teacherInfo.firstName} ${teacherInfo.lastName}`
@@ -138,6 +152,7 @@ export default function AddTasks({ teacherInfo }) {
         }
     };
 
+    // --- 📊 GRADING LOGIC ---
     const viewSubmissions = async (task) => {
         setSelectedTask(task);
         const toastId = toast.loading("Fetching Submissions...");
@@ -154,7 +169,7 @@ export default function AddTasks({ teacherInfo }) {
     };
 
     const submitGrade = async (submissionId) => {
-        if (!marks || marks > 100 || marks < 0) return toast.error("Enter valid marks (0-100)");
+        if (!marks || marks > 100 || marks < 0) return toast.error("Invalid marks (0-100)");
         try {
             await fetch(`${BACKEND_URL}/gradeSubmission`, {
                 method: 'POST',
@@ -176,16 +191,11 @@ export default function AddTasks({ teacherInfo }) {
                     <h2 className="gradient-text">Classroom Tasks</h2>
                     <p className="subtitle">Create assignments & track performance.</p>
                 </div>
-
                 <div className="toggle-container">
-                    <button
-                        onClick={() => setActiveTab('create')}
-                        className={`toggle-btn ${activeTab === 'create' ? 'active-create' : ''}`}>
+                    <button onClick={() => setActiveTab('create')} className={`toggle-btn ${activeTab === 'create' ? 'active-create' : ''}`}>
                         <i className="fas fa-plus"></i> Create
                     </button>
-                    <button
-                        onClick={() => { setActiveTab('evaluate'); setSelectedTask(null); }}
-                        className={`toggle-btn ${activeTab === 'evaluate' ? 'active-eval' : ''}`}>
+                    <button onClick={() => { setActiveTab('evaluate'); setSelectedTask(null); }} className={`toggle-btn ${activeTab === 'evaluate' ? 'active-eval' : ''}`}>
                         <i className="fas fa-check-double"></i> Evaluate
                     </button>
                 </div>
@@ -197,9 +207,7 @@ export default function AddTasks({ teacherInfo }) {
                     <div className="create-card-header">
                         <h3><i className="fas fa-magic"></i> New Assignment</h3>
                     </div>
-
                     <form onSubmit={handleCreate} className="create-form">
-                        {/* Main Inputs */}
                         <div className="form-main">
                             <div className="input-group">
                                 <label>Title</label>
@@ -210,14 +218,12 @@ export default function AddTasks({ teacherInfo }) {
                                 <textarea required value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows="6" placeholder="Explain the task details..." />
                             </div>
                         </div>
-
-                        {/* Sidebar Inputs */}
                         <div className="form-sidebar">
                             <div className="input-group">
                                 <label>Target Class</label>
                                 <CustomDropdown
                                     value={form.targetYear}
-                                    /* ✅ SAFE FIX: Checks if 'e' is an event object or direct value */
+                                    // Safe check for event object vs direct value
                                     onChange={(e) => {
                                         const val = e.target ? e.target.value : e;
                                         setForm({ ...form, targetYear: val });
@@ -227,54 +233,24 @@ export default function AddTasks({ teacherInfo }) {
                                 />
                             </div>
 
-                            {/* --- 📅 DATE PICKER (HYBRID) --- */}
+                            {/* --- DATE PICKER --- */}
                             <div className="input-group">
                                 <label>Deadline</label>
                                 <div 
-                                    /* Mobile Trigger */
-                                    onClick={Capacitor.isNativePlatform() ? openNativeDatePicker : undefined}
-                                    style={{ 
-                                        background: '#f8fafc', 
-                                        padding: '12px', 
-                                        borderRadius: '10px', 
-                                        border: '2px solid #f1f5f9',
-                                        display: 'flex', 
-                                        justifyContent: 'space-between', 
-                                        alignItems: 'center', 
-                                        cursor: 'pointer',
-                                        position: 'relative' // Essential for Web Overlay
-                                    }}
+                                    onClick={Capacitor.isNativePlatform() ? openNativeDatePicker : undefined} 
+                                    style={{ background: '#f8fafc', padding: '12px', borderRadius: '10px', border: '2px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', position: 'relative' }}
                                 >
                                     <span style={{ color: form.dueDate ? '#334155' : '#94a3b8', fontSize: '14px' }}>
-                                        {form.dueDate 
-                                            ? new Date(form.dueDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) 
-                                            : 'Select Date'}
+                                        {form.dueDate ? new Date(form.dueDate).toLocaleDateString('en-GB') : 'Select Date'}
                                     </span>
                                     <i className="fas fa-calendar-alt" style={{ color: '#d946ef' }}></i>
-
                                     {/* Web Overlay Input */}
                                     {!Capacitor.isNativePlatform() && (
-                                        <input 
-                                            type="date" 
-                                            required 
-                                            value={form.dueDate} 
-                                            onChange={e => setForm({ ...form, dueDate: e.target.value })}
-                                            style={{
-                                                position: 'absolute',
-                                                top: 0,
-                                                left: 0,
-                                                width: '100%',
-                                                height: '100%',
-                                                opacity: 0,
-                                                cursor: 'pointer',
-                                                zIndex: 10
-                                            }}
-                                        />
+                                        <input type="date" required value={form.dueDate} onChange={e => setForm({ ...form, dueDate: e.target.value })} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer', zIndex: 10 }} />
                                     )}
                                 </div>
                             </div>
 
-                            {/* File Upload */}
                             <div className="file-upload-box">
                                 <input type="file" id="file-upload" onChange={e => setFile(e.target.files[0])} hidden />
                                 <label htmlFor="file-upload">
@@ -282,29 +258,35 @@ export default function AddTasks({ teacherInfo }) {
                                     <span>{file ? file.name : "Attach PDF / IMG"}</span>
                                 </label>
                             </div>
-
-                            <button className="submit-btn" disabled={loading}>
-                                {loading ? 'Publishing...' : 'Publish Task'}
-                            </button>
+                            <button className="submit-btn" disabled={loading}>{loading ? 'Publishing...' : 'Publish Task'}</button>
                         </div>
                     </form>
                 </div>
             )}
 
-            {/* --- EVALUATE MODE --- */}
+            {/* --- EVALUATE MODE (LIST) --- */}
             {activeTab === 'evaluate' && !selectedTask && (
                 <div className="tasks-grid">
                     {tasks.map(task => (
                         <div key={task.id} className="task-card-modern" onClick={() => viewSubmissions(task)}>
                             <div className="card-top">
                                 <span className={`badge ${task.targetYear === 'All' ? 'badge-all' : 'badge-year'}`}>
-                                    {task.targetYear === 'All' ? 'All' : `${task.targetYear} Year`}
+                                    {/* Badge Logic for Div vs All */}
+                                    {task.targetYear === 'All' 
+                                        ? 'All Classes' 
+                                        : task.division && task.division !== 'All' 
+                                            ? `${task.targetYear} - Div ${task.division}` 
+                                            : `${task.targetYear} Year`
+                                    }
                                 </span>
-                                {task.attachmentUrl && <i className="fas fa-paperclip attachment-icon"></i>}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    {task.attachmentUrl && <i className="fas fa-paperclip attachment-icon"></i>}
+                                    <button className="delete-icon-btn" onClick={(e) => promptDelete(e, task.id)} title="Delete">
+                                        <i className="fas fa-trash-alt"></i>
+                                    </button>
+                                </div>
                             </div>
-
                             <h4>{task.title}</h4>
-
                             <div className="card-footer">
                                 <span><i className="far fa-clock"></i> {new Date(task.dueDate).toLocaleDateString()}</span>
                                 <span className="arrow-link">Open &rarr;</span>
@@ -319,58 +301,34 @@ export default function AddTasks({ teacherInfo }) {
             {activeTab === 'evaluate' && selectedTask && (
                 <div className="grading-container">
                     <div className="grading-header">
-                        <button onClick={() => setSelectedTask(null)} className="back-btn">
-                            <i className="fas fa-chevron-left"></i> Back
-                        </button>
+                        <button onClick={() => setSelectedTask(null)} className="back-btn"><i className="fas fa-chevron-left"></i> Back</button>
                         <h3>{selectedTask.title} <span style={{ fontWeight: '400', fontSize: '14px', opacity: 0.7 }}>| Submissions</span></h3>
                     </div>
-
                     <div className="table-responsive">
                         <table className="modern-table">
-                            <thead>
-                                <tr>
-                                    <th>Student</th>
-                                    <th>Roll No</th>
-                                    <th>Work</th>
-                                    <th>Score</th>
-                                    <th>Action</th>
-                                </tr>
-                            </thead>
+                            <thead><tr><th>Student</th><th>Roll No</th><th>Work</th><th>Score</th><th>Action</th></tr></thead>
                             <tbody>
                                 {submissions.map(sub => (
                                     <tr key={sub.id}>
                                         <td className="fw-bold">{sub.studentName}</td>
                                         <td><span className="roll-tag">{sub.rollNo}</span></td>
+                                        <td><a href={sub.documentUrl} target="_blank" rel="noreferrer" className="view-doc-btn"><i className="fas fa-eye"></i> View</a></td>
                                         <td>
-                                            <a href={sub.documentUrl} target="_blank" rel="noreferrer" className="view-doc-btn">
-                                                <i className="fas fa-eye"></i> View
-                                            </a>
+                                            {sub.status === 'Graded' ? <span className={`score ${sub.marks >= 40 ? 'pass' : 'fail'}`}>{sub.marks}/100</span> : 
+                                            gradingId === sub.id ? (
+                                                <div className="grading-inputs">
+                                                    <input type="number" placeholder="00" value={marks} onChange={e => setMarks(e.target.value)} autoFocus />
+                                                    <input type="text" placeholder="Note..." value={feedback} onChange={e => setFeedback(e.target.value)} />
+                                                </div>
+                                            ) : <span className="status-pending">Pending</span>}
                                         </td>
                                         <td>
-                                            {sub.status === 'Graded' ? (
-                                                <span className={`score ${sub.marks >= 40 ? 'pass' : 'fail'}`}>{sub.marks}/100</span>
-                                            ) : (
-                                                gradingId === sub.id ? (
-                                                    <div className="grading-inputs">
-                                                        <input type="number" placeholder="00" value={marks} onChange={e => setMarks(e.target.value)} autoFocus />
-                                                        <input type="text" placeholder="Note..." value={feedback} onChange={e => setFeedback(e.target.value)} />
-                                                    </div>
-                                                ) : <span className="status-pending">Pending</span>
-                                            )}
-                                        </td>
-                                        <td>
-                                            {sub.status !== 'Graded' && (
-                                                gradingId === sub.id ? (
-                                                    <div className="action-row">
-                                                        <button onClick={() => submitGrade(sub.id)} className="btn-save"><i className="fas fa-check"></i></button>
-                                                        <button onClick={() => setGradingId(null)} className="btn-cancel"><i className="fas fa-times"></i></button>
-                                                    </div>
-                                                ) : (
-                                                    <button onClick={() => { setGradingId(sub.id); setMarks(''); setFeedback(''); }} className="btn-grade">
-                                                        Grade
-                                                    </button>
-                                                )
-                                            )}
+                                            {sub.status !== 'Graded' && (gradingId === sub.id ? (
+                                                <div className="action-row">
+                                                    <button onClick={() => submitGrade(sub.id)} className="btn-save"><i className="fas fa-check"></i></button>
+                                                    <button onClick={() => setGradingId(null)} className="btn-cancel"><i className="fas fa-times"></i></button>
+                                                </div>
+                                            ) : <button onClick={() => { setGradingId(sub.id); setMarks(''); setFeedback(''); }} className="btn-grade">Grade</button>)}
                                             {sub.status === 'Graded' && <i className="fas fa-check-circle text-success"></i>}
                                         </td>
                                     </tr>
@@ -382,151 +340,63 @@ export default function AddTasks({ teacherInfo }) {
                 </div>
             )}
 
-            {/* --- RESPONSIVE & THEME CSS --- */}
+            {/* ✅ DELETE MODAL - NOW USING PORTAL TO COVER SIDEBAR */}
+{deleteModal.open && ReactDOM.createPortal(
+    <div className="delete-modal-overlay">
+        <div className="delete-modal-content">
+            <div className="delete-icon-wrapper">
+                <i className="fas fa-exclamation-triangle"></i>
+            </div>
+            <h3>Delete Assignment?</h3>
+            <p>This action cannot be undone. All student submissions for this task will also be deleted.</p>
+            <div className="delete-modal-actions">
+                <button 
+                    className="btn-modal-cancel" 
+                    onClick={() => setDeleteModal({ open: false, taskId: null })}
+                >
+                    Cancel
+                </button>
+                <button 
+                    className="btn-modal-confirm" 
+                    onClick={confirmDelete}
+                >
+                    Yes, Delete
+                </button>
+            </div>
+        </div>
+    </div>,
+    document.body // 👈 This renders it directly on top of the entire page
+)}
+
+            {/* --- CSS STYLES --- */}
             <style>{`
-                /* Container */
-                .task-page-container {
-                    max-width: 1200px;
-                    margin: 0 auto;
-                    padding-bottom: 50px; /* Space for mobile footer */
-                }
-
-                /* Gradient Text */
-                .gradient-text {
-                    background: linear-gradient(135deg, #7c3aed 0%, #db2777 100%);
-                    -webkit-background-clip: text;
-                    -webkit-text-fill-color: transparent;
-                    font-size: 24px;
-                    margin: 0;
-                }
+                .task-page-container { max-width: 1200px; margin: 0 auto; padding-bottom: 50px; }
+                .gradient-text { background: linear-gradient(135deg, #7c3aed 0%, #db2777 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 24px; font-weight: 700; margin: 0; }
                 .subtitle { color: #64748b; font-size: 14px; margin-top: 5px; }
-
-                /* Header Layout */
-                .task-header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    margin-bottom: 25px;
-                }
-
-                /* Toggle Buttons */
-                .toggle-container {
-                    background: white;
-                    padding: 4px;
-                    border-radius: 12px;
-                    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-                    display: flex;
-                    gap: 5px;
-                }
-                .toggle-btn {
-                    padding: 8px 16px;
-                    border: none;
-                    background: transparent;
-                    color: #64748b;
-                    border-radius: 8px;
-                    font-weight: 600;
-                    cursor: pointer;
-                    transition: all 0.3s;
-                    font-size: 13px;
-                }
+                .task-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
+                
+                .toggle-container { background: white; padding: 4px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); display: flex; gap: 5px; }
+                .toggle-btn { padding: 8px 16px; border: none; background: transparent; color: #64748b; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.3s; font-size: 13px; }
                 .active-create { background: #f3e8ff; color: #7c3aed; }
                 .active-eval { background: #fce7f3; color: #db2777; }
 
-                /* Create Card */
-                .create-card {
-                    background: white;
-                    border-radius: 20px;
-                    box-shadow: 0 10px 30px rgba(0,0,0,0.08);
-                    overflow: visible !important; /* ✅ Allow Dropdown Overflow */
-                    border: 1px solid #f1f5f9;
-                }
-                .create-card-header {
-                    background: linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%);
-                    padding: 15px 25px;
-                    color: white;
-                    border-top-left-radius: 20px;
-                    border-top-right-radius: 20px;
-                }
+                .create-card { background: white; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); overflow: visible !important; border: 1px solid #f1f5f9; }
+                .create-card-header { background: linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%); padding: 15px 25px; color: white; border-top-left-radius: 20px; border-top-right-radius: 20px; }
                 .create-card-header h3 { margin: 0; font-size: 16px; font-weight: 600; }
+                .create-form { padding: 25px; display: grid; grid-template-columns: 2fr 1fr; gap: 30px; }
 
-                .create-form {
-                    padding: 25px;
-                    display: grid;
-                    grid-template-columns: 2fr 1fr;
-                    gap: 30px;
-                }
+                .input-group label { display: block; font-size: 12px; font-weight: 700; color: #64748b; margin-bottom: 6px; text-transform: uppercase; }
+                .input-group input, .input-group textarea, .input-group select { width: 100%; padding: 12px; border: 2px solid #f1f5f9; border-radius: 10px; font-size: 14px; background: #f8fafc; color: #334155; }
+                .input-group input:focus, .input-group textarea:focus { border-color: #d946ef; outline: none; background: white; }
 
-                /* Form Elements */
-                .input-group label {
-                    display: block;
-                    font-size: 12px;
-                    font-weight: 700;
-                    color: #64748b;
-                    margin-bottom: 6px;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                }
-                .input-group input, .input-group textarea, .input-group select {
-                    width: 100%;
-                    padding: 12px;
-                    border: 2px solid #f1f5f9;
-                    border-radius: 10px;
-                    font-size: 14px;
-                    transition: border 0.2s;
-                    background: #f8fafc;
-                    color: #334155;
-                }
-                .input-group input:focus, .input-group textarea:focus {
-                    border-color: #d946ef;
-                    outline: none;
-                    background: white;
-                }
-
-                /* File Upload */
-                .file-upload-box label {
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    justify-content: center;
-                    padding: 20px;
-                    border: 2px dashed #cbd5e1;
-                    border-radius: 12px;
-                    cursor: pointer;
-                    color: #64748b;
-                    transition: all 0.2s;
-                }
+                .file-upload-box label { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; border: 2px dashed #cbd5e1; border-radius: 12px; cursor: pointer; color: #64748b; transition: all 0.2s; }
                 .file-upload-box label:hover { background: #fdf4ff; border-color: #d946ef; }
                 .file-upload-box i { font-size: 24px; margin-bottom: 8px; color: #d946ef; }
 
-                /* Submit Button */
-                .submit-btn {
-                    width: 100%;
-                    padding: 14px;
-                    background: linear-gradient(90deg, #7c3aed, #db2777);
-                    color: white;
-                    border: none;
-                    border-radius: 10px;
-                    font-weight: 600;
-                    margin-top: 15px;
-                    cursor: pointer;
-                    box-shadow: 0 4px 15px rgba(219, 39, 119, 0.3);
-                }
+                .submit-btn { width: 100%; padding: 14px; background: linear-gradient(90deg, #7c3aed, #db2777); color: white; border: none; border-radius: 10px; font-weight: 600; margin-top: 15px; cursor: pointer; box-shadow: 0 4px 15px rgba(219, 39, 119, 0.3); }
 
-                /* Task Grid */
-                .tasks-grid {
-                    display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-                    gap: 20px;
-                }
-                .task-card-modern {
-                    background: white;
-                    border-radius: 16px;
-                    padding: 20px;
-                    border: 1px solid #f1f5f9;
-                    box-shadow: 0 4px 6px rgba(0,0,0,0.02);
-                    cursor: pointer;
-                    transition: transform 0.2s;
-                }
+                .tasks-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+                .task-card-modern { background: white; border-radius: 16px; padding: 20px; border: 1px solid #f1f5f9; box-shadow: 0 4px 6px rgba(0,0,0,0.02); cursor: pointer; transition: transform 0.2s; }
                 .task-card-modern:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.08); }
                 .card-top { display: flex; justify-content: space-between; margin-bottom: 12px; }
                 .badge { font-size: 10px; padding: 4px 10px; border-radius: 20px; font-weight: 700; text-transform: uppercase; }
@@ -537,7 +407,39 @@ export default function AddTasks({ teacherInfo }) {
                 .card-footer { border-top: 1px solid #f8fafc; padding-top: 15px; display: flex; justify-content: space-between; font-size: 12px; color: #94a3b8; }
                 .arrow-link { color: #d946ef; font-weight: 600; }
 
-                /* Table Styling */
+                /* DELETE ICON BTN */
+                .delete-icon-btn { background: #fee2e2; border: none; color: #ef4444; width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; font-size: 12px; }
+                .delete-icon-btn:hover { background: #ef4444; color: white; transform: scale(1.1); }
+
+                /* DELETE MODAL */
+                /* ✅ REPLACE THIS CSS CLASS IN AddTasks.js */
+.delete-modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    z-index: 2147483647; /* 🔥 Max Safe Integer Z-Index to beat Sidebar */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.2s ease-out;
+}
+                .delete-modal-content { background: white; padding: 30px; border-radius: 24px; width: 90%; max-width: 400px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.2); animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); border: 1px solid #f1f5f9; }
+                .delete-icon-wrapper { width: 60px; height: 60px; background: #fef2f2; color: #ef4444; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; margin: 0 auto 20px auto; box-shadow: 0 0 0 8px #fff1f2; }
+                .delete-modal-content h3 { margin: 0 0 10px 0; color: #1e293b; font-size: 20px; font-weight: 700; }
+                .delete-modal-content p { margin: 0 0 25px 0; color: #64748b; font-size: 14px; line-height: 1.5; }
+                .delete-modal-actions { display: flex; gap: 12px; }
+                .btn-modal-cancel { flex: 1; padding: 12px; border: 1px solid #e2e8f0; background: white; color: #64748b; border-radius: 12px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+                .btn-modal-cancel:hover { background: #f8fafc; color: #1e293b; }
+                .btn-modal-confirm { flex: 1; padding: 12px; border: none; background: #ef4444; color: white; border-radius: 12px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3); transition: all 0.2s; }
+                .btn-modal-confirm:hover { background: #dc2626; transform: translateY(-1px); }
+
+                @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+                @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
                 .grading-container { background: white; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); overflow: hidden; }
                 .grading-header { padding: 15px 20px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 15px; }
                 .back-btn { border: 1px solid #e2e8f0; background: white; padding: 5px 12px; border-radius: 8px; cursor: pointer; color: #64748b; }
@@ -550,29 +452,18 @@ export default function AddTasks({ teacherInfo }) {
                 .score { font-weight: 800; font-size: 15px; }
                 .pass { color: #10b981; } .fail { color: #ef4444; }
                 .btn-grade { background: #fdf4ff; color: #d946ef; border: 1px solid #d946ef; padding: 5px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; font-weight: 600; }
-
-                /* Grading Inputs */
                 .grading-inputs { display: flex; gap: 5px; }
                 .grading-inputs input { border: 1px solid #cbd5e1; padding: 5px; border-radius: 6px; font-size: 13px; }
                 .action-row { display: flex; gap: 5px; }
                 .btn-save { background: #10b981; color: white; border: none; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; }
                 .btn-cancel { background: #ef4444; color: white; border: none; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; }
 
-                /* --- MOBILE RESPONSIVE --- */
                 @media (max-width: 768px) {
                     .task-header { flex-direction: column; align-items: flex-start; gap: 15px; }
                     .toggle-container { width: 100%; justify-content: space-between; }
                     .toggle-btn { flex: 1; text-align: center; }
-                    
-                    /* Stack form vertically */
                     .create-form { grid-template-columns: 1fr; gap: 20px; padding: 20px; }
-                    
-                    /* Adjust cards for mobile */
                     .tasks-grid { grid-template-columns: 1fr; }
-                    
-                    /* Table adjustments */
-                    .modern-table th, .modern-table td { padding: 12px 15px; }
-                    .grading-header h3 { font-size: 14px; }
                 }
             `}</style>
         </div>

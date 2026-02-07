@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import ReactDOM from 'react-dom'; 
+import ReactDOM from 'react-dom';
 import toast from 'react-hot-toast';
-import { motion, AnimatePresence } from 'framer-motion'; 
+import { motion, AnimatePresence } from 'framer-motion';
 import { db, auth } from '../firebase';
 import { collection, query, where, onSnapshot, doc, updateDoc, increment } from 'firebase/firestore';
 import './Dashboard.css';
@@ -24,19 +24,19 @@ const ALL_ACTIVITIES = [
 ];
 
 export default function FreePeriodTasks({ user, isFreePeriod }) {
-    const [activeTab, setActiveTab] = useState('assignments'); 
-    
+    const [activeTab, setActiveTab] = useState('assignments');
+
     // Data States
     const [assignments, setAssignments] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [submissions, setSubmissions] = useState({}); 
+    const [submissions, setSubmissions] = useState({});
     const [recommendedTasks, setRecommendedTasks] = useState([]);
-    
+
     // Interactive States
     const [submitModal, setSubmitModal] = useState({ open: false, taskId: null });
     const [file, setFile] = useState(null);
     const [uploading, setUploading] = useState(false);
-    
+
     // Modals
     const [isResumeModalOpen, setIsResumeModalOpen] = useState(false);
     const [showCodingModal, setShowCodingModal] = useState(false);
@@ -62,10 +62,14 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
     useEffect(() => {
         const fetchAssignments = async () => {
             if (!user) return;
-            
-            const cacheKey = `assignments_${user.department || 'gen'}_${user.year || 'all'}`;
+
+            // ✅ 1. Get User Division (Handle both 'div' and 'division' fields)
+            const userDiv = user.division || user.div || 'All';
+
+            // ✅ 2. Update Cache Key to include Division (So Div A doesn't see Div B's cache)
+            const cacheKey = `assignments_${user.department || 'gen'}_${user.year || 'all'}_${userDiv}`;
             const cachedData = localStorage.getItem(cacheKey);
-            
+
             if (cachedData) {
                 setAssignments(JSON.parse(cachedData));
                 setLoading(false);
@@ -77,24 +81,39 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
                 const res = await fetch(`${BACKEND_URL}/getAssignments`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ department: user.department, year: user.year || 'All' })
+                    body: JSON.stringify({
+                        department: user.department,
+                        year: user.year || 'All',
+                        division: userDiv // ✅ 3. Send Division to Backend
+                    })
                 });
-                
+
                 if (res.ok) {
                     const data = await res.json();
-                    if (data.tasks && JSON.stringify(data.tasks) !== cachedData) {
-                        setAssignments(data.tasks);
-                        localStorage.setItem(cacheKey, JSON.stringify(data.tasks));
+
+                    // ✅ 4. CLIENT-SIDE FILTERING (Double Safety)
+                    // Ensures that even if the backend returns mixed data, we filter it here.
+                    const filteredTasks = (data.tasks || []).filter(task => {
+                        // If task has no division or is 'All', everyone sees it
+                        if (!task.division || task.division === 'All') return true;
+
+                        // If specific division, it must match the user's division
+                        return task.division === userDiv;
+                    });
+
+                    if (JSON.stringify(filteredTasks) !== cachedData) {
+                        setAssignments(filteredTasks);
+                        localStorage.setItem(cacheKey, JSON.stringify(filteredTasks));
                     }
                 }
-            } catch (err) { 
+            } catch (err) {
                 console.error("Background sync failed:", err);
             } finally {
                 setLoading(false);
             }
         };
         fetchAssignments();
-    }, [user?.department, user?.year]);
+    }, [user?.department, user?.year, user?.division, user?.div]); // ✅ Added Division dependencies
 
     useEffect(() => {
         if (!auth.currentUser) return;
@@ -138,12 +157,12 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
     const handleSubmitFile = async () => {
         if (!file || !submitModal.taskId) return toast.error("Please select a file.");
         setUploading(true);
-        const toastId = 'upload-toast'; 
+        const toastId = 'upload-toast';
         toast.loading("Uploading...", { id: toastId });
 
         try {
             const formData = new FormData();
-            formData.append('document', file); 
+            formData.append('document', file);
             formData.append('assignmentId', submitModal.taskId);
             formData.append('studentId', user.uid);
             formData.append('studentName', `${user.firstName} ${user.lastName}`);
@@ -155,10 +174,10 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
             toast.success("Submitted!", { id: toastId });
             setSubmissions(prev => ({
                 ...prev,
-                [submitModal.taskId]: { status: 'Pending', submittedAt: new Date(), documentUrl: URL.createObjectURL(file) } 
+                [submitModal.taskId]: { status: 'Pending', submittedAt: new Date(), documentUrl: URL.createObjectURL(file) }
             }));
             setSubmitModal({ open: false, taskId: null }); setFile(null);
-        } catch (error) { toast.error("Error submitting", { id: toastId }); } 
+        } catch (error) { toast.error("Error submitting", { id: toastId }); }
         finally { setUploading(false); }
     };
 
@@ -175,17 +194,17 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
                     <div className="fp-cgpa-badge">📈 +{cgpaBoost} Projected CGPA</div>
                 </div>
             </div>
-            
+
             {/* Navigation Tabs */}
             <div className="fp-nav-tabs">
-                <button 
-                    className={`fp-tab ${activeTab === 'assignments' ? 'active' : ''}`} 
+                <button
+                    className={`fp-tab ${activeTab === 'assignments' ? 'active' : ''}`}
                     onClick={() => setActiveTab('assignments')}
                 >
                     <i className="fas fa-book-open"></i> Assignments
                 </button>
-                <button 
-                    className={`fp-tab ${activeTab === 'gamified' ? 'active' : ''}`} 
+                <button
+                    className={`fp-tab ${activeTab === 'gamified' ? 'active' : ''}`}
                     onClick={() => setActiveTab('gamified')}
                 >
                     <i className="fas fa-rocket"></i> Quick Picks
@@ -198,13 +217,15 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
                 // ✅ NO MOTION - Pure Divs for Speed
                 <div className="fp-grid">
                     {loading ? (
-                        <div className="fp-full-width" style={{textAlign:'center', padding:'40px', color:'#94a3b8'}}>
-                            <i className="fas fa-circle-notch fa-spin" style={{fontSize:'30px', marginBottom:'10px'}}></i>
+                        <div className="fp-full-width" style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                            <i className="fas fa-circle-notch fa-spin" style={{ fontSize: '30px', marginBottom: '10px' }}></i>
                             <p>Loading...</p>
                         </div>
                     ) : assignments.length > 0 ? (
                         assignments.map((task) => {
                             const sub = submissions[task.id];
+                            /* ✅ REPLACE THE RETURN STATEMENT INSIDE assignments.map(...) */
+                            /* ✅ REPLACE THE RETURN STATEMENT INSIDE assignments.map(...) */
                             return (
                                 <div key={task.id} className="fp-card">
                                     <div className="fp-card-top">
@@ -213,20 +234,59 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
                                             {sub?.status || 'Pending'}
                                         </span>
                                     </div>
+
+                                    {/* Teacher Badge */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px', marginTop: '5px', fontSize: '11px', color: '#475569', background: '#f1f5f9', width: 'fit-content', padding: '4px 8px', borderRadius: '6px', fontWeight: '600' }}>
+                                        <i className="fas fa-chalkboard-teacher" style={{ color: '#3b82f6' }}></i>
+                                        {task.teacherName || "Instructor"}
+                                    </div>
+
                                     <h3 className="fp-card-heading">{task.title}</h3>
                                     <div className="fp-date"><i className="far fa-calendar"></i> {new Date(task.dueDate).toLocaleDateString()}</div>
                                     <p className="fp-desc">{task.description}</p>
-                                    
-                                    <div className="fp-action-row">
+
+                                    {/* 🔥 FIX: MOBILE RESPONSIVE ACTION ROW */}
+                                    <div className="fp-action-row"
+                                        style={{
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            marginTop: '20px',
+                                            borderTop: '1px solid #f1f5f9',
+                                            paddingTop: '15px',
+                                            flexWrap: 'wrap',  /* ✅ Allows wrapping on small screens */
+                                            gap: '10px'        /* ✅ Adds spacing when wrapped */
+                                        }}>
+
+                                        {/* Left Side: Attachment */}
+                                        {task.attachmentUrl ? (
+                                            <a href={task.attachmentUrl} target="_blank" rel="noreferrer"
+                                                style={{
+                                                    textDecoration: 'none', color: '#334155', fontSize: '13px',
+                                                    fontWeight: '600', display: 'flex', alignItems: 'center',
+                                                    gap: '8px', padding: '8px 14px', background: '#f8fafc',
+                                                    borderRadius: '8px', border: '1px solid #e2e8f0', transition: '0.2s',
+                                                    flex: '1 1 auto', /* ✅ Allows it to grow/shrink */
+                                                    minWidth: '120px', /* ✅ Prevents it from getting too small */
+                                                    justifyContent: 'center' /* ✅ Centers text on mobile */
+                                                }}>
+                                                <i className="fas fa-paperclip" style={{ color: '#6366f1' }}></i> View File
+                                            </a>
+                                        ) : <div style={{ flex: '1 1 auto' }}></div> /* Spacer */}
+
+                                        {/* Right Side: Action Button */}
                                         {sub ? (
-                                            <div className={`fp-result-box ${sub.status === 'Graded' ? 'graded' : 'submitted'}`}>
-                                                {sub.status === 'Graded' ? 
-                                                    <><i className="fas fa-star"></i> {sub.marks}/100</> : 
+                                            <div className={`fp-result-box ${sub.status === 'Graded' ? 'graded' : 'submitted'}`}
+                                                style={{ flex: '1 1 auto', minWidth: '120px', textAlign: 'center', justifyContent: 'center', display: 'flex' }}>
+                                                {sub.status === 'Graded' ?
+                                                    <><i className="fas fa-star"></i> {sub.marks}/100</> :
                                                     <><i className="fas fa-check-circle"></i> Submitted</>
                                                 }
                                             </div>
                                         ) : (
-                                            <button className="fp-btn-primary" onClick={() => setSubmitModal({ open: true, taskId: task.id })}>
+                                            <button className="fp-btn-primary"
+                                                onClick={() => setSubmitModal({ open: true, taskId: task.id })}
+                                                style={{ flex: '1 1 auto', minWidth: '120px' }}> {/* ✅ Buttons expand on mobile */}
                                                 Upload Work
                                             </button>
                                         )}
@@ -239,32 +299,33 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
                     )}
                 </div>
             ) : (
+
                 // ✅ QUICK PICKS - Keeps Motion
                 <div className="fp-full-width">
-                     <motion.div 
+                    <motion.div
                         className="fp-grid"
                         variants={containerVariants}
                         initial="hidden"
                         animate="show"
-                     >
+                    >
                         {recommendedTasks.map((task) => (
-                            <motion.div 
-                                key={task.id} 
-                                variants={cardVariants} 
-                                whileHover={{ y: -5 }} 
+                            <motion.div
+                                key={task.id}
+                                variants={cardVariants}
+                                whileHover={{ y: -5 }}
                                 whileTap={{ scale: 0.98 }}
-                                onClick={() => startTask(task)} 
+                                onClick={() => startTask(task)}
                                 className="fp-card clickable"
                             >
                                 <div className="fp-card-top">
-                                    <div className="fp-icon-square" style={{background: `${task.color}15`, color: task.color}}>
+                                    <div className="fp-icon-square" style={{ background: `${task.color}15`, color: task.color }}>
                                         <i className={`fas ${task.icon}`}></i>
                                     </div>
                                     <span className="fp-xp-pill">+{task.xp} XP</span>
                                 </div>
                                 <h3 className="fp-card-heading">{task.title}</h3>
                                 <div className="fp-tags">
-                                    {task.tags.slice(0,2).map(t => <span key={t}>#{t}</span>)}
+                                    {task.tags.slice(0, 2).map(t => <span key={t}>#{t}</span>)}
                                 </div>
                                 <button className="fp-btn-outline">Start</button>
                             </motion.div>

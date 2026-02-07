@@ -600,17 +600,14 @@ export default function HODDashboard() {
         } catch (e) { toast.error("Error rejecting", { id: toastId }); }
     };
 
-  // --- ✅ ADD TEACHER (With Toasts & Backend Creation) ---
+// --- ✅ ADD TEACHER (With Toasts & Backend Creation) ---
     const handleAddTeacher = async (e) => {
         e.preventDefault();
         
-        // 1. Show "Loading" Toast immediately
         const toastId = toast.loading("Creating Teacher Account...");
         setLoading(true);
 
         try {
-            // 2. Create User via Backend API 
-            // (Using backend prevents the HOD from being auto-logged out)
             const response = await fetch(`${BACKEND_URL}/createUser`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -623,9 +620,14 @@ export default function HODDashboard() {
                     instituteId: hodInfo.instituteId,
                     instituteName: hodInfo.instituteName || 'AcadeX Institute',
                     department: hodInfo.department,
-                    academicYear: teacherForm.academicYear,
+                    
+                    // ✅ FIXED: Send in Root
+                    academicYear: teacherForm.academicYear, 
                     assignedClasses: teacherForm.assignedClasses,
+                    
+                    // ✅ FIXED: Also send in extras (Safety Net)
                     extras: { 
+                        academicYear: teacherForm.academicYear,
                         createdAt: new Date().toISOString() 
                     }
                 })
@@ -640,7 +642,7 @@ export default function HODDashboard() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     email: teacherForm.email,
-                    password: teacherForm.password, // Send raw password so teacher knows it
+                    password: teacherForm.password, 
                     firstName: teacherForm.firstName,
                     department: hodInfo.department,
                     assignedClasses: teacherForm.assignedClasses,
@@ -648,10 +650,8 @@ export default function HODDashboard() {
                 })
             });
 
-            // 4. Update Toast to Success
             toast.success("Teacher Added & Email Sent!", { id: toastId });
             
-            // 5. Clear Form
             setTeacherForm({
                 firstName: '', lastName: '', email: '', password: '',
                 academicYear: '2025-2026', assignedClasses: []
@@ -659,7 +659,6 @@ export default function HODDashboard() {
 
         } catch (error) {
             console.error("Error adding teacher:", error);
-            // 6. Update Toast to Error if something fails
             toast.error(error.message || "Failed to add teacher.", { id: toastId });
         } finally {
             setLoading(false);

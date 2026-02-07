@@ -199,7 +199,7 @@ const LeaveRequestForm = ({ user }) => {
     );
 };
 
-// --- COMPONENT: Notices View (Updated with File Support) ---
+// --- COMPONENT: Notices View (Updated with Division Badge) ---
 const NoticesView = ({ notices }) => {
     return (
         <div className="content-section">
@@ -217,24 +217,10 @@ const NoticesView = ({ notices }) => {
                                     <span className="notice-time">{getRelativeTime(n.createdAt)}</span>
                                 </div>
                                 <p className="notice-body">{n.message}</p>
+                                
+                                {/* Attachment Button */}
                                 {n.attachmentUrl && (
                                     <div style={{ marginBottom: '12px', marginTop: '10px' }}>
-                                        <a href={n.attachmentUrl} target="_blank" rel="noreferrer"
-                                            style={{
-                                                display: 'inline-flex', alignItems: 'center', gap: '8px',
-                                                padding: '8px 12px', background: '#eff6ff',
-                                                color: '#2563eb', borderRadius: '8px',
-                                                textDecoration: 'none', fontSize: '13px', fontWeight: '600',
-                                                border: '1px solid #bfdbfe'
-                                            }}>
-                                            <i className="fas fa-paperclip"></i> View Attachment
-                                        </a>
-                                    </div>
-                                )}
-
-                                {/* ✅ ADDED: Attachment Button */}
-                                {n.attachmentUrl && (
-                                    <div style={{ marginBottom: '12px' }}>
                                         <a href={n.attachmentUrl} target="_blank" rel="noreferrer"
                                             style={{
                                                 display: 'inline-flex', alignItems: 'center', gap: '8px',
@@ -259,6 +245,13 @@ const NoticesView = ({ notices }) => {
                                 <div className="notice-footer">
                                     <span className="notice-dept-badge">{n.department || 'General'}</span>
                                     {n.targetYear !== 'All' && <span className="notice-year-badge">{n.targetYear}</span>}
+                                    
+                                    {/* ✅ ADDED: Show Division Badge (e.g. "Div A") */}
+                                    {n.division && n.division !== 'All' && (
+                                        <span className="notice-year-badge" style={{ background: '#dbeafe', color: '#1e40af', marginLeft: '6px' }}>
+                                            Div {n.division}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -842,7 +835,7 @@ export default function StudentDashboard() {
 
         return () => unsub();
     }, [user]);
-    
+
     // src/pages/StudentDashboard.js
 
     // 3. GLOBAL SCHEDULE LOGIC (Fixed to match HOD's new format)
@@ -913,37 +906,54 @@ export default function StudentDashboard() {
         return () => clearInterval(interval);
     }, [user, isFreePeriod]);
 
-    // 4. Notice Fetching Logic
+   // 4. Notice Fetching Logic (✅ UPDATED: With Division Filter)
     useEffect(() => {
         if (!user?.instituteId) return;
+        
+        // Listen to announcements for this institute
         const q = query(collection(db, 'announcements'), where('instituteId', '==', user.instituteId));
+        
         let isInitialMount = true;
+        
         const unsub = onSnapshot(q, (snapshot) => {
             const all = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            
+            // ✅ CLIENT-SIDE FILTERING (Dept + Year + Division)
             const relevant = all.filter(n => {
+                // 1. Department Check
                 const isDeptMatch = n.department === user.department || n.department === 'General';
+                
+                // 2. Year Check
                 const isYearMatch = n.targetYear === 'All' || n.targetYear === user.year;
-                return isDeptMatch && isYearMatch;
+                
+                // 3. ✅ Division Check (CRITICAL FIX)
+                let isDivMatch = true;
+                if (n.division && n.division !== 'All') {
+                    // Check both 'division' and 'div' fields on the user profile
+                    const myDiv = user.division || user.div; 
+                    
+                    // If announcement has a specific division, student must match it
+                    if (!myDiv || myDiv !== n.division) {
+                        isDivMatch = false;
+                    }
+                }
+
+                return isDeptMatch && isYearMatch && isDivMatch;
             });
+
+            // Sort: Newest First
             relevant.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
             setNotices(relevant);
+
+            // Toast for new items
             if (isInitialMount) {
                 const unread = Math.max(0, relevant.length - readCount);
                 if (unread > 0) toast(`You have ${unread} unread notices!`, { icon: '📬', duration: 4000 });
                 isInitialMount = false;
-            } else {
-                snapshot.docChanges().forEach((change) => {
-                    if (change.type === 'added') {
-                        const n = change.doc.data();
-                        const isDeptMatch = n.department === user.department || n.department === 'General';
-                        const isYearMatch = n.targetYear === 'All' || n.targetYear === user.year;
-                        if (isDeptMatch && isYearMatch) toast(`📢 New: ${n.title}`, { icon: '🔔', duration: 5000 });
-                    }
-                });
             }
         });
         return () => unsub();
-    }, [user?.instituteId, user?.department, user?.year, readCount]);
+    }, [user?.instituteId, user?.department, user?.year, user?.division, readCount]);
 
     useEffect(() => {
         if (activePage === 'notices' && notices.length > readCount) {
