@@ -25,12 +25,19 @@ export default function AddTasks({ teacherInfo }) {
     const [marks, setMarks] = useState('');
     const [feedback, setFeedback] = useState('');
 
+    // ✅ UPDATED: Generate Options with Division Logic (Value = "Year|Div")
     const assignedTargets = teacherInfo?.assignedClasses
-        ? [...new Set(teacherInfo.assignedClasses.flatMap(c => 
-            c.year === 'FE' && c.divisions 
-                ? c.divisions.split(',').map(d => `FE - Div ${d.trim()}`) 
-                : [c.year]
-          ))].map(t => ({ value: t, label: t }))
+        ? [...new Set(teacherInfo.assignedClasses.flatMap(c => {
+            if (c.year === 'FE' && c.divisions) {
+                // Split FE into divisions: "FE|A", "FE|B"
+                return c.divisions.split(',').map(d => ({
+                    label: `FE - Div ${d.trim()}`,
+                    value: `FE|${d.trim()}`
+                }));
+            }
+            // Standard Years: "SE|All", "TE|All"
+            return [{ label: `${c.year} Year`, value: `${c.year}|All` }];
+        }))]
         : [];
 
     useEffect(() => {
@@ -76,6 +83,11 @@ export default function AddTasks({ teacherInfo }) {
         const toastId = toast.loading("Publishing Task...");
         
         try {
+            // ✅ UPDATED: Parse "Year|Div" into separate variables
+            // If the value doesn't have a pipe (fallback safety), treat it as "Year|All"
+            const rawTarget = form.targetYear.includes('|') ? form.targetYear : `${form.targetYear}|All`;
+            const [targetYear, targetDivision] = rawTarget.split('|');
+
             let attachmentUrl = "";
             if (file) {
                 const fileRef = ref(storage, `assignments/${auth.currentUser.uid}/${Date.now()}_${file.name}`);
@@ -83,12 +95,14 @@ export default function AddTasks({ teacherInfo }) {
                 attachmentUrl = await getDownloadURL(fileRef);
             }
 
-            // 1. Save Assignment
+            // 1. Save Assignment (Now sending 'division')
             await fetch(`${BACKEND_URL}/createAssignment`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     ...form,
+                    targetYear: targetYear,   // ✅ Send Clean Year (e.g. "FE")
+                    division: targetDivision, // ✅ Send Clean Division (e.g. "A")
                     attachmentUrl,
                     teacherId: auth.currentUser.uid,
                     teacherName: `${teacherInfo.firstName} ${teacherInfo.lastName}`,
@@ -105,7 +119,8 @@ export default function AddTasks({ teacherInfo }) {
                 body: JSON.stringify({
                     title: `📝 New Assignment: ${form.title}`,
                     message: `Due Date: ${new Date(form.dueDate).toLocaleDateString()}. Check app for details.`,
-                    targetYear: form.targetYear,
+                    targetYear: targetYear,        // ✅ Use cleaned year
+                    division: targetDivision,      // ✅ Use cleaned division
                     instituteId: teacherInfo.instituteId,
                     department: teacherInfo.department,
                     senderName: `${teacherInfo.firstName} ${teacherInfo.lastName}`

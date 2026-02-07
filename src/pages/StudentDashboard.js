@@ -782,8 +782,7 @@ export default function StudentDashboard() {
         return () => authUnsub();
     }, []);
 
-    // ✅ 2. Listen for Active Session (Filtered by Year) - GLOBAL LISTENER
-    // ✅ 2. Listen for Active Session (Filtered by Year AND Roll No Range)
+   // ✅ 2. Listen for Active Session (Filtered by Year AND Division)
     useEffect(() => {
         if (!auth.currentUser || !user) return;
 
@@ -804,9 +803,21 @@ export default function StudentDashboard() {
                     const isYearMatch = data.targetYear === 'All' || data.targetYear === user.year;
                     if (!isYearMatch) return false;
 
-                    // 2. Check Roll Number Range (For Practical Labs)
+                    // ✅ 2. NEW: Check Division Match
+                    // If the session has a specific division (e.g. "A"), the student MUST match it.
+                    if (data.division) {
+                        // Support both 'division' and 'div' field names for students
+                        const myDiv = user.division || user.div; 
+                        
+                        // If student has no division or it doesn't match the session's division -> Hide it
+                        if (!myDiv || data.division !== myDiv) {
+                            return false; 
+                        }
+                    }
+
+                    // 3. Check Roll Number Range (For Practical Labs)
                     if (data.type === 'practical' && data.rollRange) {
-                        const myRoll = parseInt(user.rollNo); // Convert student roll to number
+                        const myRoll = parseInt(user.rollNo); 
                         const min = parseInt(data.rollRange.start);
                         const max = parseInt(data.rollRange.end);
 
@@ -831,7 +842,7 @@ export default function StudentDashboard() {
 
         return () => unsub();
     }, [user]);
-
+    
     // src/pages/StudentDashboard.js
 
     // 3. GLOBAL SCHEDULE LOGIC (Fixed to match HOD's new format)

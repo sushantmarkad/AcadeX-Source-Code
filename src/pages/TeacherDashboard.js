@@ -659,7 +659,7 @@ const DashboardHome = ({
         return parseInt(a.rollNo) - parseInt(b.rollNo);
     });
 
-    // --- ACTIONS ---
+  // --- ACTIONS ---
     const handleInverseAttendance = async () => {
         const absentees = absentList.split(',').map(s => s.trim()).filter(s => s !== "");
         if (absentees.length === 0 && !window.confirm("Mark EVERYONE as present?")) return;
@@ -674,6 +674,8 @@ const DashboardHome = ({
                     sessionId: activeSession.sessionId,
                     absentees: absentees,
                     year: selectedYear,
+                    // ✅ UPDATED: Send division if year is FE
+                    division: selectedYear === 'FE' ? selectedDiv : null,
                     department: teacherInfo.department,
                     instituteId: teacherInfo.instituteId,
                     subject: currentSubject,
@@ -705,6 +707,8 @@ const DashboardHome = ({
                     rollNo: manualRoll.toString().trim(),
                     department: teacherInfo.department,
                     year: selectedYear,
+                    // ✅ UPDATED: Send division if year is FE
+                    division: selectedYear === 'FE' ? selectedDiv : null,
                     instituteId: teacherInfo.instituteId,
                     sessionId: activeSession.sessionId,
                     subject: currentSubject,

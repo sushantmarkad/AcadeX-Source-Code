@@ -135,7 +135,7 @@ export default function HODDashboard() {
     const navigate = useNavigate();
     const [analyticsDivision, setAnalyticsDivision] = useState('All');
     const DIVISIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'];
-    const isFE = hodInfo?.department === 'FE';
+    const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year';
 
     useEffect(() => {
         const init = async () => {

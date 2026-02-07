@@ -353,10 +353,19 @@ export default function Profile({ user }) {
                     <div className="prof-info">
                         <h2 className="prof-name">{profileData.firstName} {profileData.lastName}</h2>
                         <div className="prof-badges">
-                            <span className="prof-badge-glass">{profileData.role?.toUpperCase()}</span>
-                            <span className="prof-badge-glass">{profileData.department}</span>
-                            {profileData.year && <span className="prof-badge-glass">{profileData.year} Year</span>}
-                        </div>
+                        <span className="prof-badge-glass">{profileData.role?.toUpperCase()}</span>
+                        <span className="prof-badge-glass">{profileData.department}</span>
+                        
+                        {/* ✅ FIX: Hide "Year" badge if it matches Department (Prevents "FE FE Year") */}
+                        {profileData.year && profileData.year !== profileData.department && (
+                            <span className="prof-badge-glass">{profileData.year} Year</span>
+                        )}
+                        
+                        {/* ✅ Show Division Badge (Supports both 'div' and 'division' fields) */}
+                        {(profileData.division || profileData.div) && (
+                            <span className="prof-badge-glass">Div {profileData.division || profileData.div}</span>
+                        )}
+                    </div>
                     </div>
 
                     {/* ✅ FIXED BUTTON GROUP */}
@@ -433,8 +442,16 @@ export default function Profile({ user }) {
                                 <ProfInput label="Phone Number" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} disabled={!isEditing} />
                                 <ProfInput label="Email Address" value={profileData.email} disabled={true} lockIcon={true} />
                                 <ProfInput label="Department" value={profileData.department} disabled={true} lockIcon={true} />
+                                
                                 {user.role === 'student' && (
-                                    <ProfInput label="Academic Year" value={profileData.year || "N/A"} disabled={true} lockIcon={true} />
+                                    <>
+                                        <ProfInput label="Academic Year" value={profileData.year || "N/A"} disabled={true} lockIcon={true} />
+                                        
+                                        {/* ✅ Show Division ONLY for FE Students */}
+                                        {profileData.year === 'FE' && (
+                                            <ProfInput label="Division" value={profileData.div || "N/A"} disabled={true} lockIcon={true} />
+                                        )}
+                                    </>
                                 )}
                             </div>
                         </div>
