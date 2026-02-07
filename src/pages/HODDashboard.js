@@ -31,14 +31,14 @@ const CustomMobileSelect = ({ label, value, onChange, options, icon }) => {
             <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 {label}
             </label>
-            
-            <div 
+
+            <div
                 onClick={() => setIsOpen(!isOpen)}
                 style={{
                     padding: '14px 16px', borderRadius: '12px', background: '#f8fafc',
-                    border: isOpen ? '2px solid #3b82f6' : '2px solid #e2e8f0', 
-                    color: '#1e293b', fontWeight: '700', cursor: 'pointer', 
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
+                    border: isOpen ? '2px solid #3b82f6' : '2px solid #e2e8f0',
+                    color: '#1e293b', fontWeight: '700', cursor: 'pointer',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     transition: 'all 0.2s ease', width: '100%' // ✅ Force full width
                 }}
             >
@@ -60,7 +60,7 @@ const CustomMobileSelect = ({ label, value, onChange, options, icon }) => {
                         zIndex: 100, maxHeight: '250px', overflowY: 'auto'
                     }}>
                         {options.map((opt) => (
-                            <div 
+                            <div
                                 key={opt.value}
                                 onClick={() => { onChange(opt.value); setIsOpen(false); }}
                                 style={{
@@ -116,9 +116,9 @@ export default function HODDashboard() {
     const [activeTab, setActiveTab] = useState('dashboard');
     const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
-    // ✅ Teacher Form (Includes Academic Year)
+    // ✅ Teacher Form (Includes Phone)
     const [teacherForm, setTeacherForm] = useState({
-        firstName: '', lastName: '', email: '', password: '',
+        firstName: '', lastName: '', email: '', password: '', phone: '', // Added phone
         academicYear: '2024-2025',
         assignedClasses: []
     });
@@ -427,7 +427,7 @@ export default function HODDashboard() {
         }
     };
 
-    const handlePostAnnouncement = async (e) => {
+   const handlePostAnnouncement = async (e) => {
         e.preventDefault();
         const toastId = toast.loading("Posting...");
         try {
@@ -439,36 +439,58 @@ export default function HODDashboard() {
                 attachmentUrl = await getDownloadURL(fileRef);
             }
 
-            // 2. Save Announcement
+            // --- ✅ LOGIC FIX START ---
+            let finalTargetYear = announcementForm.targetYear;
+            let finalDivision = 'All';
+
+            // 1. Parse Division (e.g. "Division A" -> Year: "FE", Div: "A")
+            if (announcementForm.targetYear.startsWith('Division ')) {
+                finalTargetYear = 'FE'; 
+                finalDivision = announcementForm.targetYear.split(' ')[1];
+            }
+
+            // 2. Normalize Department (Force "First Year" -> "FE")
+            let finalDepartment = hodInfo.department;
+            if (finalDepartment === 'First Year' || finalDepartment === 'FirstYear') {
+                finalDepartment = 'FE';
+            }
+            // --- ✅ LOGIC FIX END ---
+
+            // 2. Save to Firestore
             await addDoc(collection(db, 'announcements'), {
                 title: announcementForm.title,
                 message: announcementForm.message,
-                targetYear: announcementForm.targetYear,
+                targetYear: finalTargetYear,
+                division: finalDivision,
                 instituteId: hodInfo.instituteId,
-                department: hodInfo.department,
+                department: finalDepartment, // ✅ Saved as "FE"
                 teacherName: `${hodInfo.firstName} ${hodInfo.lastName} (HOD)`,
                 role: 'hod',
-                attachmentUrl: attachmentUrl, // ✅ Save URL
+                attachmentUrl: attachmentUrl,
                 createdAt: serverTimestamp()
             });
 
-            // 3. Notification Logic (Keep your existing notification fetch here)
+            // 3. Send Notification
             fetch(`${BACKEND_URL}/sendAnnouncementNotification`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     title: `📢 HOD Notice: ${announcementForm.title}`,
                     message: announcementForm.message,
-                    targetYear: announcementForm.targetYear,
+                    targetYear: finalTargetYear,
+                    division: finalDivision,
                     instituteId: hodInfo.instituteId,
-                    department: hodInfo.department,
+                    department: finalDepartment,
                     senderName: `${hodInfo.firstName} ${hodInfo.lastName}`
                 })
             }).catch(err => console.error(err));
 
             toast.success("Posted Successfully!", { id: toastId });
             setAnnouncementForm({ title: '', message: '', targetYear: 'All' });
-            setAnnoFile(null); // Reset File
-        } catch (err) { toast.error("Failed to post.", { id: toastId }); }
+            setAnnoFile(null);
+        } catch (err) { 
+            console.error(err);
+            toast.error("Failed to post.", { id: toastId }); 
+        }
     };
     const handleDeleteAnnouncement = (id) => {
         // ✅ Use Custom Modal instead of window.confirm
@@ -600,10 +622,10 @@ export default function HODDashboard() {
         } catch (e) { toast.error("Error rejecting", { id: toastId }); }
     };
 
-// --- ✅ ADD TEACHER (With Toasts & Backend Creation) ---
+    // --- ✅ ADD TEACHER (With Toasts & Backend Creation) ---
     const handleAddTeacher = async (e) => {
         e.preventDefault();
-        
+
         const toastId = toast.loading("Creating Teacher Account...");
         setLoading(true);
 
@@ -616,19 +638,20 @@ export default function HODDashboard() {
                     password: teacherForm.password,
                     firstName: teacherForm.firstName,
                     lastName: teacherForm.lastName,
+                    phone: teacherForm.phone, // ✅ ADDED: Send Phone Number to Backend
                     role: 'teacher',
                     instituteId: hodInfo.instituteId,
                     instituteName: hodInfo.instituteName || 'AcadeX Institute',
                     department: hodInfo.department,
-                    
+
                     // ✅ FIXED: Send in Root
-                    academicYear: teacherForm.academicYear, 
+                    academicYear: teacherForm.academicYear,
                     assignedClasses: teacherForm.assignedClasses,
-                    
+
                     // ✅ FIXED: Also send in extras (Safety Net)
-                    extras: { 
+                    extras: {
                         academicYear: teacherForm.academicYear,
-                        createdAt: new Date().toISOString() 
+                        createdAt: new Date().toISOString()
                     }
                 })
             });
@@ -642,7 +665,7 @@ export default function HODDashboard() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     email: teacherForm.email,
-                    password: teacherForm.password, 
+                    password: teacherForm.password,
                     firstName: teacherForm.firstName,
                     department: hodInfo.department,
                     assignedClasses: teacherForm.assignedClasses,
@@ -651,9 +674,10 @@ export default function HODDashboard() {
             });
 
             toast.success("Teacher Added & Email Sent!", { id: toastId });
-            
+
+            // ✅ Reset Form (Included phone reset)
             setTeacherForm({
-                firstName: '', lastName: '', email: '', password: '',
+                firstName: '', lastName: '', email: '', password: '', phone: '',
                 academicYear: '2025-2026', assignedClasses: []
             });
 
@@ -1377,12 +1401,12 @@ export default function HODDashboard() {
 
                                 <form onSubmit={handlePostAnnouncement} style={{ padding: '30px 40px' }}>
                                     {/* Target Audience */}
-                                    {/* Target Audience */}
                                     <div style={{ marginBottom: '25px' }}>
                                         <label style={{ display: 'block', fontWeight: '700', color: '#64748b', fontSize: '12px', textTransform: 'uppercase', marginBottom: '10px' }}>Target Audience</label>
                                         <CustomDropdown
                                             value={announcementForm.targetYear}
-                                            onChange={(e) => setAnnouncementForm({ ...announcementForm, targetYear: e.target.value })}
+                                            // ✅ FIXED: Use 'val' directly instead of e.target.value
+                                            onChange={(val) => setAnnouncementForm({ ...announcementForm, targetYear: val })}
                                             options={
                                                 isFE ? [
                                                     // ✅ FE OPTIONS: All FE, Specific Divisions, Faculty
@@ -1505,8 +1529,15 @@ export default function HODDashboard() {
                                                     }}>
                                                         <i className={`fas ${a.targetYear === 'Teachers' ? 'fa-chalkboard-teacher' : 'fa-user-graduate'}`}></i>
                                                     </span>
+                                                    
+                                                    {/* ✅ UPDATED LABEL LOGIC */}
                                                     <span style={{ fontSize: '12px', fontWeight: '700', color: '#64748b' }}>
-                                                        {a.targetYear === 'All' ? 'Everyone' : a.targetYear}
+                                                        {a.targetYear === 'All' 
+                                                            ? 'Everyone' 
+                                                            : (a.division && a.division !== 'All') 
+                                                                ? `${a.targetYear} (Div ${a.division})` 
+                                                                : a.targetYear
+                                                        }
                                                     </span>
                                                 </div>
                                                 <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '600', background: '#f8fafc', padding: '4px 8px', borderRadius: '6px' }}>
@@ -1518,7 +1549,7 @@ export default function HODDashboard() {
                                             <h4 style={{ margin: '0 0 10px 0', fontSize: '16px', color: '#1e293b', lineHeight: '1.4', fontWeight: '700' }}>{a.title}</h4>
                                             <p style={{ fontSize: '13px', color: '#64748b', margin: '0 0 20px 0', lineHeight: '1.6', flex: 1 }}>{a.message}</p>
 
-                                            {/* Footer with UNIQUE CLASS for Alignment */}
+                                            {/* Footer */}
                                             <div className="anno-history-footer">
                                                 {a.attachmentUrl ? (
                                                     <a href={a.attachmentUrl} target="_blank" rel="noreferrer" className="anno-attachment-link">
@@ -1773,135 +1804,144 @@ export default function HODDashboard() {
                 )}
 
                 {activeTab === 'timetable' && <ManageTimetable hodInfo={hodInfo} />}
-            {/* --- 2. THE UPDATED BEAUTIFUL TAB UI --- */}
-    {activeTab === 'addTeacher' && (
-        <div className="content-section">
-            <h2 className="content-title">Add New Teacher</h2>
-            <div className="card fade-in-up" style={{ padding: '25px', border: 'none' }}>
-                <form onSubmit={handleAddTeacher}>
-                    
-                    {/* Personal Info Grid */}
-                    <div className="teacher-form-grid">
-                        <div className="input-group">
-                            <label>First Name</label>
-                            <input type="text" required placeholder="e.g. Rohini" value={teacherForm.firstName} onChange={e => setTeacherForm({ ...teacherForm, firstName: e.target.value })} />
-                        </div>
-                        <div className="input-group">
-                            <label>Last Name</label>
-                            <input type="text" required placeholder="e.g. Sharma" value={teacherForm.lastName} onChange={e => setTeacherForm({ ...teacherForm, lastName: e.target.value })} />
-                        </div>
-                        <div className="input-group">
-                            <label>Department</label>
-                            <input type="text" value={hodInfo?.department || ''} disabled style={{ background: '#f1f5f9', color: '#94a3b8' }} />
-                        </div>
-                        <div style={{ position: 'relative', zIndex: 20 }}>
-                            <CustomMobileSelect
-                                label="Academic Year"
-                                value={teacherForm.academicYear}
-                                onChange={(val) => setTeacherForm({ ...teacherForm, academicYear: val })}
-                                options={[{ value: '2024-2025', label: '2024-2025' }, { value: '2025-2026', label: '2025-2026' }]}
-                            />
-                        </div>
-                    </div>
+                {/* --- 2. THE UPDATED BEAUTIFUL TAB UI --- */}
+                {activeTab === 'addTeacher' && (
+                    <div className="content-section">
+                        <h2 className="content-title">Add New Teacher</h2>
+                        <div className="card fade-in-up" style={{ padding: '25px', border: 'none' }}>
+                            <form onSubmit={handleAddTeacher}>
 
-                    {/* ✨ BEAUTIFUL ASSIGNMENT SECTION */}
-                    <div className="class-assignment-container">
-                        <label style={{ fontSize: '12px', fontWeight: '800', color: '#64748b', marginBottom: '15px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                            <i className="fas fa-book-open" style={{marginRight: '8px'}}></i>
-                            Assign Classes & Subjects
-                        </label>
-                        
-                        {teacherForm.assignedClasses.map((cls, index) => {
-                             const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year';
-                             const yearOptions = isFE ? [{ value: 'FE', label: 'First Year' }] : [{ value: 'SE', label: 'SE' }, { value: 'TE', label: 'TE' }, { value: 'BE', label: 'BE' }];
-                             
-                             let semOptions = [];
-                             if (cls.year === 'FE') semOptions = [{value: 1, label: 'Sem 1'}, {value: 2, label: 'Sem 2'}];
-                             if (cls.year === 'SE') semOptions = [{value: 3, label: 'Sem 3'}, {value: 4, label: 'Sem 4'}];
-                             if (cls.year === 'TE') semOptions = [{value: 5, label: 'Sem 5'}, {value: 6, label: 'Sem 6'}];
-                             if (cls.year === 'BE') semOptions = [{value: 7, label: 'Sem 7'}, {value: 8, label: 'Sem 8'}];
-
-                            return (
-                                <div key={index} className="subject-card" style={{ zIndex: 10 - index }}>
-                                    
-                                    {/* 🔴 NEW BEAUTIFUL DELETE BUTTON */}
-                                    <button type="button" className="delete-subject-btn" onClick={() => {
-                                        const updated = teacherForm.assignedClasses.filter((_, i) => i !== index);
-                                        setTeacherForm({ ...teacherForm, assignedClasses: updated });
-                                    }}>
-                                        <i className="fas fa-trash"></i>
-                                    </button>
-
-                                    <div style={{ flex: '1 1 120px' }}>
-                                        <CustomMobileSelect label="Class" value={cls.year} onChange={(val) => {
-                                            const updated = [...teacherForm.assignedClasses];
-                                            updated[index] = { ...updated[index], year: val, semester: val === 'FE' ? 1 : 3 };
-                                            setTeacherForm({ ...teacherForm, assignedClasses: updated });
-                                        }} options={yearOptions} />
+                                {/* Personal Info Grid */}
+                                <div className="teacher-form-grid">
+                                    <div className="input-group">
+                                        <label>First Name</label>
+                                        <input type="text" required placeholder="e.g. Rohini" value={teacherForm.firstName} onChange={e => setTeacherForm({ ...teacherForm, firstName: e.target.value })} />
+                                    </div>
+                                    <div className="input-group">
+                                        <label>Last Name</label>
+                                        <input type="text" required placeholder="e.g. Sharma" value={teacherForm.lastName} onChange={e => setTeacherForm({ ...teacherForm, lastName: e.target.value })} />
                                     </div>
 
-                                    <div style={{ flex: '1 1 100px' }}>
-                                        <CustomMobileSelect label="Semester" value={cls.semester} onChange={(val) => {
-                                            const updated = [...teacherForm.assignedClasses];
-                                            updated[index] = { ...updated[index], semester: Number(val) };
-                                            setTeacherForm({ ...teacherForm, assignedClasses: updated });
-                                        }} options={semOptions} />
+                                    {/* ✅ NEW PHONE FIELD */}
+                                    <div className="input-group">
+                                        <label>Phone Number</label>
+                                        <input type="tel" required placeholder="+91 9876543210" value={teacherForm.phone} onChange={e => setTeacherForm({ ...teacherForm, phone: e.target.value })} />
                                     </div>
 
-                                    {isFE && (
-                                        <div style={{ flex: '0 1 80px' }}>
-                                            <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block' }}>DIV</label>
-                                            <input type="text" placeholder="A" value={cls.divisions || ''} onChange={(e) => {
-                                                const updated = [...teacherForm.assignedClasses];
-                                                updated[index] = { ...updated[index], divisions: e.target.value };
-                                                setTeacherForm({ ...teacherForm, assignedClasses: updated });
-                                            }} style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '2px solid #e2e8f0', textAlign: 'center', fontWeight: 'bold' }} />
-                                        </div>
-                                    )}
+                                    <div className="input-group">
+                                        <label>Department</label>
+                                        <input type="text" value={hodInfo?.department || ''} disabled style={{ background: '#f1f5f9', color: '#94a3b8' }} />
+                                    </div>
 
-                                    <div style={{ flex: '2 1 180px' }}>
-                                        <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block' }}>SUBJECT NAME</label>
-                                        <input type="text" placeholder="e.g. Object Oriented Prog." value={cls.subject} onChange={(e) => {
-                                            const updated = [...teacherForm.assignedClasses];
-                                            updated[index] = { ...updated[index], subject: e.target.value };
-                                            setTeacherForm({ ...teacherForm, assignedClasses: updated });
-                                        }} style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '2px solid #e2e8f0', fontWeight: '600' }} required />
+                                    {/* Academic Year Select */}
+                                    <div style={{ position: 'relative', zIndex: 20 }}>
+                                        <CustomMobileSelect
+                                            label="Academic Year"
+                                            value={teacherForm.academicYear}
+                                            onChange={(val) => setTeacherForm({ ...teacherForm, academicYear: val })}
+                                            options={[{ value: '2024-2025', label: '2024-2025' }, { value: '2025-2026', label: '2025-2026' }]}
+                                        />
                                     </div>
                                 </div>
-                            );
-                        })}
 
-                        <button type="button" className="add-subject-btn" onClick={() => {
-                            const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year';
-                            setTeacherForm({
-                                ...teacherForm,
-                                assignedClasses: [...teacherForm.assignedClasses, { year: isFE ? 'FE' : 'SE', semester: isFE ? 1 : 3, divisions: '', subject: '' }]
-                            });
-                        }}>
-                            <i className="fas fa-plus"></i> Add Another Subject
-                        </button>
-                    </div>
+                                {/* ✨ BEAUTIFUL ASSIGNMENT SECTION */}
+                                <div className="class-assignment-container">
+                                    <label style={{ fontSize: '12px', fontWeight: '800', color: '#64748b', marginBottom: '15px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                        <i className="fas fa-book-open" style={{ marginRight: '8px' }}></i>
+                                        Assign Classes & Subjects
+                                    </label>
 
-                    {/* Credentials */}
-                    <div className="teacher-form-grid">
-                        <div className="input-group">
-                            <label>Email Address</label>
-                            <input type="email" required value={teacherForm.email} onChange={e => setTeacherForm({ ...teacherForm, email: e.target.value })} placeholder="teacher@institute.com" />
+                                    {teacherForm.assignedClasses.map((cls, index) => {
+                                        const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year';
+                                        const yearOptions = isFE ? [{ value: 'FE', label: 'First Year' }] : [{ value: 'SE', label: 'SE' }, { value: 'TE', label: 'TE' }, { value: 'BE', label: 'BE' }];
+
+                                        let semOptions = [];
+                                        if (cls.year === 'FE') semOptions = [{ value: 1, label: 'Sem 1' }, { value: 2, label: 'Sem 2' }];
+                                        if (cls.year === 'SE') semOptions = [{ value: 3, label: 'Sem 3' }, { value: 4, label: 'Sem 4' }];
+                                        if (cls.year === 'TE') semOptions = [{ value: 5, label: 'Sem 5' }, { value: 6, label: 'Sem 6' }];
+                                        if (cls.year === 'BE') semOptions = [{ value: 7, label: 'Sem 7' }, { value: 8, label: 'Sem 8' }];
+
+                                        return (
+                                            <div key={index} className="subject-card" style={{ zIndex: 10 - index }}>
+
+                                                {/* 🔴 NEW BEAUTIFUL DELETE BUTTON */}
+                                                <button type="button" className="delete-subject-btn" onClick={() => {
+                                                    const updated = teacherForm.assignedClasses.filter((_, i) => i !== index);
+                                                    setTeacherForm({ ...teacherForm, assignedClasses: updated });
+                                                }}>
+                                                    <i className="fas fa-trash"></i>
+                                                </button>
+
+                                                <div style={{ flex: '1 1 120px' }}>
+                                                    <CustomMobileSelect label="Class" value={cls.year} onChange={(val) => {
+                                                        const updated = [...teacherForm.assignedClasses];
+                                                        updated[index] = { ...updated[index], year: val, semester: val === 'FE' ? 1 : 3 };
+                                                        setTeacherForm({ ...teacherForm, assignedClasses: updated });
+                                                    }} options={yearOptions} />
+                                                </div>
+
+                                                <div style={{ flex: '1 1 100px' }}>
+                                                    <CustomMobileSelect label="Semester" value={cls.semester} onChange={(val) => {
+                                                        const updated = [...teacherForm.assignedClasses];
+                                                        updated[index] = { ...updated[index], semester: Number(val) };
+                                                        setTeacherForm({ ...teacherForm, assignedClasses: updated });
+                                                    }} options={semOptions} />
+                                                </div>
+
+                                                {isFE && (
+                                                    <div style={{ flex: '0 1 80px' }}>
+                                                        <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block' }}>DIV</label>
+                                                        <input type="text" placeholder="A" value={cls.divisions || ''} onChange={(e) => {
+                                                            const updated = [...teacherForm.assignedClasses];
+                                                            updated[index] = { ...updated[index], divisions: e.target.value };
+                                                            setTeacherForm({ ...teacherForm, assignedClasses: updated });
+                                                        }} style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '2px solid #e2e8f0', textAlign: 'center', fontWeight: 'bold' }} />
+                                                    </div>
+                                                )}
+
+                                                <div style={{ flex: '2 1 180px' }}>
+                                                    <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block' }}>SUBJECT NAME</label>
+                                                    <input type="text" placeholder="e.g. Object Oriented Prog." value={cls.subject} onChange={(e) => {
+                                                        const updated = [...teacherForm.assignedClasses];
+                                                        updated[index] = { ...updated[index], subject: e.target.value };
+                                                        setTeacherForm({ ...teacherForm, assignedClasses: updated });
+                                                    }} style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '2px solid #e2e8f0', fontWeight: '600' }} required />
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+
+                                    <button type="button" className="add-subject-btn" onClick={() => {
+                                        const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year';
+                                        setTeacherForm({
+                                            ...teacherForm,
+                                            assignedClasses: [...teacherForm.assignedClasses, { year: isFE ? 'FE' : 'SE', semester: isFE ? 1 : 3, divisions: '', subject: '' }]
+                                        });
+                                    }}>
+                                        <i className="fas fa-plus"></i> Add Another Subject
+                                    </button>
+                                </div>
+
+                                {/* Credentials */}
+                                <div className="teacher-form-grid">
+                                    <div className="input-group">
+                                        <label>Email Address</label>
+                                        <input type="email" required value={teacherForm.email} onChange={e => setTeacherForm({ ...teacherForm, email: e.target.value })} placeholder="teacher@institute.com" />
+                                    </div>
+                                    <div className="input-group">
+                                        <label>Password</label>
+                                        <input type="password" required value={teacherForm.password} onChange={e => setTeacherForm({ ...teacherForm, password: e.target.value })} placeholder="******" />
+                                    </div>
+                                </div>
+
+                                <button className="submit-teacher-btn" disabled={loading}>
+                                    {loading ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-paper-plane"></i>}
+                                    {loading ? ' Creating & Sending Email...' : ' Create Account & Send Email'}
+                                </button>
+                            </form>
                         </div>
-                        <div className="input-group">
-                            <label>Password</label>
-                            <input type="password" required value={teacherForm.password} onChange={e => setTeacherForm({ ...teacherForm, password: e.target.value })} placeholder="******" />
-                        </div>
                     </div>
-
-                    <button className="submit-teacher-btn" disabled={loading}>
-                        {loading ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-paper-plane"></i>}
-                        {loading ? ' Creating & Sending Email...' : ' Create Account & Send Email'}
-                    </button>
-                </form>
-            </div>
-        </div>
-    )}
+                )}
             </main>
 
             {/* Mobile Footer Bar */}

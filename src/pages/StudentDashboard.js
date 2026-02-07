@@ -582,34 +582,36 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
     );
 };
 
-// --- 📱 MOBILE FOOTER COMPONENT ---
-// --- 📱 MOBILE FOOTER COMPONENT (Fixed Floating Button) ---
-const MobileFooter = ({ activePage, setActivePage, badgeCount, liveSession, onScan, onChat }) => {
+const MobileFooter = ({ activePage, setActivePage, badgeCount, taskBadgeCount, liveSession, onScan, onChat }) => {
     return (
         <div className="mobile-footer">
             <button className={`nav-item ${activePage === 'dashboard' ? 'active' : ''}`} onClick={() => setActivePage('dashboard')}>
                 <i className="fas fa-home"></i>
                 <span>Home</span>
             </button>
+            
             <button className={`nav-item ${activePage === 'notices' ? 'active' : ''}`} onClick={() => setActivePage('notices')} style={{ position: 'relative' }}>
                 <i className="fas fa-bullhorn"></i>
                 <span>Updates</span>
-                {badgeCount > 0 && <span className="nav-badge" style={{ position: 'absolute', top: '-5px', right: '15px', padding: '2px 6px' }}>{badgeCount}</span>}
+                {/* ✅ NOTICE BADGE */}
+                {badgeCount > 0 && <span className="nav-badge" style={{ position: 'absolute', top: '-5px', right: '15px', padding: '2px 6px', background: '#ef4444', color: 'white', borderRadius: '10px', fontSize: '10px' }}>{badgeCount}</span>}
             </button>
 
-            {/* ✅ FLOATING SCAN BUTTON */}
+            {/* FLOATING SCAN BUTTON */}
             <div className="scan-btn-wrapper">
                 <button className="scan-btn" onClick={onScan}>
                     <i className="fas fa-qrcode"></i>
-                    {/* Optional: Add a badge if session is live */}
                     {liveSession && <div className="scan-badge">1</div>}
                 </button>
             </div>
 
-            <button className={`nav-item ${activePage === 'leaderboard' ? 'active' : ''}`} onClick={() => setActivePage('leaderboard')}>
-                <i className="fas fa-trophy"></i>
-                <span>Rank</span>
+            {/* ✅ TASKS BUTTON WITH BADGE */}
+            <button className={`nav-item ${activePage === 'tasks' ? 'active' : ''}`} onClick={() => setActivePage('tasks')} style={{ position: 'relative' }}>
+                <i className="fas fa-tasks"></i>
+                <span>Tasks</span>
+                {taskBadgeCount > 0 && <span className="nav-badge" style={{ position: 'absolute', top: '-5px', right: '15px', padding: '2px 6px', background: '#10b981', color: 'white', borderRadius: '10px', fontSize: '10px' }}>{taskBadgeCount}</span>}
             </button>
+
             <button className={`nav-item ${activePage === 'profile' ? 'active' : ''}`} onClick={() => setActivePage('profile')}>
                 <i className="fas fa-user"></i>
                 <span>Profile</span>
@@ -627,6 +629,12 @@ export default function StudentDashboard() {
         const saved = localStorage.getItem('seenNoticesCount');
         return saved ? parseInt(saved) : 0;
     });
+    // ✅ 2. NEW: Assignments State & Task Read Count
+    const [assignments, setAssignments] = useState([]);
+    const [taskReadCount, setTaskReadCount] = useState(() => {
+        const saved = localStorage.getItem('seenTasksCount');
+        return saved ? parseInt(saved) : 0;
+    });
 
     const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
     const [isChatOpen, setIsChatOpen] = useState(false);
@@ -635,6 +643,7 @@ export default function StudentDashboard() {
     const [recentAttendance, setRecentAttendance] = useState([]);
     const [zoom, setZoom] = useState(1);
     const [zoomCap, setZoomCap] = useState(null);
+    
 
     // ✅ GLOBAL SCHEDULE STATE
     const [currentSlot, setCurrentSlot] = useState(null);
@@ -906,34 +915,48 @@ export default function StudentDashboard() {
         return () => clearInterval(interval);
     }, [user, isFreePeriod]);
 
-   // 4. Notice Fetching Logic (✅ UPDATED: With Division Filter)
+  // ✅ 5. ASSIGNMENTS Fetching Logic (Complete)
     useEffect(() => {
         if (!user?.instituteId) return;
         
-        // Listen to announcements for this institute
-        const q = query(collection(db, 'announcements'), where('instituteId', '==', user.instituteId));
-        
-        let isInitialMount = true;
+        // Listen to 'assignments' collection
+        const q = query(collection(db, 'assignments'), where('instituteId', '==', user.instituteId));
         
         const unsub = onSnapshot(q, (snapshot) => {
             const all = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
             
-            // ✅ CLIENT-SIDE FILTERING (Dept + Year + Division)
+           // ✅ CLIENT-SIDE FILTERING (Robust & Normalized)
             const relevant = all.filter(n => {
-                // 1. Department Check
-                const isDeptMatch = n.department === user.department || n.department === 'General';
+                // Helper to normalize strings (lowercase, trim)
+                const norm = (str) => str ? str.toString().toLowerCase().trim() : '';
+
+                const userDept = norm(user.department);
+                const noticeDept = norm(n.department);
                 
-                // 2. Year Check
-                const isYearMatch = n.targetYear === 'All' || n.targetYear === user.year;
+                // 1. Department Check (Smart Match: FE == First Year)
+                const isDeptMatch = 
+                    noticeDept === userDept || 
+                    noticeDept === 'general' ||
+                    (noticeDept === 'first year' && userDept === 'fe') ||
+                    (noticeDept === 'fe' && userDept === 'first year');
                 
-                // 3. ✅ Division Check (CRITICAL FIX)
+                // 2. Year Check (Smart Match: FE == First Year)
+                const userYear = norm(user.year);
+                const noticeYear = norm(n.targetYear);
+                const isYearMatch = 
+                    noticeYear === 'all' || 
+                    noticeYear === userYear ||
+                    (noticeYear === 'first year' && userYear === 'fe') ||
+                    (noticeYear === 'fe' && userYear === 'first year');
+                
+                // 3. Division Check
                 let isDivMatch = true;
                 if (n.division && n.division !== 'All') {
-                    // Check both 'division' and 'div' fields on the user profile
-                    const myDiv = user.division || user.div; 
+                    const noticeDiv = norm(n.division);
+                    const userDiv = norm(user.division || user.div);
                     
-                    // If announcement has a specific division, student must match it
-                    if (!myDiv || myDiv !== n.division) {
+                    // If student has no division, or divisions don't match
+                    if (!userDiv || userDiv !== noticeDiv) {
                         isDivMatch = false;
                     }
                 }
@@ -943,25 +966,25 @@ export default function StudentDashboard() {
 
             // Sort: Newest First
             relevant.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
-            setNotices(relevant);
-
-            // Toast for new items
-            if (isInitialMount) {
-                const unread = Math.max(0, relevant.length - readCount);
-                if (unread > 0) toast(`You have ${unread} unread notices!`, { icon: '📬', duration: 4000 });
-                isInitialMount = false;
-            }
+            setAssignments(relevant);
         });
         return () => unsub();
-    }, [user?.instituteId, user?.department, user?.year, user?.division, readCount]);
+    }, [user?.instituteId, user?.department, user?.year, user?.division]);
 
+    // ✅ UPDATE: Auto-hide badges when tab is viewed
     useEffect(() => {
+        // Hide Notice Badge
         if (activePage === 'notices' && notices.length > readCount) {
-            const newCount = notices.length;
-            setReadCount(newCount);
-            localStorage.setItem('seenNoticesCount', newCount.toString());
+            setReadCount(notices.length);
+            localStorage.setItem('seenNoticesCount', notices.length.toString());
         }
-    }, [activePage, notices, readCount]);
+        
+        // Hide Task Badge
+        if (activePage === 'tasks' && assignments.length > taskReadCount) {
+            setTaskReadCount(assignments.length);
+            localStorage.setItem('seenTasksCount', assignments.length.toString());
+        }
+    }, [activePage, notices, assignments, readCount, taskReadCount]);
 
     // ✅ 7. PUSH NOTIFICATION SETUP (Get Token & Save to DB)
     useEffect(() => {
@@ -1030,6 +1053,7 @@ export default function StudentDashboard() {
     }, [user]);
 
     const badgeCount = Math.max(0, notices.length - readCount);
+    const taskBadgeCount = Math.max(0, assignments.length - taskReadCount);
     const handleLogout = async () => { await signOut(auth); };
 
     const handleOpenAiWithPrompt = (prompt) => {
@@ -1267,19 +1291,39 @@ export default function StudentDashboard() {
                             <span>Dashboard</span>
                         </div>
                     </li>
+                   {/* ✅ UPDATED: Notice Board with Badge */}
                     <li className={activePage === 'notices' ? 'active' : ''} onClick={() => { setActivePage('notices'); setIsMobileNavOpen(false); }}>
                         <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '15px' }}>
                             <i className="fas fa-bullhorn" style={{ width: '24px', textAlign: 'center' }}></i>
                             <span>Notice Board</span>
-                            {/* Make sure badgeCount is defined in your main component or remove this line */}
-                            {/* <span className="nav-badge" style={{ background: '#ef4444', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '12px', marginLeft: 'auto', fontWeight: 'bold' }}>New</span> */}
+                            {/* Show Red Badge if unread notices exist */}
+                            {badgeCount > 0 && (
+                                <span className="nav-badge" style={{ background: '#ef4444', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '12px', marginLeft: 'auto', fontWeight: 'bold' }}>
+                                    {badgeCount}
+                                </span>
+                            )}
                         </div>
                     </li>
+                    {/* ✅ UPDATED: Tasks with Badge */}
                     <li className={activePage === 'tasks' ? 'active' : ''} onClick={() => { setActivePage('tasks'); setIsMobileNavOpen(false); }}>
                         <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '15px' }}>
                             <i className="fas fa-check-circle" style={{ width: '24px', textAlign: 'center' }}></i>
                             <span>Free Period Tasks</span>
-                            {isFreePeriod && <span className="nav-badge pulsate" style={{ background: '#10b981', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '12px', marginLeft: 'auto', fontWeight: 'bold' }}>LIVE</span>}
+                            
+                            <div style={{ marginLeft: 'auto', display: 'flex', gap: '5px' }}>
+                                {/* Show Red Badge for New Tasks */}
+                                {taskBadgeCount > 0 && (
+                                    <span className="nav-badge" style={{ background: '#ef4444', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>
+                                        {taskBadgeCount}
+                                    </span>
+                                )}
+                                {/* Show Live Badge if Free Period */}
+                                {isFreePeriod && (
+                                    <span className="nav-badge pulsate" style={{ background: '#10b981', color: 'white', fontSize: '10px', padding: '2px 8px', borderRadius: '12px', fontWeight: 'bold' }}>
+                                        LIVE
+                                    </span>
+                                )}
+                            </div>
                         </div>
                     </li>
                     <li className={activePage === 'leaderboard' ? 'active' : ''} onClick={() => { setActivePage('leaderboard'); setIsMobileNavOpen(false); }}>
@@ -1386,8 +1430,9 @@ export default function StudentDashboard() {
                     activePage={activePage}
                     setActivePage={setActivePage}
                     badgeCount={badgeCount}
+                    taskBadgeCount={taskBadgeCount} // ✅ Pass the new count
                     liveSession={liveSession}
-                    onScan={openNativeCameraForQR} // ✅ Use native camera (Google Pay style)
+                    onScan={openNativeCameraForQR} 
                     onChat={() => setIsChatOpen(true)}
                 />
             </main>

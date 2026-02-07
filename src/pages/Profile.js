@@ -18,16 +18,19 @@ const INTEREST_DOMAINS = {
     "Science & Research": ["Physics", "Chemistry", "Biology", "Space Science", "Environmental Science"]
 };
 
-// Helper for Avatar Colors
+// Helper for Avatar Colors (Modern Gradients)
 const getAvatarGradient = (name) => {
     const gradients = [
-        'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', // Blue
-        'linear-gradient(135deg, #10b981 0%, #059669 100%)', // Emerald
-        'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', // Amber
-        'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', // Violet
-        'linear-gradient(135deg, #ec4899 0%, #db2777 100%)'  // Pink
+        'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)', // Indigo -> Purple (Modern Tech)
+        'linear-gradient(135deg, #3b82f6 0%, #06b6d4 100%)', // Blue -> Cyan (Fresh)
+        'linear-gradient(135deg, #f43f5e 0%, #f97316 100%)', // Rose -> Orange (Warm)
+        'linear-gradient(135deg, #10b981 0%, #3b82f6 100%)', // Emerald -> Blue (Nature/Tech)
+        'linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%)', // Pink -> Violet (Vibrant)
+        'linear-gradient(135deg, #f59e0b 0%, #ef4444 100%)'  // Amber -> Red (Sunset)
     ];
-    return gradients[(name?.length || 0) % gradients.length];
+    // Use character code sum for deterministic random (same name = same color always)
+    const charCodeSum = name ? name.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0) : 0;
+    return gradients[charCodeSum % gradients.length];
 };
 
 // --- PDF DOWNLOAD HELPER (Blue Links for Visibility) ---
@@ -282,47 +285,47 @@ export default function Profile({ user }) {
             setPassLoading(false);
         }
     };
-    // ✅ EXPANDED AVATAR OPTIONS
+   // ✅ EXPANDED AVATAR OPTIONS
     const AVATAR_OPTIONS = [
         // Boy Avatars
         { id: 'm1', url: 'https://cdn-icons-png.flaticon.com/512/4140/4140048.png', label: 'Boy 1' },
         { id: 'm2', url: 'https://cdn-icons-png.flaticon.com/512/4139/4139948.png', label: 'Boy 2' },
         { id: 'm3', url: 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png', label: 'Boy 3' },
         { id: 'm4', url: 'https://cdn-icons-png.flaticon.com/512/4140/4140061.png', label: 'Boy 4' },
-
+        
         // Girl Avatars
         { id: 'f1', url: 'https://cdn-icons-png.flaticon.com/512/4140/4140047.png', label: 'Girl 1' },
         { id: 'f2', url: 'https://cdn-icons-png.flaticon.com/512/4139/4139951.png', label: 'Girl 2' },
         { id: 'f3', url: 'https://cdn-icons-png.flaticon.com/512/4140/4140051.png', label: 'Girl 3' },
         { id: 'f4', url: 'https://cdn-icons-png.flaticon.com/512/6997/6997662.png', label: 'Girl 4' },
-
+        
         // Neutral / Fun Avatars
         { id: 'n1', url: 'https://cdn-icons-png.flaticon.com/512/11498/11498793.png', label: 'Robot' },
         { id: 'n2', url: 'https://cdn-icons-png.flaticon.com/512/9408/9408175.png', label: 'Astronaut' }
     ];
 
-    const handleAvatarSelect = async (url) => {
+  const handleAvatarSelect = async (url) => {
         const toastId = toast.loading("Updating avatar...");
         try {
             const userRef = doc(db, 'users', auth.currentUser.uid);
-
+            
             // ✅ IMPROVED GENDER DETECTION Logic
             // If the URL contains girl-related IDs or if you want to manual map them:
             const femaleIds = ['f1', 'f2', 'f3', 'f4'];
             const selectedAvatar = AVATAR_OPTIONS.find(a => a.url === url);
             const detectedGender = femaleIds.includes(selectedAvatar?.id) ? 'female' : 'male';
 
-            await updateDoc(userRef, {
+            await updateDoc(userRef, { 
                 profilePic: url,
                 gender: detectedGender // Syncs gender field for defaults
             });
-
+            
             toast.success("Avatar updated!", { id: toastId });
         } catch (err) {
             toast.error("Failed to update avatar", { id: toastId });
         }
     };
-
+    
     if (!profileData) return <div className="content-section">Loading...</div>;
 
     return (
@@ -331,10 +334,19 @@ export default function Profile({ user }) {
             {/* --- PREMIUM HEADER CARD (Sunset Violet Theme) --- */}
             <div className="prof-header-card">
                 <div className="prof-header-content">
-                    {/* ✅ Updated Profile Avatar Logic with Defaults */}
+                    
+                    {/* ✅ Updated Profile Avatar Logic */}
                     <div className="prof-avatar" style={{
                         background: user.profilePic ? 'transparent' : getAvatarGradient(user.firstName),
-                        overflow: 'hidden'
+                        overflow: 'hidden',
+                        // ✅ FORCE WHITE TEXT FOR INITIALS
+                        color: user.profilePic ? 'transparent' : '#ffffff', 
+                        textShadow: user.profilePic ? 'none' : '0 2px 4px rgba(0,0,0,0.2)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '36px',
+                        fontWeight: '800'
                     }}>
                         {user.profilePic ? (
                             <img src={user.profilePic} alt="Profile" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -345,7 +357,10 @@ export default function Profile({ user }) {
                             ) : user.gender === 'female' ? (
                                 <img src="https://cdn-icons-png.flaticon.com/512/4140/4140047.png" alt="Female Default" style={{ width: '100%', height: '100%' }} />
                             ) : (
-                                <>{user.firstName?.charAt(0)}{user.lastName?.charAt(0)}</>
+                                /* ✅ INITIALS: Now White and Clean */
+                                <span style={{ textTransform: 'uppercase' }}>
+                                    {user.firstName?.charAt(0)}{user.lastName?.charAt(0)}
+                                </span>
                             )
                         )}
                     </div>
@@ -355,23 +370,23 @@ export default function Profile({ user }) {
                         <div className="prof-badges">
                             <span className="prof-badge-glass">{profileData.role?.toUpperCase()}</span>
                             <span className="prof-badge-glass">{profileData.department}</span>
-
-                            {/* ✅ FIX: Hide "Year" badge if it matches Department (Prevents "FE FE Year") */}
+                            
+                            {/* Hide "Year" badge if it matches Department */}
                             {profileData.year && profileData.year !== profileData.department && (
                                 <span className="prof-badge-glass">{profileData.year} Year</span>
                             )}
-
-                            {/* ✅ Show Division Badge (Supports both 'div' and 'division' fields) */}
+                            
+                            {/* Show Division Badge */}
                             {(profileData.division || profileData.div) && (
                                 <span className="prof-badge-glass">Div {profileData.division || profileData.div}</span>
                             )}
                         </div>
                     </div>
+                </div>
 
-                    {/* ✅ FIXED BUTTON GROUP */}
-                    {/* ✅ RESUME & EDIT BUTTONS */}
-                    {activeTab === 'details' && (
-                        <div style={{ display: 'flex', gap: '10px', marginTop: '15px', flexWrap: 'wrap' }}>
+                {/* ... Buttons Section (Keep your existing buttons logic here) ... */}
+                {activeTab === 'details' && (
+                        <div style={{ display: 'flex', gap: '10px', marginTop: '0px', padding: '0 40px 40px 40px', flexWrap: 'wrap' }}>
                             {/* Edit / Save Button */}
                             <button className={`prof-btn ${isEditing ? 'prof-btn-save' : 'prof-btn-edit'}`} onClick={() => isEditing ? handleSaveProfile() : setIsEditing(true)}>
                                 <i className={`fas ${isEditing ? 'fa-check' : 'fa-pen'}`}></i> {isEditing ? 'Save Profile' : 'Edit Profile'}
@@ -382,7 +397,6 @@ export default function Profile({ user }) {
                                 <i className="fas fa-file-contract"></i> Build Resume
                             </button>
 
-                            {/* Download PDF Button */}
                             {/* Download PDF Button */}
                             <button
                                 className="prof-btn"
@@ -398,8 +412,6 @@ export default function Profile({ user }) {
                         onClose={() => setIsResumeModalOpen(false)}
                         user={profileData}
                     />
-
-                </div>
             </div>
 
             {/* --- MODERN TABS --- */}
@@ -424,11 +436,10 @@ export default function Profile({ user }) {
             <div className="prof-content-area">
 
                 {/* === DETAILS TAB === */}
-               {/* === DETAILS TAB === */}
                 {activeTab === 'details' && (
                     <div className="prof-grid">
 
-                        {/* LEFT: Basic Information */}
+                        {/* LEFT: Basic Info */}
                         <div className="prof-card">
                             <div className="prof-card-header">
                                 <div className="prof-icon-box" style={{ background: '#eff6ff', color: '#3b82f6' }}>
@@ -443,57 +454,20 @@ export default function Profile({ user }) {
                                 <ProfInput label="Phone Number" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} disabled={!isEditing} />
                                 <ProfInput label="Email Address" value={profileData.email} disabled={true} lockIcon={true} />
                                 <ProfInput label="Department" value={profileData.department} disabled={true} lockIcon={true} />
-
-                                {/* ✅ CONSOLIDATED ACADEMIC YEAR (Checks root, extras, then assignedClasses) */}
-                                <ProfInput 
-                                    label="Academic Year" 
-                                    value={
-                                        profileData.academicYear || 
-                                        profileData.extras?.academicYear || 
-                                        (profileData.assignedClasses?.[0]?.academicYear) || 
-                                        "Not Assigned"
-                                    } 
-                                    disabled={true} 
-                                    lockIcon={true} 
-                                />
                                 
-                                {/* --- STUDENT SPECIFIC FIELDS --- */}
                                 {user.role === 'student' && (
                                     <>
-                                        <ProfInput label="Current Class" value={profileData.year || "N/A"} disabled={true} lockIcon={true} />
-                                        <ProfInput 
-                                            label="Division" 
-                                            value={profileData.division || profileData.div || "N/A"} 
-                                            disabled={true} 
-                                            lockIcon={true} 
-                                        />
+                                        <ProfInput label="Academic Year" value={profileData.year || "N/A"} disabled={true} lockIcon={true} />
+                                        
+                                        {/* ✅ Show Division ONLY for FE Students */}
+                                        {profileData.year === 'FE' && (
+                                            <ProfInput label="Division" value={profileData.div || "N/A"} disabled={true} lockIcon={true} />
+                                        )}
                                     </>
-                                )}
-
-                                {/* --- TEACHER SPECIFIC FIELDS (Full Width) --- */}
-                                {user.role === 'teacher' && (
-                                    <div style={{ gridColumn: '1 / -1' }}>
-                                        <ProfInput 
-                                            label="Assigned Classes" 
-                                            lockIcon 
-                                            disabled 
-                                            value={
-                                                profileData.assignedClasses && profileData.assignedClasses.length > 0
-                                                    ? profileData.assignedClasses.map(c => {
-                                                        // ✅ FE: Show "FE (Div A)"
-                                                        if (c.year === 'FE') return `FE (Div ${c.divisions || 'All'})`;
-                                                        // ✅ SE/TE/BE: Just Show Year
-                                                        return c.year;
-                                                      }).join(' | ')
-                                                    : "No Classes Assigned"
-                                            } 
-                                        />
-                                    </div>
                                 )}
                             </div>
                         </div>
-
-                        {/* ✅ Avatar Selection (Kept Intact) */}
+                        {/* ✅ Add Avatar Selection UI */}
                         <div className="prof-card" style={{ marginTop: '20px' }}>
                             <div className="prof-card-header">
                                 <div className="prof-icon-box" style={{ background: '#fef3c7', color: '#d97706' }}>
@@ -507,9 +481,13 @@ export default function Profile({ user }) {
                                         key={avatar.id}
                                         onClick={() => handleAvatarSelect(avatar.url)}
                                         style={{
-                                            cursor: 'pointer', padding: '5px', borderRadius: '50%',
+                                            cursor: 'pointer',
+                                            padding: '5px',
+                                            borderRadius: '50%',
                                             border: profileData.profilePic === avatar.url ? '3px solid #db2777' : '3px solid transparent',
-                                            transition: 'all 0.2s', background: 'white', boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                                            transition: 'all 0.2s',
+                                            background: 'white',
+                                            boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
                                         }}
                                     >
                                         <img src={avatar.url} alt={avatar.label} style={{ width: '55px', height: '55px', borderRadius: '50%' }} />
@@ -517,6 +495,56 @@ export default function Profile({ user }) {
                                 ))}
                             </div>
                         </div>
+
+                       {/* --- TEACHER SPECIFIC FIELDS --- */}
+                                {user.role === 'teacher' && (
+                                    <>
+                                        {/* Field 1: Academic Year */}
+                                        <ProfInput 
+                                            label="Academic Year" 
+                                            lockIcon 
+                                            disabled 
+                                            value={profileData.academicYear || "Not Set"} 
+                                        />
+
+                                        {/* Field 2: Assigned Classes (Now Standard Width) */}
+                                        <ProfInput 
+                                            label="Assigned Classes" 
+                                            lockIcon 
+                                            disabled 
+                                            value={
+                                                profileData.assignedClasses && profileData.assignedClasses.length > 0
+                                                    ? profileData.assignedClasses.map(c => {
+                                                        // Display Logic: "FE (Div A)" or "SE"
+                                                        const classDisplay = c.year === 'FE' 
+                                                            ? `FE (Div ${c.divisions || profileData.division || 'N/A'})` 
+                                                            : c.year;
+                                                        
+                                                        // Append Subject if available
+                                                        const subjectDisplay = c.subject ? ` - ${c.subject}` : '';
+
+                                                        return `${classDisplay}${subjectDisplay}`;
+                                                      }).join('  |  ')
+                                                    : "No Classes Assigned"
+                                            } 
+                                        />
+                                    </>
+                                )}
+
+                        {user.role === 'teacher' && (
+                            <>
+                                <ProfInput
+                                    label="Assigned Subjects"
+                                    value={
+                                        profileData.assignedClasses && profileData.assignedClasses.length > 0
+                                            ? profileData.assignedClasses.map(c => `${c.subject} (${c.year})`).join(', ')
+                                            : profileData.subject || "No Subject Assigned"
+                                    }
+                                    disabled={true}
+                                    lockIcon={true}
+                                />
+                            </>
+                        )}
 
                         {/* RIGHT: Career (Student Only) */}
                         {user.role === 'student' && (
