@@ -18,7 +18,7 @@ export const useFileDownloader = () => {
     };
 
     const downloadFile = async (fileUrl, fileName) => {
-        const toastId = toast.loading("Downloading...");
+        const toastId = toast.loading("Downloading...", { position: 'bottom-center' });
 
         try {
             const response = await fetch(fileUrl);
@@ -27,20 +27,36 @@ export const useFileDownloader = () => {
             if (Capacitor.isNativePlatform()) {
                 // --- ANDROID/iOS LOGIC ---
                 const base64Data = await blobToBase64(blob);
-                const savedFile = await Filesystem.writeFile({
-                    path: fileName,
-                    data: base64Data,
-                    directory: Directory.Documents,
-                    recursive: true
-                });
+                
+                let savedFile;
+                try {
+                    // 1. Try saving to External Storage (Android/data/com.acadex.app/files/)
+                    // This works on Android 11+ without extra permissions
+                    savedFile = await Filesystem.writeFile({
+                        path: fileName,
+                        data: base64Data,
+                        directory: Directory.External, 
+                        recursive: true
+                    });
+                } catch (writeError) {
+                    console.warn("External write failed, trying Cache...", writeError);
+                    // 2. Fallback to Cache if External fails
+                    savedFile = await Filesystem.writeFile({
+                        path: fileName,
+                        data: base64Data,
+                        directory: Directory.Cache,
+                        recursive: true
+                    });
+                }
 
-                // Open the file immediately after download
+                toast.success("File Downloaded!", { id: toastId });
+
+                // Open the file immediately
                 await FileOpener.open({
                     filePath: savedFile.uri,
                     contentType: blob.type
                 });
 
-                toast.success("File Saved & Opened!", { id: toastId });
             } else {
                 // --- WEB LOGIC ---
                 const url = window.URL.createObjectURL(blob);
@@ -54,7 +70,8 @@ export const useFileDownloader = () => {
             }
         } catch (error) {
             console.error("Download error:", error);
-            toast.error("Download Failed. Check permissions.", { id: toastId });
+            // Show the actual error message for debugging
+            toast.error(`Error: ${error.message}`, { id: toastId });
         }
     };
 

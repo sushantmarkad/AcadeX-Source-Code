@@ -87,6 +87,7 @@ const LeaveRequestForm = ({ user }) => {
     const [file, setFile] = useState(null);
     const [loading, setLoading] = useState(false);
     const [myLeaves, setMyLeaves] = useState([]);
+    const { downloadFile } = useFileDownloader();
 
     useEffect(() => {
         if (!user.uid) return;
@@ -150,20 +151,20 @@ const LeaveRequestForm = ({ user }) => {
                         <div className="input-group" style={{ flex: 1 }}>
                             <label>From</label>
                             {/* ✅ UPDATED: Native Friendly Input */}
-                            <NativeFriendlyDateInput 
-                                required 
-                                value={form.fromDate} 
-                                onChange={(nextDate) => setForm({ ...form, fromDate: nextDate })} 
+                            <NativeFriendlyDateInput
+                                required
+                                value={form.fromDate}
+                                onChange={(nextDate) => setForm({ ...form, fromDate: nextDate })}
                             />
                         </div>
                         <div className="input-group" style={{ flex: 1 }}>
                             <label>To</label>
                             {/* ✅ UPDATED: Native Friendly Input with Min Date Logic */}
-                            <NativeFriendlyDateInput 
-                                required 
-                                value={form.toDate} 
-                                onChange={(nextDate) => setForm({ ...form, toDate: nextDate })} 
-                                min={form.fromDate || undefined} 
+                            <NativeFriendlyDateInput
+                                required
+                                value={form.toDate}
+                                onChange={(nextDate) => setForm({ ...form, toDate: nextDate })}
+                                min={form.fromDate || undefined}
                             />
                         </div>
                     </div>
@@ -197,9 +198,16 @@ const LeaveRequestForm = ({ user }) => {
                                         {new Date(leave.fromDate).toLocaleDateString()} ➔ {new Date(leave.toDate).toLocaleDateString()}
                                     </p>
                                     {leave.documentUrl && (
-                                        <a href={leave.documentUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px', color: '#2563eb', marginTop: '8px', textDecoration: 'none', background: '#eff6ff', padding: '4px 8px', borderRadius: '6px' }}>
-                                            <i className="fas fa-paperclip"></i> View Proof
-                                        </a>
+                                        <button
+                                            onClick={() => downloadFile(leave.documentUrl, `LeaveProof_${leave.id}.pdf`)}
+                                            style={{
+                                                display: 'inline-flex', alignItems: 'center', gap: '5px', fontSize: '12px',
+                                                color: '#2563eb', marginTop: '8px', background: '#eff6ff',
+                                                padding: '4px 8px', borderRadius: '6px', border: 'none', cursor: 'pointer'
+                                            }}
+                                        >
+                                            <i className="fas fa-file-download"></i> Download Proof
+                                        </button>
                                     )}
                                 </div>
                                 <span className={`status-badge status-${leave.status}`} style={{ textTransform: 'uppercase', fontSize: '11px', letterSpacing: '0.5px' }}>{leave.status}</span>
@@ -214,6 +222,7 @@ const LeaveRequestForm = ({ user }) => {
 
 // --- COMPONENT: Notices View (Updated with Division Badge) ---
 const NoticesView = ({ notices }) => {
+    const { downloadFile } = useFileDownloader();
     return (
         <div className="content-section">
             <h2 className="content-title">Notice Board</h2>
@@ -231,19 +240,19 @@ const NoticesView = ({ notices }) => {
                                 </div>
                                 <p className="notice-body">{n.message}</p>
 
-                                {/* Attachment Button */}
                                 {n.attachmentUrl && (
                                     <div style={{ marginBottom: '12px', marginTop: '10px' }}>
-                                        <a href={n.attachmentUrl} target="_blank" rel="noreferrer"
+                                        <button
+                                            onClick={() => downloadFile(n.attachmentUrl, `Notice_${n.id}.pdf`)}
                                             style={{
                                                 display: 'inline-flex', alignItems: 'center', gap: '8px',
                                                 padding: '8px 12px', background: '#eff6ff',
                                                 color: '#2563eb', borderRadius: '8px',
-                                                textDecoration: 'none', fontSize: '13px', fontWeight: '600',
-                                                border: '1px solid #bfdbfe'
+                                                fontSize: '13px', fontWeight: '600',
+                                                border: '1px solid #bfdbfe', cursor: 'pointer'
                                             }}>
-                                            <i className="fas fa-paperclip"></i> View Attachment
-                                        </a>
+                                            <i className="fas fa-file-download"></i> Download Attachment
+                                        </button>
                                     </div>
                                 )}
 
@@ -661,7 +670,7 @@ export default function StudentDashboard() {
     const [recentAttendance, setRecentAttendance] = useState([]);
     const [zoom, setZoom] = useState(1);
     const [zoomCap, setZoomCap] = useState(null);
-    const { downloadFile } = useFileDownloader();
+
 
 
     // ✅ GLOBAL SCHEDULE STATE
@@ -933,60 +942,45 @@ export default function StudentDashboard() {
         const interval = setInterval(fetchSchedule, 60000); // Update every minute
         return () => clearInterval(interval);
     }, [user, isFreePeriod]);
-    // ✅ FIX: FETCH ANNOUNCEMENTS (Notices) & Filter by Division
+   // ✅ NEW: FETCH ASSIGNMENTS (For Task Badge)
     useEffect(() => {
         if (!user?.instituteId) return;
 
-        // Query the 'announcements' collection (where HOD posts notices)
-        const q = query(collection(db, 'announcements'), where('instituteId', '==', user.instituteId));
+        // Query assignments for this institute
+        const q = query(collection(db, 'assignments'), where('instituteId', '==', user.instituteId));
 
         const unsub = onSnapshot(q, (snapshot) => {
-            const allNotices = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const allTasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-            const relevantNotices = allNotices.filter(notice => {
-                // 1. Helper to normalize strings (lowercase, trim)
+            const relevantTasks = allTasks.filter(task => {
+                // Helper to normalize strings
                 const norm = (str) => str ? str.toString().trim().toLowerCase() : '';
-
+                
                 const userDept = norm(user.department);
-                const noticeDept = norm(notice.department);
+                const taskDept = norm(task.department);
                 const userYear = norm(user.year);
-                const noticeYear = norm(notice.targetYear);
+                const taskYear = norm(task.targetYear);
 
-                // 2. Department Match (Handle 'FE' vs 'First Year')
-                const isDeptMatch =
-                    noticeDept === userDept ||
-                    noticeDept === 'general' ||
-                    (noticeDept === 'fe' && userDept === 'first year') ||
-                    (noticeDept === 'first year' && userDept === 'fe');
+                // 1. Department Check
+                if (taskDept !== userDept) return false;
 
-                if (!isDeptMatch) return false;
-
-                // 3. Year Match (e.g. 'FE' matches 'First Year')
-                const isYearMatch =
-                    noticeYear === 'all' ||
-                    noticeYear === userYear ||
-                    (noticeYear === 'fe' && userYear === 'first year') ||
-                    (noticeYear === 'first year' && userYear === 'fe');
-
+                // 2. Year Check
+                const isYearMatch = taskYear === 'all' || taskYear === userYear;
                 if (!isYearMatch) return false;
 
-                // 4. ✅ DIVISION MATCH (The Fix)
-                // If notice is for specific division (e.g. "A"), student must match it.
-                if (notice.division && notice.division !== 'All') {
-                    const userDiv = norm(user.division || user.div); // Handle 'division' or 'div'
-                    const noticeDiv = norm(notice.division);
-
-                    if (!userDiv || userDiv !== noticeDiv) {
-                        return false; // Hide if division doesn't match
-                    }
+                // 3. Division Check (If task is for specific division)
+                if (task.division && task.division !== 'All') {
+                    const userDiv = norm(user.division || user.div);
+                    const taskDiv = norm(task.division);
+                    if (!userDiv || userDiv !== taskDiv) return false;
                 }
 
                 return true;
             });
 
-            // Sort: Newest First
-            relevantNotices.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
-            setNotices(relevantNotices);
+            // Sort newest first so the count is accurate based on time
+            relevantTasks.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+            setAssignments(relevantTasks);
         });
 
         return () => unsub();

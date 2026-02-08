@@ -1025,18 +1025,28 @@ export default function HODDashboard() {
 
                                 {/* ✅ FE HOD: Show Division Dropdown | Dept HOD: Show Year Tabs */}
                                 {isFE ? (
-                                    <select
-                                        value={analyticsDivision}
-                                        onChange={(e) => setAnalyticsDivision(e.target.value)}
-                                        className="modern-select"
-                                        style={{
-                                            padding: '8px 12px', borderRadius: '8px', border: '1px solid #cbd5e1',
-                                            cursor: 'pointer', background: 'white', fontWeight: '600', color: '#334155', outline: 'none'
-                                        }}
-                                    >
-                                        <option value="All">All Divisions</option>
-                                        {DIVISIONS.map(div => <option key={div} value={div}>Division {div}</option>)}
-                                    </select>
+                                    <div style={{ minWidth: '100px', zIndex: 50 }}>
+                                        <CustomMobileSelect
+                                            label="Filter by Division"
+                                            value={analyticsDivision}
+                                            onChange={setAnalyticsDivision}
+                                            options={[
+                                                { value: 'All', label: 'All Divisions' },
+                                                { value: 'A', label: 'Division A' },
+                                                { value: 'B', label: 'Division B' },
+                                                { value: 'C', label: 'Division C' },
+                                                { value: 'D', label: 'Division D' },
+                                                { value: 'E', label: 'Division E' },
+                                                { value: 'F', label: 'Division F' },
+                                                { value: 'G', label: 'Division G' },
+                                                { value: 'H', label: 'Division H' },
+                                                { value: 'I', label: 'Division I' },
+                                                { value: 'J', label: 'Division J' },
+                                                { value: 'K', label: 'Division K' },
+                                                { value: 'L', label: 'Division L' }
+                                            ]}
+                                        />
+                                    </div>
                                 ) : (
                                     <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '12px', display: 'flex', gap: '5px' }}>
                                         {['SE', 'TE', 'BE'].map(year => (
@@ -1625,57 +1635,200 @@ export default function HODDashboard() {
                     </div>
                 )}
 
-                {activeTab === 'leaves' && (
+{activeTab === 'leaves' && (
                     <div className="content-section">
-                        <h2 className="content-title">Leave Requests</h2>
-                        <div className="card card-full-width">
-                            <div className="table-wrapper">
-                                <table className="attendance-table">
-                                    <thead><tr><th>Name</th><th>Reason & Proof</th><th>Dates</th><th>Action</th></tr></thead>
-                                    <tbody>
-                                        {leaves.map(l => (
-                                            <tr key={l.id}>
-                                                <td><div style={{ fontWeight: '600' }}>{l.studentName}</div><div style={{ fontSize: '12px', color: '#64748b' }}>{l.rollNo}</div></td>
-                                                <td>
-                                                    <div>{l.reason}</div>
-                                                    {l.documentUrl && (<a href={l.documentUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: '5px', fontSize: '11px', color: '#2563eb', fontWeight: '600', textDecoration: 'none' }}><i className="fas fa-external-link-alt"></i> View Document</a>)}
-                                                </td>
-                                                <td>{l.fromDate} <br /><span style={{ fontSize: '12px', color: '#94a3b8' }}>to</span><br /> {l.toDate}</td>
-                                                <td><div style={{ display: 'flex', gap: '8px' }}><button onClick={() => handleLeaveAction(l.id, 'approved')} className="status-badge status-approved" style={{ border: 'none', cursor: 'pointer' }}>Approve</button><button onClick={() => handleLeaveAction(l.id, 'rejected')} className="status-badge status-denied" style={{ border: 'none', cursor: 'pointer' }}>Reject</button></div></td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
+                        <div className="section-header">
+                            <h2 className="gradient-text">Student Leave Requests</h2>
+                            <p className="subtitle">Review and manage student leave applications.</p>
+                        </div>
+
+                        <div className="leaves-grid">
+                            {/* ✅ FIXED: Changed 'leaveRequests' to 'leaves' */}
+                            {leaves.length > 0 ? (
+                                leaves.map(leave => (
+                                    <div key={leave.id} className="leave-card-modern">
+                                        <div className="leave-card-header">
+                                            <div className="student-profile-icon">
+                                                {/* Fallback if name is missing */}
+                                                {leave.studentName ? leave.studentName.charAt(0) : 'S'}
+                                            </div>
+                                            <div>
+                                                {/* Use studentName from your data structure */}
+                                                <h4>{leave.studentName}</h4>
+                                                <span className="roll-badge">Roll No: {leave.rollNo}</span>
+                                            </div>
+                                            <span className={`status-pill ${leave.status}`}>
+                                                {leave.status}
+                                            </span>
+                                        </div>
+
+                                        <div className="leave-body">
+                                            <div className="leave-dates">
+                                                <div className="date-box">
+                                                    <span className="label">From</span>
+                                                    <span className="date">{new Date(leave.fromDate).toLocaleDateString()}</span>
+                                                </div>
+                                                <div className="arrow">➝</div>
+                                                <div className="date-box">
+                                                    <span className="label">To</span>
+                                                    <span className="date">{new Date(leave.toDate).toLocaleDateString()}</span>
+                                                </div>
+                                            </div>
+                                            
+                                            <div className="reason-box">
+                                                <p><strong>Reason:</strong> {leave.reason}</p>
+                                            </div>
+
+                                            {leave.documentUrl && (
+                                                <a href={leave.documentUrl} target="_blank" rel="noreferrer" className="attachment-link">
+                                                    <i className="fas fa-paperclip"></i> View Attachment
+                                                </a>
+                                            )}
+                                        </div>
+
+                                        {leave.status === 'pending' && (
+                                            <div className="leave-actions-modern">
+                                                <button 
+                                                    className="action-btn approve"
+                                                    onClick={() => handleLeaveAction(leave.id, 'approved')}
+                                                >
+                                                    <i className="fas fa-check"></i> Approve
+                                                </button>
+                                                <button 
+                                                    className="action-btn reject"
+                                                    onClick={() => handleLeaveAction(leave.id, 'rejected')}
+                                                >
+                                                    <i className="fas fa-times"></i> Reject
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))
+                            ) : (
+                                // --- EMPTY STATE ---
+                                <div className="empty-state-modern">
+                                    <div className="empty-icon-circle">
+                                        <i className="fas fa-calendar-check"></i>
+                                    </div>
+                                    <h3>All Caught Up!</h3>
+                                    <p>There are no pending leave requests at the moment.</p>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
-
+                {/* --- STUDENT APPLICATIONS TAB (Redesigned) --- */}
                 {activeTab === 'requests' && (
                     <div className="content-section">
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-                            <h2 className="content-title">Student Applications</h2>
-                            {selectedRequestIds.length > 0 && <button onClick={() => confirmAction('Approve Selected?', `Approve ${selectedRequestIds.length} students?`, executeBulkApprove)} className="btn-primary" style={{ width: 'auto', padding: '8px 16px' }}>{loading ? 'Processing...' : `Approve (${selectedRequestIds.length})`}</button>}
-                        </div>
-                        <div className="card card-full-width">
-                            <div className="table-wrapper">
-                                <table className="attendance-table">
-                                    <thead><tr><th style={{ width: '40px' }}><input type="checkbox" className="custom-checkbox" checked={studentRequests.length > 0 && selectedRequestIds.length === studentRequests.length} onChange={toggleSelectRequestAll} /></th><th>Name</th><th>Class</th><th>College ID</th><th>Roll No</th><th>Email</th><th>Action</th></tr></thead>
-                                    <tbody>
-                                        {studentRequests.map(req => (
-                                            <tr key={req.id} className={selectedRequestIds.includes(req.id) ? 'row-selected' : ''}>
-                                                <td><input type="checkbox" className="custom-checkbox" checked={selectedRequestIds.includes(req.id)} onChange={() => toggleSelectRequestOne(req.id)} /></td>
-                                                <td>{req.firstName} {req.lastName}</td>
-                                                <td><span className="status-badge-pill" style={{ background: '#e0f2fe', color: '#0284c7' }}>{req.year || '-'}</span></td>
-                                                <td style={{ fontWeight: 'bold' }}>{req.collegeId}</td>
-                                                <td>{req.rollNo}</td>
-                                                <td>{req.email}</td>
-                                                <td><div style={{ display: 'flex', gap: '8px' }}><button onClick={() => confirmAction('Approve?', `Approve ${req.firstName}?`, () => executeSingleApprove(req))} className="status-badge status-approved" style={{ border: 'none', cursor: 'pointer' }}>Approve</button><button onClick={() => confirmAction('Reject?', `Reject?`, () => executeReject(req.id), 'danger')} className="status-badge status-denied" style={{ border: 'none', cursor: 'pointer' }}>Reject</button></div></td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                        <div className="section-header">
+                            <div>
+                                <h2 className="gradient-text">Student Applications</h2>
+                                <p className="subtitle">Review and manage new registrations.</p>
                             </div>
+                            
+                            {/* Bulk Action Button (Visible only when items selected) */}
+                            {selectedRequestIds.length > 0 && (
+                                <button 
+                                    onClick={() => confirmAction('Approve Selected?', `Approve ${selectedRequestIds.length} students?`, executeBulkApprove)} 
+                                    className="btn-primary" 
+                                    style={{ padding: '10px 20px', display: 'flex', alignItems: 'center', gap: '8px', width: 'auto' }}
+                                >
+                                    <i className="fas fa-check-double"></i> 
+                                    Approve ({selectedRequestIds.length})
+                                </button>
+                            )}
+                        </div>
+
+                        {/* Selection Bar (Visible only if requests exist) */}
+                        {studentRequests.length > 0 && (
+                            <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px', background: 'white', padding: '10px 15px', borderRadius: '12px', width: 'fit-content', border: '1px solid #e2e8f0' }}>
+                                <input 
+                                    type="checkbox" 
+                                    id="selectAll"
+                                    className="custom-checkbox" 
+                                    checked={selectedRequestIds.length === studentRequests.length} 
+                                    onChange={toggleSelectRequestAll} 
+                                    style={{ width: '18px', height: '18px' }}
+                                />
+                                <label htmlFor="selectAll" style={{ fontSize: '14px', fontWeight: '700', color: '#475569', cursor: 'pointer' }}>
+                                    Select All Applications
+                                </label>
+                            </div>
+                        )}
+
+                        <div className="requests-grid">
+                            {studentRequests.length > 0 ? (
+                                studentRequests.map(req => (
+                                    <div 
+                                        key={req.id} 
+                                        className={`request-card ${selectedRequestIds.includes(req.id) ? 'selected' : ''}`}
+                                        onClick={() => toggleSelectRequestOne(req.id)}
+                                    >
+                                        {/* Selection Checkbox */}
+                                        <div className="req-selection">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={selectedRequestIds.includes(req.id)} 
+                                                onChange={() => toggleSelectRequestOne(req.id)}
+                                                className="custom-checkbox"
+                                                onClick={(e) => e.stopPropagation()} // Prevent card click conflict
+                                            />
+                                        </div>
+
+                                        {/* Card Header */}
+                                        <div className="req-header">
+                                            <div className="student-avatar-small">
+                                                {req.firstName ? req.firstName.charAt(0) : 'S'}
+                                            </div>
+                                            <div>
+                                                <h4 className="req-name">{req.firstName} {req.lastName}</h4>
+                                                <span className="req-email">{req.email}</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Info Grid */}
+                                        <div className="req-details">
+                                            <div className="req-detail-item">
+                                                <span className="label">Roll No</span>
+                                                <span className="value">{req.rollNo || '-'}</span>
+                                            </div>
+                                            <div className="req-detail-item">
+                                                <span className="label">Year</span>
+                                                <span className="value">{req.year || '-'}</span>
+                                            </div>
+                                            <div className="req-detail-item">
+                                                <span className="label">College ID</span>
+                                                <span className="value">{req.collegeId || '-'}</span>
+                                            </div>
+                                        </div>
+
+                                        {/* Actions */}
+                                        <div className="req-actions">
+                                            <button 
+                                                className="action-btn approve"
+                                                onClick={(e) => { e.stopPropagation(); confirmAction('Approve?', `Approve ${req.firstName}?`, () => executeSingleApprove(req)); }}
+                                            >
+                                                <i className="fas fa-check"></i> Approve
+                                            </button>
+                                            <button 
+                                                className="action-btn reject"
+                                                onClick={(e) => { e.stopPropagation(); confirmAction('Reject?', `Reject?`, () => executeReject(req.id), 'danger'); }}
+                                            >
+                                                <i className="fas fa-times"></i> Reject
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))
+                            ) : (
+                                /* --- REUSING MODERN EMPTY STATE --- */
+                                <div className="empty-state-modern">
+                                    <div className="empty-icon-circle">
+                                        <i className="fas fa-user-check"></i>
+                                    </div>
+                                    <h3>No Pending Applications</h3>
+                                    <p>Great job! All student registrations have been processed.</p>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}

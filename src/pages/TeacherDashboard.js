@@ -38,6 +38,7 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
     const [loading, setLoading] = useState(false);
     const [activeTab, setActiveTab] = useState('create');
     const [selectedDiv, setSelectedDiv] = useState('');
+    const { downloadFile } = useFileDownloader();
 
     const assignedYears = teacherInfo?.assignedClasses
         ? [...new Set(teacherInfo.assignedClasses.flatMap(c => {
@@ -241,9 +242,13 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                                 <p className="card-msg">{ann.message}</p>
 
                                 {ann.attachmentUrl && (
-                                    <a href={ann.attachmentUrl} target="_blank" rel="noreferrer" className="view-doc-btn" style={{ marginTop: 'auto', width: 'fit-content' }}>
-                                        <i className="fas fa-eye"></i> View File
-                                    </a>
+                                    <button
+                                        onClick={() => downloadFile(ann.attachmentUrl, `Announcement_${ann.id}.pdf`)}
+                                        className="view-doc-btn"
+                                        style={{ marginTop: 'auto', width: 'fit-content', border: 'none', cursor: 'pointer' }}
+                                    >
+                                        <i className="fas fa-file-download"></i> Download File
+                                    </button>
                                 )}
 
                                 <div className="card-footer">
@@ -1246,6 +1251,7 @@ export default function TeacherDashboard() {
     const [historyDivision, setHistoryDivision] = useState('All');
     const { downloadFile } = useFileDownloader();
 
+
     // Year & Subject Logic
     const [selectedYear, setSelectedYear] = useState(null);
     const [showYearModal, setShowYearModal] = useState(false);
@@ -1837,9 +1843,17 @@ export default function TeacherDashboard() {
 
                                     <p style={{ color: '#475569', lineHeight: '1.6', fontSize: '14px' }}>{notice.message}</p>
                                     {notice.attachmentUrl && (
-                                        <a href={notice.attachmentUrl} target="_blank" rel="noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '12px', color: '#2563eb', fontSize: '13px', fontWeight: '600', textDecoration: 'none', background: '#f0f9ff', padding: '6px 12px', borderRadius: '6px' }}>
-                                            <i className="fas fa-paperclip"></i> View Attachment
-                                        </a>
+                                        <button
+                                            onClick={() => downloadFile(notice.attachmentUrl, `Notice_${notice.id}.pdf`)}
+                                            style={{
+                                                display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '12px',
+                                                color: '#2563eb', fontSize: '13px', fontWeight: '600', textDecoration: 'none',
+                                                background: '#f0f9ff', padding: '6px 12px', borderRadius: '6px',
+                                                border: '1px solid #bfdbfe', cursor: 'pointer'
+                                            }}
+                                        >
+                                            <i className="fas fa-file-download"></i> Download Attachment
+                                        </button>
                                     )}
 
                                     <div style={{ marginTop: '15px', paddingTop: '10px', borderTop: '1px solid #f1f5f9', fontSize: '12px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '6px' }}>

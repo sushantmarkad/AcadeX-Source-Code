@@ -11,6 +11,7 @@ import ResumeBuilderModal from '../components/ResumeBuilderModal';
 import CodingChallengeModal from '../components/CodingChallengeModal';
 import TypingTestModal from '../components/TypingTestModal';
 import FlashCardModal from '../components/FlashCardModal';
+import { useFileDownloader } from '../hooks/useFileDownloader';
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
@@ -42,6 +43,7 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
     const [showCodingModal, setShowCodingModal] = useState(false);
     const [showTypingModal, setShowTypingModal] = useState(false);
     const [showFlashCardModal, setShowFlashCardModal] = useState(false);
+    const { downloadFile } = useFileDownloader();
 
     const [credits, setCredits] = useState(user?.xp || 0);
     useEffect(() => { if (user?.xp !== undefined) setCredits(user.xp); }, [user?.xp]);
@@ -186,7 +188,7 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
             {/* Header */}
             <div className="fp-header-row">
                 <div className="fp-header-text">
-                    <h2 className="fp-title">My Tasks</h2>
+                   <h2 className="fp-title">My Tasks ({assignments.length})</h2>
                     <p className="fp-subtitle">Complete tasks to earn <span className="fp-gradient-text">Academic Credits</span>.</p>
                 </div>
                 <div className="fp-stats-card">
@@ -258,21 +260,24 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
                                             gap: '10px'        /* ✅ Adds spacing when wrapped */
                                         }}>
 
-                                        {/* Left Side: Attachment */}
-                                        {task.attachmentUrl ? (
-                                            <a href={task.attachmentUrl} target="_blank" rel="noreferrer"
-                                                style={{
-                                                    textDecoration: 'none', color: '#334155', fontSize: '13px',
-                                                    fontWeight: '600', display: 'flex', alignItems: 'center',
-                                                    gap: '8px', padding: '8px 14px', background: '#f8fafc',
-                                                    borderRadius: '8px', border: '1px solid #e2e8f0', transition: '0.2s',
-                                                    flex: '1 1 auto', /* ✅ Allows it to grow/shrink */
-                                                    minWidth: '120px', /* ✅ Prevents it from getting too small */
-                                                    justifyContent: 'center' /* ✅ Centers text on mobile */
-                                                }}>
-                                                <i className="fas fa-paperclip" style={{ color: '#6366f1' }}></i> View File
-                                            </a>
-                                        ) : <div style={{ flex: '1 1 auto' }}></div> /* Spacer */}
+                                        {/* Left Side: Attachment (UPDATED FOR DOWNLOAD) */}
+                                            {task.attachmentUrl ? (
+                                                <button 
+                                                    onClick={(e) => {
+                                                        e.stopPropagation(); // Stop card click
+                                                        downloadFile(task.attachmentUrl, `Task_${task.title}.pdf`);
+                                                    }}
+                                                    style={{
+                                                        border: 'none', cursor: 'pointer',
+                                                        color: '#334155', fontSize: '13px',
+                                                        fontWeight: '600', display: 'flex', alignItems: 'center',
+                                                        gap: '8px', padding: '8px 14px', background: '#f8fafc',
+                                                        borderRadius: '8px', border: '1px solid #e2e8f0', transition: '0.2s',
+                                                        flex: '1 1 auto', minWidth: '120px', justifyContent: 'center'
+                                                    }}>
+                                                    <i className="fas fa-file-download" style={{ color: '#6366f1' }}></i> Download File
+                                                </button>
+                                            ) : <div style={{ flex: '1 1 auto' }}></div> /* Spacer */}
 
                                         {/* Right Side: Action Button */}
                                         {sub ? (
