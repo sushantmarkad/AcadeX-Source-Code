@@ -12,6 +12,7 @@ import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { BarcodeScanner } from '@capacitor-mlkit/barcode-scanning'; // ✅ NATIVE CAMERA
+import NativeFriendlyDateInput from '../components/NativeFriendlyDateInput';
 
 // ✅ NEW IMPORTS FOR SECURITY
 import { Device } from '@capacitor/device';
@@ -147,11 +148,22 @@ const LeaveRequestForm = ({ user }) => {
                     <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
                         <div className="input-group" style={{ flex: 1 }}>
                             <label>From</label>
-                            <input type="date" required value={form.fromDate} onChange={e => setForm({ ...form, fromDate: e.target.value })} />
+                            {/* ✅ UPDATED: Native Friendly Input */}
+                            <NativeFriendlyDateInput 
+                                required 
+                                value={form.fromDate} 
+                                onChange={(nextDate) => setForm({ ...form, fromDate: nextDate })} 
+                            />
                         </div>
                         <div className="input-group" style={{ flex: 1 }}>
                             <label>To</label>
-                            <input type="date" required value={form.toDate} onChange={e => setForm({ ...form, toDate: e.target.value })} />
+                            {/* ✅ UPDATED: Native Friendly Input with Min Date Logic */}
+                            <NativeFriendlyDateInput 
+                                required 
+                                value={form.toDate} 
+                                onChange={(nextDate) => setForm({ ...form, toDate: nextDate })} 
+                                min={form.fromDate || undefined} 
+                            />
                         </div>
                     </div>
 
@@ -160,7 +172,7 @@ const LeaveRequestForm = ({ user }) => {
                         <input
                             type="file"
                             accept="image/*,.pdf"
-                            required  // 👈 THIS MAKES IT MANDATORY
+                            required
                             onChange={(e) => setFile(e.target.files[0])}
                             style={{ padding: '10px', background: '#f8fafc' }}
                         />

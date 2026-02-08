@@ -12,7 +12,8 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import CustomDropdown from '../components/CustomDropdown';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { Capacitor } from '@capacitor/core';
-import { DatePicker } from '@capacitor-community/date-picker';
+import NativeFriendlyDateInput from '../components/NativeFriendlyDateInput';
+
 
 // Component Imports
 import AddTasks from './AddTasks';
@@ -645,29 +646,7 @@ const DashboardHome = ({
         fetchStrength();
     }, [teacherInfo, selectedYear]);
 
-    // --- 📱 NATIVE DATE PICKER LOGIC ---
-    const openNativeDatePicker = async () => {
-        try {
-            const { value } = await DatePicker.present({
-                mode: 'date',
-                locale: 'en_GB',
-                format: 'yyyy-MM-dd',
-                date: selectedDate, // Opens with currently selected date
-                theme: 'light',
-                android: {
-                    calendar: false, // Set true if you want calendar view, false for spinner
-                    mode: 'spinner'
-                }
-            });
 
-            if (value) {
-                setSelectedDate(value);
-            }
-        } catch (error) {
-            console.log("Native picker not available (likely on web)", error);
-            // Optional: fallback logic for web testing if needed
-        }
-    };
 
     const getCurrentSubject = () => {
         if (!teacherInfo) return "Class";
@@ -988,62 +967,18 @@ const DashboardHome = ({
                             />
                         </div>
 
-                        {/* 2. DATE SELECTOR (Universal: Hybrid Native + Web) */}
-                        <div style={{ flex: 1, minWidth: '140px', maxWidth: '100%' }}> {/* ✅ FIXED: Reduced minWidth & added maxWidth */}
+                        {/* 2. DATE SELECTOR */}
+                        <div style={{ flex: 1, minWidth: '140px', maxWidth: '100%' }}>
                             <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>
                                 Select Date
                             </label>
 
-                            <div
-                                /* Mobile: Click triggers Native Plugin */
-                                onClick={Capacitor.isNativePlatform() ? openNativeDatePicker : undefined}
+                            {/* ✅ NEW COMPONENT USAGE */}
+                            <NativeFriendlyDateInput
                                 className="card-hover"
-                                style={{
-                                    background: 'white',
-                                    padding: '12px',
-                                    borderRadius: '12px',
-                                    border: '1px solid #cbd5e1',
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    cursor: 'pointer',
-                                    height: '48px',
-                                    userSelect: 'none',
-                                    position: 'relative',
-                                    overflow: 'hidden' /* ✅ FIXED: Prevents invisible input from expanding width */
-                                }}
-                            >
-                                <span style={{
-                                    color: '#334155',
-                                    fontWeight: '600',
-                                    fontSize: '14px',
-                                    whiteSpace: 'nowrap',       /* ✅ FIXED: Prevents text wrapping */
-                                    overflow: 'hidden',         /* ✅ FIXED: Handles long text gracefully */
-                                    textOverflow: 'ellipsis'
-                                }}>
-                                    {new Date(selectedDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                                </span>
-                                <i className="fas fa-calendar-alt" style={{ color: '#64748b', marginLeft: '8px', flexShrink: 0 }}></i>
-
-                                {/* Web/PC: Transparent Input Overlay */}
-                                {!Capacitor.isNativePlatform() && (
-                                    <input
-                                        type="date"
-                                        value={selectedDate}
-                                        onChange={(e) => setSelectedDate(e.target.value)}
-                                        style={{
-                                            position: 'absolute',
-                                            top: 0,
-                                            left: 0,
-                                            width: '100%',
-                                            height: '100%',
-                                            opacity: 0, // Invisible but clickable
-                                            cursor: 'pointer',
-                                            zIndex: 10
-                                        }}
-                                    />
-                                )}
-                            </div>
+                                value={selectedDate}
+                                onChange={setSelectedDate}
+                            />
                         </div>
 
                         {/* 3. DYNAMIC HEADER */}
