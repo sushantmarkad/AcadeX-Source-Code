@@ -37,13 +37,13 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
     const [activeTab, setActiveTab] = useState('create');
     const [selectedDiv, setSelectedDiv] = useState('');
 
-   const assignedYears = teacherInfo?.assignedClasses
+    const assignedYears = teacherInfo?.assignedClasses
         ? [...new Set(teacherInfo.assignedClasses.flatMap(c => {
             if (c.year === 'FE' && c.divisions) {
                 // Split FE into divisions
                 return c.divisions.split(',').map(div => ({
                     label: `FE - Div ${div.trim()}`,
-                    value: `FE|${div.trim()}` 
+                    value: `FE|${div.trim()}`
                 }));
             }
             return [{ label: `${c.year} Year (All)`, value: `${c.year}|All` }];
@@ -66,13 +66,13 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
         return () => { if (unsubscribe) unsubscribe(); };
     }, [teacherInfo]);
 
-   const handlePost = async (e) => {
+    const handlePost = async (e) => {
         e.preventDefault();
         if (!form.targetYear) return toast.error("Please select a target class.");
 
         setLoading(true);
         const toastId = toast.loading("Uploading & Posting...");
-        
+
         try {
             // ✅ Parse "Year|Div" into separate variables
             // Fallback: If value has no pipe (e.g. legacy data), treat as "Year|All"
@@ -107,7 +107,7 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     title: `📢 New Notice: ${form.title}`,
-                    message: form.message, 
+                    message: form.message,
                     targetYear: targetYear,    // ✅ Use cleaned year
                     division: targetDivision,  // ✅ Use cleaned division
                     instituteId: teacherInfo.instituteId,
@@ -182,7 +182,7 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                         <div className="form-sidebar">
                             <div className="input-group">
                                 <label>Target Class</label>
-                               <CustomDropdown
+                                <CustomDropdown
                                     value={form.targetYear}
                                     /* ✅ SAFE FIX: Checks if 'e' is an event object or direct value */
                                     onChange={(e) => {
@@ -683,7 +683,7 @@ const DashboardHome = ({
         return parseInt(a.rollNo) - parseInt(b.rollNo);
     });
 
-  // --- ACTIONS ---
+    // --- ACTIONS ---
     const handleInverseAttendance = async () => {
         const absentees = absentList.split(',').map(s => s.trim()).filter(s => s !== "");
         if (absentees.length === 0 && !window.confirm("Mark EVERYONE as present?")) return;
@@ -988,8 +988,8 @@ const DashboardHome = ({
                             />
                         </div>
 
-                        {/* 2. DATE SELECTOR (Hybrid: Native Mobile + Web Overlay) */}
-                        <div style={{ flex: 1, minWidth: '200px' }}>
+                        {/* 2. DATE SELECTOR (Universal: Hybrid Native + Web) */}
+                        <div style={{ flex: 1, minWidth: '140px', maxWidth: '100%' }}> {/* ✅ FIXED: Reduced minWidth & added maxWidth */}
                             <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>
                                 Select Date
                             </label>
@@ -1009,13 +1009,21 @@ const DashboardHome = ({
                                     cursor: 'pointer',
                                     height: '48px',
                                     userSelect: 'none',
-                                    position: 'relative' /* Essential for Web Overlay */
+                                    position: 'relative',
+                                    overflow: 'hidden' /* ✅ FIXED: Prevents invisible input from expanding width */
                                 }}
                             >
-                                <span style={{ color: '#334155', fontWeight: '600', fontSize: '14px' }}>
+                                <span style={{
+                                    color: '#334155',
+                                    fontWeight: '600',
+                                    fontSize: '14px',
+                                    whiteSpace: 'nowrap',       /* ✅ FIXED: Prevents text wrapping */
+                                    overflow: 'hidden',         /* ✅ FIXED: Handles long text gracefully */
+                                    textOverflow: 'ellipsis'
+                                }}>
                                     {new Date(selectedDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                                 </span>
-                                <i className="fas fa-calendar-alt" style={{ color: '#64748b' }}></i>
+                                <i className="fas fa-calendar-alt" style={{ color: '#64748b', marginLeft: '8px', flexShrink: 0 }}></i>
 
                                 {/* Web/PC: Transparent Input Overlay */}
                                 {!Capacitor.isNativePlatform() && (
