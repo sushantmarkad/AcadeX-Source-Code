@@ -1833,13 +1833,19 @@ export default function HODDashboard() {
                                         <input type="text" value={hodInfo?.department || ''} disabled style={{ background: '#f1f5f9', color: '#94a3b8' }} />
                                     </div>
 
-                                    {/* Academic Year Select */}
+                                   {/* Academic Year Select */}
                                     <div style={{ position: 'relative', zIndex: 20 }}>
                                         <CustomMobileSelect
                                             label="Academic Year"
                                             value={teacherForm.academicYear}
                                             onChange={(val) => setTeacherForm({ ...teacherForm, academicYear: val })}
-                                            options={[{ value: '2024-2025', label: '2024-2025' }, { value: '2025-2026', label: '2025-2026' }]}
+                                            options={[
+                                                { value: '2024-2025', label: '2024-2025' },
+                                                { value: '2025-2026', label: '2025-2026' },
+                                                { value: '2026-2027', label: '2026-2027' },
+                                                { value: '2027-2028', label: '2027-2028' },
+                                                { value: '2028-2029', label: '2028-2029' }
+                                            ]}
                                         />
                                     </div>
                                 </div>

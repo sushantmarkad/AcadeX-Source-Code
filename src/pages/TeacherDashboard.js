@@ -13,6 +13,7 @@ import CustomDropdown from '../components/CustomDropdown';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { Capacitor } from '@capacitor/core';
 import NativeFriendlyDateInput from '../components/NativeFriendlyDateInput';
+import { useFileDownloader } from '../hooks/useFileDownloader';
 
 
 // Component Imports
@@ -1243,6 +1244,7 @@ export default function TeacherDashboard() {
     const [adminNotices, setAdminNotices] = useState([]);
     const [unreadNoticeCount, setUnreadNoticeCount] = useState(0);
     const [historyDivision, setHistoryDivision] = useState('All');
+    const { downloadFile } = useFileDownloader();
 
     // Year & Subject Logic
     const [selectedYear, setSelectedYear] = useState(null);

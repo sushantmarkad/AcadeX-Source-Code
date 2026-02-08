@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
-import { db } from '../firebase'; 
+import { db } from '../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 
 // ✅ Make sure this matches your deployed backend URL
@@ -15,14 +15,14 @@ const CustomMobileSelect = ({ label, value, onChange, options, icon }) => {
             <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 {label}
             </label>
-            
-            <div 
+
+            <div
                 onClick={() => setIsOpen(!isOpen)}
                 style={{
                     padding: '14px 16px', borderRadius: '12px', background: '#f8fafc',
-                    border: isOpen ? '2px solid #3b82f6' : '2px solid #e2e8f0', 
-                    color: '#1e293b', fontWeight: '700', cursor: 'pointer', 
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
+                    border: isOpen ? '2px solid #3b82f6' : '2px solid #e2e8f0',
+                    color: '#1e293b', fontWeight: '700', cursor: 'pointer',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     transition: 'all 0.2s ease', width: '100%'
                 }}
             >
@@ -44,7 +44,7 @@ const CustomMobileSelect = ({ label, value, onChange, options, icon }) => {
                         zIndex: 100, maxHeight: '250px', overflowY: 'auto'
                     }}>
                         {options.map((opt) => (
-                            <div 
+                            <div
                                 key={opt.value}
                                 onClick={() => { onChange(opt.value); setIsOpen(false); }}
                                 style={{
@@ -74,8 +74,8 @@ export default function AddHOD({ instituteId, instituteName }) {
         email: '',
         password: '',
         department: '',
-        qualification: '', 
-        phone: ''          
+        qualification: '',
+        phone: ''
     });
     const [loading, setLoading] = useState(false);
 
@@ -111,10 +111,10 @@ export default function AddHOD({ instituteId, instituteName }) {
                     lastName: form.lastName,
                     email: form.email,
                     password: form.password,
-                    role: 'hod', 
+                    role: 'hod',
                     instituteId,
                     instituteName,
-                    department: form.department, 
+                    department: form.department,
                     phone: form.phone,
                     qualification: form.qualification,
                     // Sending extra fields for Firestore storage
@@ -137,8 +137,10 @@ export default function AddHOD({ instituteId, instituteName }) {
                         email: form.email,
                         password: form.password,
                         firstName: form.firstName,
+                        lastName: form.lastName,      // <--- Make sure this is sent
+                        role: 'hod',                  // <--- Make sure this is sent
                         department: form.department,
-                        academicYear: new Date().getFullYear() + "-" + (new Date().getFullYear() + 1),
+                        academicYear: "2026-2027",    // <--- You can also make this dynamic if needed
                         assignedClasses: [] // HODs might not have direct classes initially
                     })
                 });
@@ -149,7 +151,7 @@ export default function AddHOD({ instituteId, instituteName }) {
             }
 
             setForm({ firstName: '', lastName: '', email: '', password: '', department: '', qualification: '', phone: '' });
-            
+
         } catch (error) {
             console.error("Error adding HOD:", error);
             toast.error(error.message, { id: toastId });
@@ -169,16 +171,16 @@ export default function AddHOD({ instituteId, instituteName }) {
             <h2 className="content-title">Add Head of Department</h2>
             <p className="content-subtitle">Appoint an HOD for a department or First Year.</p>
 
-            <div className="card fade-in-up" style={{ 
-                background: 'white', borderRadius: '24px', border: 'none', 
-                boxShadow: '0 20px 50px -10px rgba(0,0,0,0.1)', overflow: 'visible', 
-                position: 'relative', maxWidth: '800px', padding: '0' 
+            <div className="card fade-in-up" style={{
+                background: 'white', borderRadius: '24px', border: 'none',
+                boxShadow: '0 20px 50px -10px rgba(0,0,0,0.1)', overflow: 'visible',
+                position: 'relative', maxWidth: '800px', padding: '0'
             }}>
-                
+
                 {/* Header */}
-                <div style={{ 
-                    background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)', 
-                    padding: '20px 25px', borderRadius: '24px 24px 0 0', position: 'relative', overflow: 'hidden' 
+                <div style={{
+                    background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
+                    padding: '20px 25px', borderRadius: '24px 24px 0 0', position: 'relative', overflow: 'hidden'
                 }}>
                     <h3 style={{ margin: 0, color: 'white', fontSize: '18px', display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <i className="fas fa-user-tie"></i> Appoint HOD
@@ -187,9 +189,9 @@ export default function AddHOD({ instituteId, instituteName }) {
                 </div>
 
                 <form onSubmit={handleSubmit} style={{ padding: '25px' }}>
-                    
+
                     {/* Row 1: Name */}
-                    <div style={{ display: 'flex', gap: '15px', flexWrap:'wrap', marginBottom: '15px' }}>
+                    <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', marginBottom: '15px' }}>
                         <div className="input-group" style={{ flex: 1, minWidth: '200px' }}>
                             <label>First Name</label>
                             <input type="text" required placeholder="e.g. Ramesh" value={form.firstName} onChange={e => setForm({ ...form, firstName: e.target.value })} />
@@ -202,7 +204,7 @@ export default function AddHOD({ instituteId, instituteName }) {
 
                     {/* Row 2: Department (Custom Dropdown) */}
                     <div style={{ marginBottom: '20px' }}>
-                        <CustomMobileSelect 
+                        <CustomMobileSelect
                             label="Department / Class"
                             icon="fa-building"
                             value={form.department}
@@ -212,7 +214,7 @@ export default function AddHOD({ instituteId, instituteName }) {
                     </div>
 
                     {/* Row 3: Credentials */}
-                    <div style={{ display: 'flex', gap: '15px', flexWrap:'wrap', marginBottom: '15px' }}>
+                    <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', marginBottom: '15px' }}>
                         <div className="input-group" style={{ flex: 1, minWidth: '200px' }}>
                             <label>Email Address</label>
                             <input type="email" required placeholder="hod@college.edu" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />
@@ -224,7 +226,7 @@ export default function AddHOD({ instituteId, instituteName }) {
                     </div>
 
                     {/* Row 4: Extra Details */}
-                    <div style={{ display: 'flex', gap: '15px', flexWrap:'wrap', marginBottom: '20px' }}>
+                    <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap', marginBottom: '20px' }}>
                         <div className="input-group" style={{ flex: 1, minWidth: '200px' }}>
                             <label>Qualification</label>
                             <input type="text" placeholder="e.g. PhD, M.Tech" value={form.qualification} onChange={e => setForm({ ...form, qualification: e.target.value })} />
@@ -235,10 +237,10 @@ export default function AddHOD({ instituteId, instituteName }) {
                         </div>
                     </div>
 
-                    <button 
-                        className="btn-primary" 
-                        disabled={loading} 
-                        style={{ 
+                    <button
+                        className="btn-primary"
+                        disabled={loading}
+                        style={{
                             width: '100%', padding: '14px', borderRadius: '12px', fontSize: '16px', fontWeight: '700',
                             background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)', border: 'none',
                             boxShadow: '0 4px 15px rgba(37, 99, 235, 0.3)'

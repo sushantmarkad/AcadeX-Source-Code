@@ -13,6 +13,7 @@ import { PushNotifications } from '@capacitor/push-notifications';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { BarcodeScanner } from '@capacitor-mlkit/barcode-scanning'; // ✅ NATIVE CAMERA
 import NativeFriendlyDateInput from '../components/NativeFriendlyDateInput';
+import { useFileDownloader } from '../hooks/useFileDownloader';
 
 // ✅ NEW IMPORTS FOR SECURITY
 import { Device } from '@capacitor/device';
@@ -660,6 +661,7 @@ export default function StudentDashboard() {
     const [recentAttendance, setRecentAttendance] = useState([]);
     const [zoom, setZoom] = useState(1);
     const [zoomCap, setZoomCap] = useState(null);
+    const { downloadFile } = useFileDownloader();
 
 
     // ✅ GLOBAL SCHEDULE STATE
