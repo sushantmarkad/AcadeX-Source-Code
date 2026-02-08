@@ -4,7 +4,6 @@
   "private": true,
   "dependencies": {
     "@bcyesil/capacitor-plugin-printer": "^0.0.6",
-    "@capacitor-community/date-picker": "^7.1.0",
     "@capacitor-mlkit/barcode-scanning": "^8.0.0",
     "@capacitor/android": "^8.0.0",
     "@capacitor/camera": "^8.0.0",
