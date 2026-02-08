@@ -5,7 +5,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import toast from 'react-hot-toast';
 import ReactDOM from 'react-dom';
 import CustomDropdown from '../components/CustomDropdown';
-import { DatePicker } from '@capacitor-community/date-picker';
+import NativeFriendlyDateInput from '../components/NativeFriendlyDateInput';
 import { Capacitor } from '@capacitor/core';
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
@@ -76,18 +76,7 @@ export default function AddTasks({ teacherInfo }) {
         }
     };
 
-    // --- 📅 DATE PICKER LOGIC ---
-    const openNativeDatePicker = async () => {
-        try {
-            const { value } = await DatePicker.present({
-                mode: 'date', locale: 'en_GB', format: 'yyyy-MM-dd',
-                date: form.dueDate || new Date().toISOString().split('T')[0],
-                theme: 'light', android: { calendar: false, mode: 'spinner' }
-            });
-            if (value) setForm(prev => ({ ...prev, dueDate: value }));
-        } catch (error) { console.log("Native picker not available", error); }
-    };
-
+    
     // --- 🚀 SUBMIT / CREATE LOGIC ---
     const handleCreate = async (e) => {
         e.preventDefault();
@@ -233,22 +222,19 @@ export default function AddTasks({ teacherInfo }) {
                                 />
                             </div>
 
-                            {/* --- DATE PICKER --- */}
+                           {/* --- DATE PICKER (FIXED) --- */}
                             <div className="input-group">
                                 <label>Deadline</label>
-                                <div 
-                                    onClick={Capacitor.isNativePlatform() ? openNativeDatePicker : undefined} 
-                                    style={{ background: '#f8fafc', padding: '12px', borderRadius: '10px', border: '2px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', position: 'relative' }}
-                                >
-                                    <span style={{ color: form.dueDate ? '#334155' : '#94a3b8', fontSize: '14px' }}>
-                                        {form.dueDate ? new Date(form.dueDate).toLocaleDateString('en-GB') : 'Select Date'}
-                                    </span>
-                                    <i className="fas fa-calendar-alt" style={{ color: '#d946ef' }}></i>
-                                    {/* Web Overlay Input */}
-                                    {!Capacitor.isNativePlatform() && (
-                                        <input type="date" required value={form.dueDate} onChange={e => setForm({ ...form, dueDate: e.target.value })} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer', zIndex: 10 }} />
-                                    )}
-                                </div>
+                                <NativeFriendlyDateInput
+                                    required
+                                    value={form.dueDate}
+                                    onChange={(val) => setForm({ ...form, dueDate: val })}
+                                    style={{ 
+                                        background: '#f8fafc', 
+                                        border: '2px solid #f1f5f9', 
+                                        borderRadius: '10px' 
+                                    }} 
+                                />
                             </div>
 
                             <div className="file-upload-box">

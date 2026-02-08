@@ -33,10 +33,14 @@ export default function NativeFriendlyDateInput({ value, onChange, required = fa
                 borderRadius: '12px',
                 padding: '0 12px',
                 height: '48px',
-                width: '100%',       /* ✅ Ensure it fills the parent width */
-                minWidth: '140px',   /* ✅ Prevent it from getting too small */
-                overflow: 'hidden',  /* ✅ Clip content if it gets too wide */
+                width: '100%',
+                minWidth: '140px',
+                overflow: 'hidden',
                 cursor: 'pointer',
+                // ✅ Improved for Android - prevent text selection
+                userSelect: 'none',
+                WebkitUserSelect: 'none',
+                WebkitTapHighlightColor: 'transparent',
                 ...style
             }}
         >
@@ -48,12 +52,20 @@ export default function NativeFriendlyDateInput({ value, onChange, required = fa
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
-                marginRight: '8px'
+                marginRight: '8px',
+                pointerEvents: 'none', // ✅ Prevents interference with input clicks
             }}>
                 {formatForDisplay(safeValue)}
             </span>
             
-            <i className="fas fa-calendar-alt" style={{ color: '#64748b', flexShrink: 0 }}></i>
+            <i 
+                className="fas fa-calendar-alt" 
+                style={{ 
+                    color: '#64748b', 
+                    flexShrink: 0,
+                    pointerEvents: 'none' // ✅ Prevents interference with input clicks
+                }}
+            ></i>
 
             {/* 2. INVISIBLE FUNCTIONAL PART (The Overlay) */}
             {/* This input sits ON TOP of the design. When you tap the box, you are actually tapping this input. */}
@@ -64,19 +76,31 @@ export default function NativeFriendlyDateInput({ value, onChange, required = fa
                 min={min}
                 max={max}
                 onChange={(e) => onChange(e.target.value)}
+                // ✅ ANDROID FIX: Prevent keyboard on Android, force native picker
+                onFocus={(e) => {
+                    // Force blur then refocus to ensure native picker opens
+                    e.target.blur();
+                    setTimeout(() => e.target.focus(), 0);
+                }}
                 style={{
                     position: 'absolute',
                     top: 0,
                     left: 0,
                     width: '100%',
                     height: '100%',
-                    opacity: 0,        /* ✅ Invisible but clickable */
-                    zIndex: 10,        /* ✅ Stacks on top */
+                    opacity: 0,
+                    zIndex: 10,
                     border: 'none',
                     padding: 0,
                     margin: 0,
-                    appearance: 'none',        /* ✅ Reset native styling */
-                    WebkitAppearance: 'none'   /* ✅ Reset Safari/Chrome styling */
+                    cursor: 'pointer',
+                    // ✅ CRITICAL: Reset all native styling
+                    appearance: 'none',
+                    WebkitAppearance: 'none',
+                    MozAppearance: 'none',
+                    // ✅ Android specific fixes
+                    outline: 'none',
+                    background: 'transparent',
                 }}
             />
         </div>

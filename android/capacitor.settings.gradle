@@ -5,9 +5,6 @@ project(':capacitor-android').projectDir = new File('../node_modules/@capacitor/
 include ':bcyesil-capacitor-plugin-printer'
 project(':bcyesil-capacitor-plugin-printer').projectDir = new File('../node_modules/@bcyesil/capacitor-plugin-printer/android')
 
-include ':capacitor-community-date-picker'
-project(':capacitor-community-date-picker').projectDir = new File('../node_modules/@capacitor-community/date-picker/android')
-
 include ':capacitor-mlkit-barcode-scanning'
 project(':capacitor-mlkit-barcode-scanning').projectDir = new File('../node_modules/@capacitor-mlkit/barcode-scanning/android')
 
