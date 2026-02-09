@@ -152,7 +152,23 @@ function App() {
 
   return (
     <Suspense fallback={<DashboardSkeleton />}>
-      <Toaster position="bottom-center" toastOptions={{ style: { background: '#1e293b', color: '#fff' } }} />
+     <Toaster 
+    position="bottom-center" // ✅ Keeps it at the bottom
+    reverseOrder={false}
+    containerStyle={{
+        bottom: 80, // ⬆️ MOVES IT UP (Adjust this number: 80px is good for mobile navs)
+        zIndex: 9999999, // 🛡️ Ensures it stays on top of everything
+    }}
+    toastOptions={{
+        style: {
+            fontSize: '14px',
+            borderRadius: '12px',
+            background: '#1e293b', // Darker background for contrast
+            color: '#fff',
+            marginBottom: '20px' // Adds a little extra breathing room
+        },
+    }}
+/>
       
       {/* 🔐 GLOBAL 2FA LOCK SCREEN - RESTORED & LAZY LOADED */}
       {is2FARequired && (

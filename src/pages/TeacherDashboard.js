@@ -14,6 +14,7 @@ import { PushNotifications } from '@capacitor/push-notifications';
 import { Capacitor } from '@capacitor/core';
 import NativeFriendlyDateInput from '../components/NativeFriendlyDateInput';
 import { useFileDownloader } from '../hooks/useFileDownloader';
+import ReactDOM from 'react-dom';
 
 
 // Component Imports
@@ -405,9 +406,9 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
     );
 };
 // ------------------------------------
-//  COMPONENT: TEACHER ANALYTICS (With Gradient Title)
+//  COMPONENT: TEACHER ANALYTICS (Updated for Division Support)
 // ------------------------------------
-const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
+const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv }) => {
     const [chartData, setChartData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [graphType, setGraphType] = useState('theory');
@@ -435,7 +436,7 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
             startDate.setHours(0, 0, 0, 0);
 
             try {
-                // 1. Get Class Strength
+                // 1. Get Class Strength (Filtered by Division)
                 const qStudents = query(
                     collection(db, 'users'),
                     where('instituteId', '==', teacherInfo.instituteId),
@@ -444,7 +445,13 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
                     where('department', '==', teacherInfo.department)
                 );
                 const studentsSnap = await getDocs(qStudents);
-                const totalStudents = studentsSnap.size || 1;
+
+                // ✅ FIX: Filter Students by Division
+                let validStudents = studentsSnap.docs;
+                if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
+                    validStudents = validStudents.filter(doc => doc.data().division === selectedDiv);
+                }
+                const totalStudents = validStudents.length || 1;
                 setClassStrength(totalStudents);
 
                 // 2. Get Attendance Logs
@@ -459,20 +466,33 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
                 const sessionIds = new Set();
                 snap.docs.forEach(d => sessionIds.add(d.data().sessionId));
 
-                const sessionTypes = {};
+                // 3. Get Session Metadata (Type & Division)
+                const sessionMeta = {};
                 await Promise.all(Array.from(sessionIds).map(async (sid) => {
                     const sDoc = await getDoc(doc(db, 'live_sessions', sid));
                     if (sDoc.exists()) {
-                        sessionTypes[sid] = sDoc.data().type || 'theory';
+                        sessionMeta[sid] = {
+                            type: sDoc.data().type || 'theory',
+                            division: sDoc.data().division // ✅ Capture Division
+                        };
                     }
                 }));
 
                 const stats = {};
                 snap.docs.forEach(doc => {
                     const data = doc.data();
-                    const sType = sessionTypes[data.sessionId] || 'theory';
+                    const meta = sessionMeta[data.sessionId];
 
-                    if (sType === graphType) {
+                    // ✅ SKIP if session metadata missing
+                    if (!meta) return;
+
+                    // ✅ FIX: Filter Data by Division
+                    if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
+                        // If session has a specific division and it doesn't match selected, skip
+                        if (meta.division && meta.division !== selectedDiv) return;
+                    }
+
+                    if (meta.type === graphType) {
                         const date = data.timestamp.toDate();
                         const dayStr = timeRange === 'week'
                             ? date.toLocaleDateString('en-GB', { weekday: 'short' })
@@ -511,7 +531,7 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
             finally { setLoading(false); }
         };
         fetchAnalytics();
-    }, [teacherInfo, selectedYear, graphType, timeRange]);
+    }, [teacherInfo, selectedYear, graphType, timeRange, selectedDiv]); // ✅ Add selectedDiv dependency
 
     const CustomTooltip = ({ active, payload, label }) => {
         if (active && payload && payload.length) {
@@ -536,10 +556,10 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
         <div className="content-section">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '20px' }}>
                 <div>
-                    {/* ✅ UPDATED TITLE CLASS */}
                     <h2 className="gradient-text">Analytics</h2>
                     <p className="content-subtitle">
-                        Average Attendance for <strong>{graphType === 'theory' ? 'Theory' : 'Practical'}</strong>
+                        {/* ✅ Show Division in Subtitle */}
+                        {selectedYear} {selectedYear === 'FE' && selectedDiv ? `(Div ${selectedDiv})` : ''} • Average Attendance
                     </p>
                 </div>
 
@@ -602,7 +622,6 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
                 )}
             </div>
 
-            {/* ✅ CSS For Gradient Text */}
             <style>{`
                 .gradient-text {
                     background: linear-gradient(135deg, #7c3aed 0%, #db2777 100%);
@@ -621,7 +640,7 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear }) => {
 //  COMPONENT: DASHBOARD HOME
 // ------------------------------------
 const DashboardHome = ({
-    teacherInfo, activeSession, attendanceList, onSessionToggle, viewMode, setViewMode,
+    teacherInfo, activeSession, attendanceList, onSessionToggle, viewMode, setViewMode, startDate, setStartDate, endDate, setEndDate,
     selectedDate, setSelectedDate, historySessions, selectedYear, sessionLoading,
     sessionType, setSessionType, selectedBatch, setSelectedBatch,
     rollStart, setRollStart, rollEnd, setRollEnd,
@@ -633,8 +652,11 @@ const DashboardHome = ({
     const [manualRoll, setManualRoll] = useState("");
     const [absentList, setAbsentList] = useState("");
     const [classStrength, setClassStrength] = useState(0);
+    const [attendanceMode, setAttendanceMode] = useState('qr'); // 'qr' or 'pin'
+    const [currentPin, setCurrentPin] = useState('------');
+    const [editingSession, setEditingSession] = useState(null); // Stores the session object being edited
 
-    // Fetch Class Strength for Percentage
+    // Fetch Class Strength for Percentage (Fixed for Division)
     useEffect(() => {
         const fetchStrength = async () => {
             if (teacherInfo?.instituteId && selectedYear) {
@@ -646,11 +668,21 @@ const DashboardHome = ({
                     where('department', '==', teacherInfo.department)
                 );
                 const snap = await getDocs(q);
-                setClassStrength(snap.size || 1);
+
+                let totalStudents = snap.size;
+
+                // ✅ FIX: Recalculate strength if a specific Division is active
+                if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
+                    // Filter the fetched students to only count those in the selected division
+                    const divisionStudents = snap.docs.filter(doc => doc.data().division === selectedDiv);
+                    totalStudents = divisionStudents.length;
+                }
+
+                setClassStrength(totalStudents || 1); // Avoid division by zero
             }
         };
         fetchStrength();
-    }, [teacherInfo, selectedYear]);
+    }, [teacherInfo, selectedYear, selectedDiv]); // 👈 Added selectedDiv dependency
 
 
 
@@ -703,6 +735,53 @@ const DashboardHome = ({
             toast.error("Connection error.", { id: toastId });
         }
     };
+    // ✅ HANDLE SAVE FROM EDIT MODAL
+    const handleAttendanceUpdate = async (session, changes) => {
+        const toastId = toast.loading("Updating Attendance...");
+        try {
+            const promises = changes.map(async (student) => {
+                if (student.status === 'Present') {
+                    // Mark Present (Create Doc)
+                    // We use the same backend API to ensure consistency, or write directly
+                    // Writing directly for speed/edit mode:
+                    await addDoc(collection(db, 'attendance'), {
+                        rollNo: student.rollNo.toString(),
+                        studentId: student.id,
+                        name: student.name, // Ensure name is saved
+                        teacherId: auth.currentUser.uid,
+                        subject: getSubjectForHistory(), // Reuse subject logic
+                        department: teacherInfo.department,
+                        year: selectedYear,
+                        division: session.division || null, // Important for FE
+                        instituteId: teacherInfo.instituteId,
+                        sessionId: session.sessionId,
+                        timestamp: serverTimestamp(),
+                        markedBy: 'teacher_edit', // Track who edited
+                        status: 'Present'
+                    });
+                } else {
+                    // Mark Absent (Delete Doc)
+                    if (student.attendanceId) {
+                        await deleteDoc(doc(db, 'attendance', student.attendanceId));
+                    }
+                }
+            });
+
+            await Promise.all(promises);
+            toast.success("Attendance Updated!", { id: toastId });
+
+            // Refresh Data
+            // We can just toggle viewMode to trigger refetch or force a reload
+            setEditingSession(null);
+            const currentMode = viewMode;
+            setViewMode('live');
+            setTimeout(() => setViewMode(currentMode), 50); // Hacky refresh
+
+        } catch (err) {
+            console.error(err);
+            toast.error("Update Failed", { id: toastId });
+        }
+    };
 
     const handleManualMarkPresent = async () => {
         if (!manualRoll) return toast.error("Enter a Roll Number");
@@ -739,18 +818,235 @@ const DashboardHome = ({
         }
     };
 
+    // ✅ NEW COMPONENT: Edit Attendance Modal (Perfectly Curved & Responsive)
+const EditAttendanceModal = ({ session, onClose, onUpdate }) => {
+    const [students, setStudents] = useState(session.students);
+    const [loading, setLoading] = useState(false);
+    const [search, setSearch] = useState("");
+
+    const toggleStatus = (rollNo) => {
+        setStudents(prev => prev.map(s => 
+            s.rollNo === rollNo ? { ...s, status: s.status === 'Present' ? 'Absent' : 'Present' } : s
+        ));
+    };
+
+    const handleSave = async () => {
+        setLoading(true);
+        const changes = [];
+        students.forEach(s => {
+            const original = session.students.find(os => os.rollNo === s.rollNo);
+            if (original.status !== s.status) {
+                changes.push(s);
+            }
+        });
+
+        if (changes.length === 0) {
+            onClose();
+            return;
+        }
+
+        await onUpdate(session, changes);
+        setLoading(false);
+        onClose();
+    };
+
+    const filteredStudents = students.filter(s => 
+        s.rollNo.toString().includes(search) || s.name.toLowerCase().includes(search.toLowerCase())
+    );
+
+    // ✅ USE PORTAL TO FIX SIDEBAR OVERLAP
+    return ReactDOM.createPortal(
+        <div style={{ 
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
+            background: 'rgba(15, 23, 42, 0.65)', 
+            backdropFilter: 'blur(8px)',
+            zIndex: 9999999, 
+            display: 'flex', justifyContent: 'center', alignItems: 'center',
+            animation: 'fadeIn 0.2s ease-out',
+            padding: '20px' // Prevents touching edges on mobile
+        }}>
+            {/* Internal Animation Styles */}
+            <style>{`
+                @keyframes popInModal {
+                    0% { opacity: 0; transform: scale(0.95) translateY(10px); }
+                    100% { opacity: 1; transform: scale(1) translateY(0); }
+                }
+            `}</style>
+
+            <div className="card" style={{ 
+                width: '100%', maxWidth: '480px', maxHeight: '85vh', 
+                display: 'flex', flexDirection: 'column', padding: '0', 
+                borderRadius: '24px', // 🚀 MAIN CURVE
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+                border: '1px solid rgba(255,255,255,0.1)', background: 'white',
+                animation: 'popInModal 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+                overflow: 'hidden' // 🚀 CLIPS CHILDREN TO CURVE
+            }}>
+                {/* Header (Explicitly Curved Top) */}
+                <div style={{ 
+                    padding: '20px 25px', 
+                    borderBottom: '1px solid #e2e8f0', 
+                    background: '#f8fafc', 
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'start',
+                    borderRadius: '24px 24px 0 0' // 🚀 CURVE TOP
+                }}>
+                    <div>
+                        <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>Edit Attendance</h3>
+                        
+                        {/* Instruction Note */}
+                        <p style={{ margin: '6px 0 0', fontSize: '13px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <i className="fas fa-info-circle" style={{ color: '#3b82f6' }}></i> 
+                            Tap status to toggle Present/Absent
+                        </p>
+                    </div>
+                    <button 
+                        onClick={onClose} 
+                        style={{ 
+                            background: '#e2e8f0', border: 'none', width: '32px', height: '32px', borderRadius: '50%', 
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b', fontSize: '18px'
+                        }}
+                    >
+                        &times;
+                    </button>
+                </div>
+
+                {/* Search */}
+                <div style={{ padding: '15px 20px', borderBottom: '1px solid #f1f5f9' }}>
+                    <div style={{ position: 'relative' }}>
+                        <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '14px' }}></i>
+                        <input 
+                            placeholder="Search Name or Roll No..." 
+                            value={search} 
+                            onChange={e => setSearch(e.target.value)}
+                            style={{ 
+                                width: '100%', padding: '10px 10px 10px 36px', borderRadius: '12px', 
+                                border: '1px solid #e2e8f0', outline: 'none', background: '#f8fafc', fontSize: '14px', transition: 'all 0.2s'
+                            }}
+                            onFocus={(e) => { e.target.style.background = 'white'; e.target.style.borderColor = '#3b82f6'; }}
+                            onBlur={(e) => { e.target.style.background = '#f8fafc'; e.target.style.borderColor = '#e2e8f0'; }}
+                        />
+                    </div>
+                </div>
+
+                {/* List - Scrollable Area */}
+                <div style={{ overflowY: 'auto', flex: 1, padding: '0 10px' }}>
+                    {filteredStudents.length > 0 ? (
+                        filteredStudents.map(s => (
+                            <div key={s.rollNo} 
+                                style={{ 
+                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
+                                    padding: '12px 15px', borderBottom: '1px solid #f1f5f9'
+                                }}
+                            >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                    <div style={{ 
+                                        width: '36px', height: '36px', borderRadius: '10px', background: '#f1f5f9', 
+                                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: '#475569', fontSize: '13px'
+                                    }}>
+                                        {s.rollNo}
+                                    </div>
+                                    <span style={{ fontSize: '14px', fontWeight: '600', color: '#334155' }}>{s.name}</span>
+                                </div>
+                                
+                                {/* Status Button (Toggle) */}
+                                <button
+                                    onClick={() => toggleStatus(s.rollNo)}
+                                    style={{
+                                        padding: '6px 14px', borderRadius: '20px', border: 'none', 
+                                        fontWeight: 'bold', fontSize: '12px', cursor: 'pointer',
+                                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                        // Dynamic Colors
+                                        background: s.status === 'Present' ? '#dcfce7' : '#fee2e2',
+                                        color: s.status === 'Present' ? '#166534' : '#991b1b',
+                                        minWidth: '80px', textAlign: 'center'
+                                    }}
+                                >
+                                    {s.status}
+                                </button>
+                            </div>
+                        ))
+                    ) : (
+                        <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
+                            <i className="fas fa-search" style={{ fontSize: '24px', marginBottom: '10px', opacity: 0.5 }}></i>
+                            <p style={{ margin: 0, fontSize: '13px' }}>No student found</p>
+                        </div>
+                    )}
+                </div>
+
+                {/* Footer (Explicitly Curved Bottom) */}
+                <div style={{ 
+                    padding: '20px', 
+                    borderTop: '1px solid #e2e8f0', 
+                    background: 'white',
+                    borderRadius: '0 0 24px 24px' // 🚀 CURVE BOTTOM
+                }}>
+                    <button 
+                        onClick={handleSave} 
+                        disabled={loading}
+                        className="btn-primary"
+                        style={{ 
+                            width: '100%', justifyContent: 'center', padding: '14px', borderRadius: '14px',
+                            background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                            boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)', fontSize: '15px'
+                        }}
+                    >
+                        {loading ? <i className="fas fa-spinner fa-spin"></i> : 'Save Changes'}
+                    </button>
+                </div>
+            </div>
+        </div>,
+        document.body 
+    );
+};
+
+    // ✅ HANDLE QR ROTATION & DYNAMIC PIN UPDATES (FIXED)
     useEffect(() => {
         let interval, countdown;
-        if (activeSession) {
-            setQrCodeValue(`${activeSession.sessionId}|${Date.now()}`);
-            interval = setInterval(() => {
+
+        // ✅ CRITICAL FIX: Check if sessionId exists
+        if (activeSession?.sessionId) {
+            const updateSessionSecurity = async () => {
+                // 1. Always update QR Value (Local state)
                 setQrCodeValue(`${activeSession.sessionId}|${Date.now()}`);
+
+                // 2. If in PIN Mode, generate and save new PIN
+                if (attendanceMode === 'pin') {
+                    const newPin = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit PIN
+                    setCurrentPin(newPin);
+
+                    try {
+                        const sessionRef = doc(db, 'live_sessions', activeSession.sessionId);
+                        // Write to Firestore
+                        await updateDoc(sessionRef, {
+                            currentPin: newPin,
+                            lastPinUpdate: serverTimestamp()
+                        });
+                    } catch (err) {
+                        console.error("Failed to update PIN", err);
+                    }
+                }
+            };
+
+            // Run immediately on start
+            updateSessionSecurity();
+
+            // Loop every 10 seconds
+            interval = setInterval(() => {
+                updateSessionSecurity();
                 setTimer(10);
             }, 10000);
+
+            // Countdown timer for UI
             countdown = setInterval(() => setTimer(p => p > 0 ? p - 1 : 0), 1000);
         }
-        return () => { clearInterval(interval); clearInterval(countdown); };
-    }, [activeSession]);
+
+        return () => {
+            clearInterval(interval);
+            clearInterval(countdown);
+        };
+
+        // ✅ FIX: Only re-run if sessionId changes (not the whole object)
+    }, [activeSession?.sessionId, attendanceMode]);
 
     const isSessionRelevant = activeSession && (activeSession.targetYear === selectedYear || activeSession.targetYear === 'All');
     const dateObj = new Date(selectedDate);
@@ -758,6 +1054,35 @@ const DashboardHome = ({
 
     const presentCount = isSessionRelevant ? sortedAttendanceList.length : 0;
     const percentage = classStrength > 0 ? Math.round((presentCount / classStrength) * 100) : 0;
+
+    // ✅ BULK EXPORT LOGIC
+    const bulkCsvData = historySessions.flatMap(session => 
+        session.students.map(s => ({
+            Date: s.date,
+            Time: session.startTime.split(',')[1],
+            Subject: getSubjectForHistory(),
+            Type: session.type,
+            Batch: session.batch,
+            Division: session.division || 'All',
+            RollNo: s.rollNo,
+            Name: s.name,
+            Status: s.status,
+            TimeIn: s.timeIn
+        }))
+    );
+
+    const bulkHeaders = [
+        { label: "Date", key: "Date" },
+        { label: "Time", key: "Time" },
+        { label: "Subject", key: "Subject" },
+        { label: "Type", key: "Type" },
+        { label: "Batch", key: "Batch" },
+        { label: "Division", key: "Division" },
+        { label: "Roll No", key: "RollNo" },
+        { label: "Name", key: "Name" },
+        { label: "Status", key: "Status" },
+        { label: "Time In", key: "TimeIn" }
+    ];
 
     return (
         <div className="content-section">
@@ -872,13 +1197,57 @@ const DashboardHome = ({
                         </div>
                     </div>
 
-                    {/* 3. QR CODE CARD */}
+                    {/* 3. ATTENDANCE METHOD CARD (QR or PIN) */}
                     {isSessionRelevant && (
                         <div className="card card-full-width" style={{ textAlign: 'center', border: 'none', boxShadow: '0 8px 30px rgba(0,0,0,0.06)' }}>
-                            <div className="qr-code-wrapper" style={{ background: 'white', padding: '15px', borderRadius: '16px', boxShadow: '0 10px 25px rgba(37,99,235,0.1)', display: 'inline-block' }}>
-                                <QRCodeSVG value={qrCodeValue} size={200} />
+
+                            {/* Toggle Switch */}
+                            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px', gap: '10px' }}>
+                                <button
+                                    onClick={() => setAttendanceMode('qr')}
+                                    style={{
+                                        padding: '8px 16px', borderRadius: '20px', border: 'none', fontWeight: 'bold', cursor: 'pointer',
+                                        background: attendanceMode === 'qr' ? '#2563eb' : '#f1f5f9',
+                                        color: attendanceMode === 'qr' ? 'white' : '#64748b'
+                                    }}
+                                >
+                                    <i className="fas fa-qrcode"></i> Scan QR
+                                </button>
+                                <button
+                                    onClick={() => setAttendanceMode('pin')}
+                                    style={{
+                                        padding: '8px 16px', borderRadius: '20px', border: 'none', fontWeight: 'bold', cursor: 'pointer',
+                                        background: attendanceMode === 'pin' ? '#2563eb' : '#f1f5f9',
+                                        color: attendanceMode === 'pin' ? 'white' : '#64748b'
+                                    }}
+                                >
+                                    <i className="fas fa-key"></i> Dynamic PIN
+                                </button>
                             </div>
-                            <p style={{ marginTop: '15px', fontSize: '13px', color: '#64748b' }}>Ask students to scan using AcadeX App</p>
+
+                            {attendanceMode === 'qr' ? (
+                                <>
+                                    <div className="qr-code-wrapper" style={{ background: 'white', padding: '15px', borderRadius: '16px', boxShadow: '0 10px 25px rgba(37,99,235,0.1)', display: 'inline-block' }}>
+                                        <QRCodeSVG value={qrCodeValue} size={200} />
+                                    </div>
+                                    <p style={{ marginTop: '15px', fontSize: '13px', color: '#64748b' }}>Scan via AcadeX App</p>
+                                </>
+                            ) : (
+                                <div style={{ padding: '20px' }}>
+                                    <div style={{ fontSize: '14px', color: '#64748b', marginBottom: '10px', textTransform: 'uppercase', fontWeight: 'bold' }}>
+                                        Enter this Code
+                                    </div>
+                                    <div style={{
+                                        fontSize: '60px', fontWeight: '800', letterSpacing: '8px', color: '#2563eb',
+                                        fontFamily: 'monospace', margin: '10px 0'
+                                    }}>
+                                        {currentPin}
+                                    </div>
+                                    <div style={{ fontSize: '12px', color: '#ef4444', fontWeight: 'bold' }}>
+                                        Refreshes in {timer}s
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -948,7 +1317,7 @@ const DashboardHome = ({
                 </div>
             )}
 
-            {viewMode === 'history' && (
+           {viewMode === 'history' && (
                 <div className="cards-grid">
                     {/* FILTERS CONTAINER */}
                     <div className="card card-full-width" style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '20px', background: '#f8fafc', flexWrap: 'wrap' }}>
@@ -974,29 +1343,44 @@ const DashboardHome = ({
                         </div>
 
                         {/* 2. DATE SELECTOR */}
-                        <div style={{ flex: 1, minWidth: '140px', maxWidth: '100%' }}>
-                            <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>
-                                Select Date
-                            </label>
-
-                            {/* ✅ NEW COMPONENT USAGE */}
-                            <NativeFriendlyDateInput
-                                className="card-hover"
-                                value={selectedDate}
-                                onChange={setSelectedDate}
-                            />
+                        <div style={{ flex: 2, minWidth: '220px', display: 'flex', gap: '10px' }}>
+                            <div style={{ flex: 1 }}>
+                                <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>From</label>
+                                <NativeFriendlyDateInput value={startDate} onChange={setStartDate} />
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>To</label>
+                                <NativeFriendlyDateInput value={endDate} onChange={setEndDate} />
+                            </div>
                         </div>
 
-                        {/* 3. DYNAMIC HEADER */}
-                        <div style={{ flex: 2, minWidth: '200px' }}>
-                            <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Viewing Report for:</p>
-                            <h3 style={{ margin: '4px 0 0 0', fontSize: '22px', color: '#1e293b' }}>
-                                {formattedDate} <br />
-                                <span style={{ color: '#2563eb', fontSize: '18px' }}>
-                                    {getSubjectForHistory()}
-                                    {selectedYear === 'FE' && selectedDiv ? ` (Div ${selectedDiv})` : ''}
-                                </span>
-                            </h3>
+                        {/* 3. DYNAMIC HEADER & BULK EXPORT */}
+                        <div style={{ flex: 2, minWidth: '200px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                            <div>
+                                <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Viewing Report for:</p>
+                                <h3 style={{ margin: '4px 0 0 0', fontSize: '18px', color: '#1e293b' }}>
+                                    <span style={{ color: '#2563eb' }}>
+                                        {getSubjectForHistory()} {selectedYear === 'FE' && selectedDiv ? `(Div ${selectedDiv})` : ''}
+                                    </span>
+                                </h3>
+                            </div>
+                            
+                            {/* ✅ BULK DOWNLOAD BUTTON */}
+                            {historySessions.length > 0 && (
+                                <CSVLink 
+                                    data={bulkCsvData} 
+                                    headers={bulkHeaders} 
+                                    filename={`Report_${getSubjectForHistory()}_${startDate}_to_${endDate}.csv`}
+                                    className="btn-primary"
+                                    style={{ 
+                                        textDecoration: 'none', padding: '10px 20px', borderRadius: '10px', fontSize: '14px', 
+                                        background: '#10b981', display: 'flex', alignItems: 'center', gap: '8px', 
+                                        boxShadow: '0 4px 10px rgba(16, 185, 129, 0.2)', width: 'fit-content'
+                                    }}
+                                >
+                                    <i className="fas fa-file-csv"></i> Download All
+                                </CSVLink>
+                            )}
                         </div>
                     </div>
 
@@ -1004,13 +1388,21 @@ const DashboardHome = ({
                     {historySessions.length === 0 ? (
                         <div className="card card-full-width" style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
                             <i className="fas fa-calendar-times" style={{ fontSize: '30px', marginBottom: '10px' }}></i>
-                            <p>No sessions found for this date.</p>
+                            <p>No sessions found in this range.</p>
                         </div>
                     ) : (
                         historySessions.map((session) => (
                             <div key={session.sessionId} className="card card-full-width" style={{ marginTop: '20px', borderLeft: session.type === 'practical' ? '5px solid #8b5cf6' : '5px solid #3b82f6' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '15px', marginBottom: '15px' }}>
-                                    <div>
+
+                                {/* ✅ FIX: Added flexWrap and gap to parent for mobile responsiveness */}
+                                <div style={{ 
+                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
+                                    borderBottom: '1px solid #e2e8f0', paddingBottom: '15px', marginBottom: '15px',
+                                    flexWrap: 'wrap', gap: '15px' 
+                                }}>
+
+                                    {/* Left Side: Session Info */}
+                                    <div style={{ flex: 1, minWidth: '200px' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                                             <span style={{ background: '#f1f5f9', color: '#64748b', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>
                                                 {session.startTime}
@@ -1037,28 +1429,48 @@ const DashboardHome = ({
                                         </p>
                                     </div>
 
-                                    <CSVLink
-                                        data={session.students.map(s => ({
-                                            ...s,
-                                            type: session.type === 'practical' ? 'Practical' : 'Theory',
-                                            batch: session.type === 'practical' ? session.batch : 'All',
-                                            division: session.division || 'All'
-                                        }))}
-                                        headers={[
-                                            { label: "Roll No", key: "rollNo" },
-                                            { label: "Name", key: "name" },
-                                            { label: "Status", key: "status" },
-                                            { label: "Time In", key: "timeIn" },
-                                            { label: "Type", key: "type" },
-                                            { label: "Batch", key: "batch" },
-                                            { label: "Division", key: "division" }
-                                        ]}
-                                        filename={`${session.type}-Attendance-${formattedDate}${selectedYear === 'FE' ? `-${session.division}` : ''}.csv`}
-                                        style={{ fontSize: '13px', color: '#3b82f6', textDecoration: 'none', fontWeight: '600' }}
-                                    >
-                                        <i className="fas fa-download"></i> CSV
-                                    </CSVLink>
+                                    {/* ✅ FIX: Grouped Buttons in a Flex Container */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <CSVLink
+                                            data={session.students.map(s => ({
+                                                ...s,
+                                                type: session.type === 'practical' ? 'Practical' : 'Theory',
+                                                batch: session.type === 'practical' ? session.batch : 'All',
+                                                division: session.division || 'All'
+                                            }))}
+                                            headers={[
+                                                { label: "Roll No", key: "rollNo" },
+                                                { label: "Name", key: "name" },
+                                                { label: "Status", key: "status" },
+                                                { label: "Time In", key: "timeIn" },
+                                                { label: "Type", key: "type" },
+                                                { label: "Batch", key: "batch" },
+                                                { label: "Division", key: "division" }
+                                            ]}
+                                            filename={`${session.type}-Attendance-${session.startTime.replace(/[\/,: ]/g, '_')}${selectedYear === 'FE' ? `-${session.division}` : ''}.csv`}
+                                            style={{ 
+                                                fontSize: '13px', color: '#3b82f6', textDecoration: 'none', fontWeight: '600',
+                                                display: 'flex', alignItems: 'center', gap: '6px',
+                                                padding: '8px 12px', background: '#eff6ff', borderRadius: '8px'
+                                            }}
+                                        >
+                                            <i className="fas fa-download"></i> CSV
+                                        </CSVLink>
+
+                                        <button 
+                                            onClick={() => setEditingSession(session)}
+                                            style={{
+                                                display: 'inline-flex', alignItems: 'center', gap: '6px',
+                                                color: '#4f46e5', fontSize: '13px', fontWeight: '600', 
+                                                background: '#eef2ff', border: 'none', cursor: 'pointer',
+                                                padding: '8px 12px', borderRadius: '8px'
+                                            }}
+                                        >
+                                            <i className="fas fa-edit"></i> Edit
+                                        </button>
+                                    </div>
                                 </div>
+
                                 <div className="table-wrapper" style={{ maxHeight: '300px', overflowY: 'auto' }}>
                                     <table className="attendance-table">
                                         <thead style={{ position: 'sticky', top: 0, zIndex: 5 }}>
@@ -1118,6 +1530,13 @@ const DashboardHome = ({
                     overflow: visible !important; 
                 }
             `}</style>
+            {editingSession && (
+                <EditAttendanceModal
+                    session={editingSession}
+                    onClose={() => setEditingSession(null)}
+                    onUpdate={handleAttendanceUpdate}
+                />
+            )}
         </div>
     );
 };
@@ -1265,6 +1684,8 @@ export default function TeacherDashboard() {
 
     // History State
     const [viewMode, setViewMode] = useState('live');
+    const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+    const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
     const [historySemester, setHistorySemester] = useState(1);
     const [activeSemesters, setActiveSemesters] = useState({});
@@ -1463,27 +1884,20 @@ export default function TeacherDashboard() {
         return () => { if (unsubscribe) unsubscribe(); };
     }, [activeSession, teacherInfo]);
 
-    // ✅ NEW HISTORY LOGIC: Group by Session (Now supports Semester Switching)
+    // ✅ UPDATED HISTORY LOGIC: Fetch by Date Range
     useEffect(() => {
         const fetchHistory = async () => {
             if (!teacherInfo?.instituteId || !selectedYear) return;
 
-            // ❌ REMOVED OLD LOGIC:
-            // let currentSubject = teacherInfo.subject;
-            // if (teacherInfo.assignedClasses) ...
-
-            // ✅ NEW LOGIC: Get subject from our new Helper Function
-            // (Make sure you added the 'getSubjectForHistory' function above this useEffect)
             const targetSubject = getSubjectForHistory();
-
             if (!targetSubject) {
-                // If no subject matches the selected semester, clear the list
                 setHistorySessions([]);
                 return;
             }
 
-            const start = new Date(selectedDate); start.setHours(0, 0, 0, 0);
-            const end = new Date(selectedDate); end.setHours(23, 59, 59, 999);
+            // ✅ USE RANGE: Start of 'startDate' to End of 'endDate'
+            const start = new Date(startDate); start.setHours(0, 0, 0, 0);
+            const end = new Date(endDate); end.setHours(23, 59, 59, 999);
 
             try {
                 // 1. Get ALL Students (Master List)
@@ -1495,24 +1909,28 @@ export default function TeacherDashboard() {
                     where('department', '==', teacherInfo.department)
                 );
                 const studentsSnap = await getDocs(qStudents);
-                const allStudents = studentsSnap.docs.map(doc => ({
+                
+                let allStudents = studentsSnap.docs.map(doc => ({
                     id: doc.id,
                     ...doc.data(),
                     rollNo: parseInt(doc.data().rollNo) || 9999
                 }));
 
-                // 2. Get Attendance Records
+                if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
+                    allStudents = allStudents.filter(s => s.division === selectedDiv);
+                }
+
+                // 2. Get Attendance Records (Filtered by Range)
                 const qAttendance = query(
                     collection(db, 'attendance'),
                     where('instituteId', '==', teacherInfo.instituteId),
-                    where('subject', '==', targetSubject), // 👈 UPDATED: Uses the semester-specific subject
+                    where('subject', '==', targetSubject),
                     where('timestamp', '>=', Timestamp.fromDate(start)),
-                    where('timestamp', '<=', Timestamp.fromDate(end))
+                    where('timestamp', '<=', Timestamp.fromDate(end)) // ✅ Range Query
                 );
                 const attSnap = await getDocs(qAttendance);
 
-                // --- (The rest of your logic remains exactly the same below) ---
-
+                // ... (Keep steps 3, 4, 5 exactly the same as before) ...
                 // 3. FETCH SESSION DETAILS 
                 const uniqueSessionIds = new Set();
                 attSnap.docs.forEach(d => uniqueSessionIds.add(d.data().sessionId));
@@ -1526,35 +1944,29 @@ export default function TeacherDashboard() {
                 }));
 
                 // 4. GROUP BY SESSION ID
-                // 4. GROUP BY SESSION ID
-                // 4. GROUP BY SESSION ID
                 const sessionsMap = {};
                 attSnap.docs.forEach(doc => {
                     const data = doc.data();
                     const sId = data.sessionId;
                     const meta = sessionMetaMap[sId] || {};
 
-                    // ✅ FILTER LOGIC: Strict filter by selectedDiv for FE
                     if (selectedYear === 'FE') {
-                        // If session has division 'B' but we are in context 'A', SKIP.
                         if (meta.division && meta.division !== selectedDiv) return;
-                        // Optional: if meta.division is missing, you might want to default to 'A' 
-                        // or show it anyway. For strictness:
-                        // if (!meta.division && selectedDiv !== 'A') return; 
                     }
 
                     if (!sessionsMap[sId]) {
                         sessionsMap[sId] = {
                             sessionId: sId,
-                            startTime: data.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                            startTime: data.timestamp.toDate().toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }), // ✅ Show Date & Time
+                            rawDate: data.timestamp.toDate(), // For sorting
                             type: meta.type || 'theory',
                             batch: meta.batch || 'All',
                             division: meta.division || (selectedYear === 'FE' ? 'A' : null),
                             rollRange: meta.rollRange || null,
-                            presentRolls: new Set()
+                            presentRolls: new Map()
                         };
                     }
-                    sessionsMap[sId].presentRolls.add(parseInt(data.rollNo));
+                    sessionsMap[sId].presentRolls.set(parseInt(data.rollNo), doc.id);
                 });
 
                 // 5. BUILD REPORT CARDS
@@ -1566,45 +1978,42 @@ export default function TeacherDashboard() {
                     }
 
                     const studentsWithStatus = targetStudents.map(student => {
-                        const isPresent = session.presentRolls.has(student.rollNo);
+                        const attendanceId = session.presentRolls.get(student.rollNo); 
+                        const isPresent = !!attendanceId;
                         return {
                             id: student.id,
                             rollNo: student.rollNo,
                             name: `${student.firstName} ${student.lastName}`,
                             status: isPresent ? 'Present' : 'Absent',
-                            timeIn: isPresent ? session.startTime : '-'
+                            timeIn: isPresent ? session.startTime.split(',')[1] : '-', // Just time
+                            date: session.startTime.split(',')[0], // Just date
+                            attendanceId: attendanceId || null
                         };
                     });
 
                     studentsWithStatus.sort((a, b) => a.rollNo - b.rollNo);
-
                     const presentCount = studentsWithStatus.filter(s => s.status === 'Present').length;
                     const absentCount = studentsWithStatus.filter(s => s.status === 'Absent').length;
 
                     return {
-                        sessionId: session.sessionId,
-                        startTime: session.startTime,
-                        type: session.type,
-                        batch: session.batch,
+                        ...session,
                         totalStudents: targetStudents.length,
-                        presentCount: presentCount,
-                        absentCount: absentCount,
+                        presentCount,
+                        absentCount,
                         students: studentsWithStatus
                     };
                 });
 
-                finalSessions.sort((a, b) => a.startTime.localeCompare(b.startTime));
+                // Sort by Date (Newest First)
+                finalSessions.sort((a, b) => b.rawDate - a.rawDate);
                 setHistorySessions(finalSessions);
 
-            } catch (err) {
-                console.error("History Error:", err);
-            }
+            } catch (err) { console.error("History Error:", err); }
         };
 
         if (viewMode === 'history') fetchHistory();
 
-        // ✅ IMPORTANT: Add 'historySemester' to the dependency array so it refreshes when you switch semesters
-    }, [viewMode, selectedDate, teacherInfo, selectedYear, historySemester]);
+    }, [viewMode, startDate, endDate, teacherInfo, selectedYear, historySemester, selectedDiv]);
 
     const handleSession = async () => {
         if (activeSession) {
@@ -1716,6 +2125,8 @@ export default function TeacherDashboard() {
                 attendanceList={attendanceList}
                 onSessionToggle={handleSession}
                 viewMode={viewMode} setViewMode={setViewMode}
+                startDate={startDate} setStartDate={setStartDate}
+                endDate={endDate} setEndDate={setEndDate}
                 selectedDate={selectedDate} setSelectedDate={setSelectedDate}
                 historySessions={historySessions}
                 selectedYear={selectedYear}
@@ -1734,7 +2145,7 @@ export default function TeacherDashboard() {
                 historyDivision={historyDivision}
                 setHistoryDivision={setHistoryDivision}
             />;
-            case 'analytics': return <TeacherAnalytics teacherInfo={teacherInfo} selectedYear={selectedYear} />;
+            case 'analytics': return <TeacherAnalytics teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} />;
             case 'reports':
                 return (
                     <div className="content-section">
@@ -2025,22 +2436,36 @@ export default function TeacherDashboard() {
                         {/* ✅ SWITCH CLASS BUTTON (Hidden if only 1 class) */}
                         {(teacherInfo.assignedClasses && teacherInfo.assignedClasses.length > 1) && (
                             <div
-                                onClick={(e) => { e.stopPropagation(); setShowYearModal(true); }}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+
+                                    // ✅ NEW GUARD: Prevent switching if session is active
+                                    if (activeSession) {
+                                        toast.error("⚠️ Please end the current session before switching classes.");
+                                        return;
+                                    }
+
+                                    setShowYearModal(true);
+                                }}
                                 className="edit-profile-pill"
                                 style={{
                                     marginTop: '12px',
-                                    background: '#f8fafc',
-                                    color: '#64748b',
+                                    // ✅ VISUAL FEEDBACK: Grey out if disabled
+                                    background: activeSession ? '#f1f5f9' : '#f8fafc',
+                                    color: activeSession ? '#94a3b8' : '#64748b',
                                     border: '1px solid #e2e8f0',
                                     justifyContent: 'center',
                                     padding: '6px 12px',
                                     borderRadius: '8px',
                                     fontSize: '11px',
                                     fontWeight: '600',
-                                    letterSpacing: '0.3px'
+                                    letterSpacing: '0.3px',
+                                    // ✅ CURSOR FEEDBACK
+                                    cursor: activeSession ? 'not-allowed' : 'pointer',
+                                    opacity: activeSession ? 0.7 : 1
                                 }}
                             >
-                                <i className="fas fa-exchange-alt" style={{ fontSize: '10px', color: '#94a3b8' }}></i>
+                                <i className="fas fa-exchange-alt" style={{ fontSize: '10px', color: activeSession ? '#cbd5e1' : '#94a3b8' }}></i>
                                 <span>Switch Class</span>
                             </div>
                         )}

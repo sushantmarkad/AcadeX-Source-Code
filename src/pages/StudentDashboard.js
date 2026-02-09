@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
-import { collection, query, where, onSnapshot, doc, getDoc, orderBy, limit, updateDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, getDoc, getDocs, orderBy, limit, updateDoc } from 'firebase/firestore';
 import { Html5Qrcode } from 'html5-qrcode';
 import toast from 'react-hot-toast';
 import logo from "../assets/logo.png";
@@ -79,6 +79,21 @@ const getUniqueDeviceId = async () => {
         // Fallback (Rare)
         return 'unknown-device-' + Math.random();
     }
+};
+
+const getLocation = () => {
+    return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+            reject(new Error("Geolocation not supported"));
+            return;
+        }
+        // Added 'enableHighAccuracy' and 'timeout' to fix the race condition
+        navigator.geolocation.getCurrentPosition(
+            (position) => resolve(position),
+            (error) => reject(error),
+            { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+        );
+    });
 };
 
 // --- COMPONENT: Leave Request Form ---
@@ -360,25 +375,61 @@ const SmartScheduleCard = ({ user, currentSlot, loading }) => {
     );
 };
 
-// --- COMPONENT: Attendance Overview ---
+// --- COMPONENT: Attendance Overview (Fixed for Year/Div Accuracy) ---
 const AttendanceOverview = ({ user }) => {
     const [percentage, setPercentage] = useState(0);
     const [totalClasses, setTotalClasses] = useState(0);
     const [attendedClasses, setAttendedClasses] = useState(0);
 
     useEffect(() => {
-        const fetchStats = async () => {
-            if (!user?.instituteId || !user?.department) return;
+        const fetchAccurateStats = async () => {
+            if (!user?.instituteId || !user?.department || !user?.year) return;
+
             try {
-                const statsDoc = await getDoc(doc(db, "department_stats", `${user.instituteId}_${user.department}`));
-                const total = statsDoc.exists() ? (statsDoc.data().totalClasses || 0) : 0;
-                setTotalClasses(total);
+                // 1. Get My Attendance Count
                 const myAttended = user.attendanceCount || 0;
                 setAttendedClasses(myAttended);
-                if (total > 0) setPercentage(Math.min(100, Math.round((myAttended / total) * 100)));
-            } catch (err) { console.error("Error fetching stats:", err); }
+
+                // 2. Count TOTAL Relevant Sessions for THIS Student
+                // We query all sessions for the department, then filter by Year & Division
+                const sessionsQuery = query(
+                    collection(db, 'live_sessions'),
+                    where('instituteId', '==', user.instituteId),
+                    where('department', '==', user.department)
+                );
+
+                const snap = await getDocs(sessionsQuery);
+
+                // ✅ STRICT FILTERING
+                const relevantSessions = snap.docs.filter(doc => {
+                    const data = doc.data();
+
+                    // Filter 1: Must match Student's Year (or be for 'All')
+                    if (data.targetYear !== 'All' && data.targetYear !== user.year) return false;
+
+                    // Filter 2: If FE, Must match Division
+                    // Support both 'division' and 'div' fields
+                    const studentDiv = user.division || user.div;
+                    if (user.year === 'FE' && data.division && studentDiv) {
+                        if (data.division !== 'All' && data.division !== studentDiv) return false;
+                    }
+
+                    return true;
+                });
+
+                const calculatedTotal = relevantSessions.length;
+                setTotalClasses(calculatedTotal);
+
+                // 3. Calculate Accurate Percentage
+                if (calculatedTotal > 0) {
+                    setPercentage(Math.min(100, Math.round((myAttended / calculatedTotal) * 100)));
+                } else {
+                    setPercentage(0); // Avoid NaN
+                }
+
+            } catch (err) { console.error("Stats Error:", err); }
         };
-        fetchStats();
+        fetchAccurateStats();
     }, [user]);
 
     const getColor = (pct) => pct >= 75 ? '#10b981' : pct >= 60 ? '#f59e0b' : '#ef4444';
@@ -403,7 +454,7 @@ const AttendanceOverview = ({ user }) => {
 };
 
 // --- DASHBOARD HOME (Updated with Biometrics) ---
-const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession, recentAttendance, setShowScanner, currentSlot, onBiometricAttendance, bioLoading, openNativeCameraForQR }) => {
+const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession, recentAttendance, setShowScanner, currentSlot, onBiometricAttendance, bioLoading, openNativeCameraForQR, setShowPinModal }) => {
 
     // ✅ NEW: Logic to extract "Sushant" from "Sushant Sukhadev"
     // If lastName exists, take the first word. Otherwise fallback to firstName.
@@ -550,6 +601,39 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                                     <i className="fas fa-expand" style={{ fontSize: '18px' }}></i>
                                     {Capacitor.isNativePlatform() ? "Scan Now" : "Open Scanner"}
                                 </button>
+                                {/* ✅ STYLED DYNAMIC PIN BUTTON */}
+                                <div style={{ textAlign: 'center', marginTop: '20px' }}>
+                                    <button
+                                        onClick={() => setShowPinModal(true)}
+                                        style={{
+                                            background: 'rgba(255, 255, 255, 0.15)', // Glass effect
+                                            border: '1px solid rgba(255, 255, 255, 0.3)',
+                                            borderRadius: '30px',
+                                            padding: '10px 20px',
+                                            color: 'white',
+                                            fontSize: '13px',
+                                            fontWeight: '600',
+                                            cursor: 'pointer',
+                                            display: 'inline-flex',
+                                            alignItems: 'center',
+                                            gap: '8px',
+                                            backdropFilter: 'blur(5px)',
+                                            transition: 'all 0.2s ease',
+                                            boxShadow: '0 4px 15px rgba(0, 0, 0, 0.1)'
+                                        }}
+                                        onMouseEnter={e => {
+                                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.25)';
+                                            e.currentTarget.style.transform = 'translateY(-2px)';
+                                        }}
+                                        onMouseLeave={e => {
+                                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
+                                            e.currentTarget.style.transform = 'translateY(0)';
+                                        }}
+                                    >
+                                        <i className="fas fa-keyboard"></i> {/* Added Icon */}
+                                        Enter Dynamic PIN
+                                    </button>
+                                </div>
                             </div>
                         ) : (
                             <div style={{
@@ -647,6 +731,113 @@ const MobileFooter = ({ activePage, setActivePage, badgeCount, taskBadgeCount, l
     );
 };
 
+// ✅ NEW COMPONENT: Manual PIN Entry Modal (Fixed Z-Index)
+const ManualAttendanceModal = ({ isOpen, onClose, onSubmit, pinValue, setPinValue, loading }) => {
+    if (!isOpen) return null;
+
+    return ReactDOM.createPortal(
+        <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(15, 23, 42, 0.85)',
+            backdropFilter: 'blur(8px)',
+            zIndex: 9000, // 👈 CHANGED from 99999 to 9000 (Toasts are usually 9999)
+            display: 'flex', justifyContent: 'center', alignItems: 'center',
+            animation: 'fadeIn 0.2s ease-out'
+        }}>
+            {/* Animation Styles */}
+            <style>{`
+                @keyframes slideUp {
+                    from { transform: translateY(20px); opacity: 0; }
+                    to { transform: translateY(0); opacity: 1; }
+                }
+                .pin-input:focus {
+                    border-color: #3b82f6 !important;
+                    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+                }
+            `}</style>
+
+            <div className="card" style={{
+                width: '90%', maxWidth: '400px',
+                background: 'white', borderRadius: '24px',
+                padding: '30px', position: 'relative',
+                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',
+                animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+                display: 'flex', flexDirection: 'column', alignItems: 'center'
+            }}>
+
+                <button
+                    onClick={onClose}
+                    style={{
+                        position: 'absolute', top: '20px', right: '20px',
+                        background: '#f1f5f9', border: 'none', width: '32px', height: '32px',
+                        borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        cursor: 'pointer', color: '#64748b', fontSize: '16px', transition: 'all 0.2s'
+                    }}
+                >
+                    &times;
+                </button>
+
+                <div style={{
+                    width: '60px', height: '60px', borderRadius: '20px',
+                    background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    marginBottom: '20px', boxShadow: '0 10px 20px -5px rgba(37, 99, 235, 0.3)'
+                }}>
+                    <i className="fas fa-key" style={{ fontSize: '24px', color: 'white' }}></i>
+                </div>
+
+                <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: '800', color: '#1e293b' }}>
+                    Enter Session PIN
+                </h3>
+
+                <p style={{ margin: 0, fontSize: '14px', color: '#64748b', textAlign: 'center', lineHeight: '1.5' }}>
+                    Ask your teacher for the 6-digit dynamic PIN to mark your attendance manually.
+                </p>
+
+                <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '15px', margin: '25px 0' }}>
+                    <div style={{ height: '1px', background: '#e2e8f0', flex: 1 }}></div>
+                    <span style={{ fontSize: '12px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '1px', background: 'white', padding: '0 5px' }}>
+                        PIN CODE
+                    </span>
+                    <div style={{ height: '1px', background: '#e2e8f0', flex: 1 }}></div>
+                </div>
+
+                <input
+                    type="number"
+                    placeholder="• • • • • •"
+                    value={pinValue}
+                    onChange={(e) => setPinValue(e.target.value.slice(0, 6))}
+                    className="pin-input"
+                    style={{
+                        width: '100%', fontSize: '24px', fontWeight: 'bold', textAlign: 'center',
+                        letterSpacing: '8px', padding: '15px', borderRadius: '16px',
+                        border: '2px solid #e2e8f0', background: '#f8fafc', color: '#1e293b',
+                        outline: 'none', transition: 'all 0.2s', marginBottom: '25px'
+                    }}
+                    autoFocus
+                />
+
+                <button
+                    onClick={onSubmit}
+                    disabled={loading || pinValue.length < 6}
+                    style={{
+                        width: '100%', padding: '16px', borderRadius: '14px', border: 'none',
+                        background: loading ? '#cbd5e1' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                        color: 'white', fontSize: '16px', fontWeight: '700', cursor: loading ? 'not-allowed' : 'pointer',
+                        boxShadow: loading ? 'none' : '0 10px 20px -5px rgba(16, 185, 129, 0.4)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px'
+                    }}
+                >
+                    {loading ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-check-circle"></i>}
+                    {loading ? 'Verifying...' : 'Submit Attendance'}
+                </button>
+
+            </div>
+        </div>,
+        document.body
+    );
+};
+
 // --- MAIN COMPONENT ---
 export default function StudentDashboard() {
     const [activePage, setActivePage] = useState('dashboard');
@@ -670,6 +861,9 @@ export default function StudentDashboard() {
     const [recentAttendance, setRecentAttendance] = useState([]);
     const [zoom, setZoom] = useState(1);
     const [zoomCap, setZoomCap] = useState(null);
+    const [showPinModal, setShowPinModal] = useState(false);
+    const [enteredPin, setEnteredPin] = useState('');
+    const [loading, setLoading] = useState(false);
 
 
 
@@ -942,7 +1136,7 @@ export default function StudentDashboard() {
         const interval = setInterval(fetchSchedule, 60000); // Update every minute
         return () => clearInterval(interval);
     }, [user, isFreePeriod]);
-   // ✅ NEW: FETCH ASSIGNMENTS (For Task Badge)
+    // ✅ NEW: FETCH ASSIGNMENTS (For Task Badge)
     useEffect(() => {
         if (!user?.instituteId) return;
 
@@ -955,7 +1149,7 @@ export default function StudentDashboard() {
             const relevantTasks = allTasks.filter(task => {
                 // Helper to normalize strings
                 const norm = (str) => str ? str.toString().trim().toLowerCase() : '';
-                
+
                 const userDept = norm(user.department);
                 const taskDept = norm(task.department);
                 const userYear = norm(user.year);
@@ -1077,46 +1271,43 @@ export default function StudentDashboard() {
     };
 
     // ✅ 5. HANDLE QR ATTENDANCE WITH DEVICE BINDING
-    // ✅ SECURE & FAST: Parallel Data Fetching (No Caching)
     const onScanSuccess = async (decodedText) => {
-        // 1. Pause Camera Immediately (To prevent double-scanning)
+        // 1. Pause Camera Immediately
         if (scannerRef.current) {
             scannerRef.current.pause(true);
         }
         setShowScanner(false);
 
         // 2. Show Persistent Loading Toast
-        const toastId = toast.loading("Verifying Identity & Device Security...");
+        const toastId = toast.loading("Verifying Identity & Location...");
 
         try {
             // 🚀 PARALLEL EXECUTION: Start all security checks at the same time
-            // This cuts the waiting time in half without skipping any checks.
 
-            // A. Get Device Fingerprint (Critical for Proxy Proof)
+            // A. Get Device Fingerprint
             const deviceIdPromise = getUniqueDeviceId();
 
             // B. Get Firebase Auth Token
             const tokenPromise = auth.currentUser.getIdToken();
 
-            // C. Get GPS Location (Usually the slowest part)
-            const locationPromise = new Promise((resolve, reject) => {
-                navigator.geolocation.getCurrentPosition(
-                    (pos) => resolve({
-                        latitude: pos.coords.latitude,
-                        longitude: pos.coords.longitude
-                    }),
-                    (err) => reject(new Error("Location permission denied. Enable GPS."))
-                );
-            });
+            // C. Get GPS Location (Using the NEW Helper)
+            // This now waits for the user to click "Allow" if needed
+            const locationPromise = getLocation();
 
             // ⏳ Wait for ALL security data to be ready
-            const [currentDeviceId, token, location] = await Promise.all([
+            const [currentDeviceId, token, position] = await Promise.all([
                 deviceIdPromise,
                 tokenPromise,
                 locationPromise
             ]);
 
-            // 🚀 3. Send Everything to Backend for Strict Verification
+            // Extract coordinates from the robust position object
+            const location = {
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude
+            };
+
+            // 🚀 3. Send Everything to Backend
             const response = await fetch(`${BACKEND_URL}/markAttendance`, {
                 method: 'POST',
                 headers: {
@@ -1126,7 +1317,7 @@ export default function StudentDashboard() {
                 body: JSON.stringify({
                     sessionId: decodedText,
                     studentLocation: location,
-                    deviceId: currentDeviceId, // ✅ MANDATORY: Device ID is sent every time
+                    deviceId: currentDeviceId,
                     verificationMethod: 'qr'
                 })
             });
@@ -1135,17 +1326,65 @@ export default function StudentDashboard() {
 
             // 4. Handle Server Response
             if (response.ok) {
-                // ✅ Success: Update Toast to Green
                 toast.success(data.message, { id: toastId, duration: 4000 });
             } else {
-                // ❌ Error (Proxy, Location, or Duplicate): Update Toast to Red
                 toast.error(data.error, { id: toastId, duration: 5000 });
             }
 
         } catch (error) {
             console.error("Attendance Error:", error);
-            // ❌ Network or GPS Error
-            toast.error(error.message || "Verification Failed", { id: toastId, duration: 4000 });
+            // Handle specific location errors
+            if (error.code === 1) { // PERMISSION_DENIED
+                toast.error("Location Denied. Please enable GPS.", { id: toastId, duration: 4000 });
+            } else if (error.code === 3) { // TIMEOUT
+                toast.error("GPS Timeout. Move to an open area.", { id: toastId, duration: 4000 });
+            } else {
+                toast.error(error.message || "Verification Failed", { id: toastId, duration: 4000 });
+            }
+        }
+    };
+    // ✅ REPLACED: Updated PIN Handler (6-Digit Version)
+    const handlePinSubmit = async () => {
+        // ✅ CHANGED: Check for 6 digits
+        if (enteredPin.length !== 6) return toast.error("Enter a valid 6-digit PIN");
+
+        setLoading(true);
+        const toastId = toast.loading("Verifying Code...");
+
+        try {
+            // 1. Find the session that has this active PIN
+            const q = query(
+                collection(db, 'live_sessions'),
+                where('instituteId', '==', user.instituteId),
+                where('currentPin', '==', enteredPin),
+                where('isActive', '==', true)
+            );
+
+            const querySnapshot = await getDocs(q);
+
+            if (querySnapshot.empty) {
+                toast.error("Invalid or Expired PIN", { id: toastId });
+                setLoading(false);
+                return;
+            }
+
+            // 2. Get the Session ID
+            const sessionDoc = querySnapshot.docs[0];
+            const targetSessionId = sessionDoc.id;
+
+            // 3. Close Modal & Call Secure Function
+            setShowPinModal(false);
+            setEnteredPin('');
+            toast.success("Code Verified! Checking Device...", { id: toastId });
+
+            // 🔥 REUSE SECURITY LOGIC
+            await onScanSuccess(targetSessionId);
+
+        } catch (error) {
+            console.error("Verification Error:", error);
+            toast.error("Verification Failed", { id: toastId });
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -1238,6 +1477,8 @@ export default function StudentDashboard() {
         };
     }, [showScanner]);
 
+
+
     const renderContent = () => {
         if (!user) return <div style={{ textAlign: 'center', paddingTop: 50 }}>Loading...</div>;
         switch (activePage) {
@@ -1254,6 +1495,7 @@ export default function StudentDashboard() {
                 onBiometricAttendance={handleBiometricAttendance}
                 bioLoading={bioLoading}
                 openNativeCameraForQR={openNativeCameraForQR}
+                setShowPinModal={setShowPinModal}
             />;
             case 'tasks': return <FreePeriodTasks user={user} isFreePeriod={isFreePeriod} onOpenAIWithPrompt={handleOpenAiWithPrompt} />;
             case 'profile': return <Profile user={user} />;
@@ -1273,6 +1515,7 @@ export default function StudentDashboard() {
                 onBiometricAttendance={handleBiometricAttendance}
                 bioLoading={bioLoading}
                 openNativeCameraForQR={openNativeCameraForQR}
+                setShowPinModal={setShowPinModal}
             />;
         }
     };
@@ -1440,6 +1683,14 @@ export default function StudentDashboard() {
                     </div>,
                     document.body
                 )}
+                <ManualAttendanceModal
+                    isOpen={showPinModal}          // Matches: const [showPinModal, setShowPinModal]
+                    onClose={() => setShowPinModal(false)}
+                    pinValue={enteredPin}          // Matches: const [enteredPin, setEnteredPin]
+                    setPinValue={setEnteredPin}    // Matches: setEnteredPin
+                    onSubmit={handlePinSubmit}     // Matches: const handlePinSubmit
+                    loading={loading}              // Matches: const [loading, setLoading]
+                />
 
                 <MobileFooter
                     activePage={activePage}

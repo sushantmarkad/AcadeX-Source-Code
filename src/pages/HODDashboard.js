@@ -3,7 +3,7 @@ import { signOut, updatePassword, createUserWithEmailAndPassword } from 'firebas
 import { useNavigate } from 'react-router-dom';
 import { auth, db, storage, sendPasswordResetEmail } from '../firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { doc, getDoc, collection, query, where, onSnapshot, deleteDoc, addDoc, updateDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, getDoc, getDocs, collection, query, where, onSnapshot, deleteDoc, addDoc, updateDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import toast from 'react-hot-toast';
 import {
     PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
@@ -15,6 +15,7 @@ import './Dashboard.css';
 import './HODDashboard.css';
 import TwoFactorSetup from '../components/TwoFactorSetup'; // ✅ Add this import
 import CustomDropdown from '../components/CustomDropdown';
+import ReactDOM from 'react-dom';
 
 
 import ManageTimetable from './ManageTimetable';
@@ -91,6 +92,8 @@ export default function HODDashboard() {
     const [totalClasses, setTotalClasses] = useState(0);
     const [searchQuery, setSearchQuery] = useState("");
     const [annoTab, setAnnoTab] = useState('create');
+    const [isEditStudentModalOpen, setIsEditStudentModalOpen] = useState(false);
+    const [editStudentData, setEditStudentData] = useState(null);
 
     const [selectedRequestIds, setSelectedRequestIds] = useState([]);
     const [selectedUserIds, setSelectedUserIds] = useState([]);
@@ -107,6 +110,8 @@ export default function HODDashboard() {
     // Attendance Graph State
     const [attendanceGraph, setAttendanceGraph] = useState([]);
     const [timeRange, setTimeRange] = useState('week');
+    const [isEditTeacherModalOpen, setIsEditTeacherModalOpen] = useState(false);
+    const [editTeacherData, setEditTeacherData] = useState(null);
 
     // ✅ Announcement State (Fixed naming consistency)
     const [announcements, setAnnouncements] = useState([]);
@@ -134,6 +139,7 @@ export default function HODDashboard() {
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
     const [analyticsDivision, setAnalyticsDivision] = useState('All');
+    const [classCounts, setClassCounts] = useState({}); // Stores counts like { FE: 10, SE: 20 } or { A: 5, B: 5 }
     const DIVISIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'];
     const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year';
 
@@ -266,6 +272,86 @@ export default function HODDashboard() {
         fetchAttendanceStats();
     }, [hodInfo, deptUsers, timeRange, isFE]); // Added isFE dependency
 
+    // ✅ SAVE TEACHER UPDATES (Via Backend to fix Login Email)
+    const handleSaveTeacherUpdates = async () => {
+        if (!editTeacherData) return;
+        setLoading(true);
+        const toastId = toast.loading("Updating Teacher Credentials...");
+
+        try {
+            // Call Backend API
+            const response = await fetch(`${BACKEND_URL}/updateUser`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    uid: editTeacherData.id,
+                    email: editTeacherData.email, // ✅ Updates Login Email
+                    firstName: editTeacherData.firstName,
+                    lastName: editTeacherData.lastName,
+                    phone: editTeacherData.phone || '',
+                    assignedClasses: editTeacherData.assignedClasses, // ✅ Preserves Assignments
+                    academicYear: editTeacherData.academicYear || '2024-2025'
+                })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || "Update Failed");
+            }
+
+            toast.success("Teacher Login & Data Updated!", { id: toastId });
+            setIsEditTeacherModalOpen(false);
+            setEditTeacherData(null);
+
+        } catch (error) {
+            console.error("Update Error:", error);
+            toast.error("Failed: " + error.message, { id: toastId });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // ✅ SAVE STUDENT UPDATES (Via Backend to fix Login Email)
+    const handleSaveStudentUpdates = async () => {
+        if (!editStudentData) return;
+        setLoading(true);
+        const toastId = toast.loading("Updating Credentials...");
+
+        try {
+            // Call your Backend API
+            const response = await fetch(`${BACKEND_URL}/updateUser`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    uid: editStudentData.id, // The User ID
+                    email: editStudentData.email, // ✅ Updates Login Email
+                    firstName: editStudentData.firstName,
+                    lastName: editStudentData.lastName,
+                    rollNo: editStudentData.rollNo,
+                    division: editStudentData.division || null,
+                    phone: editStudentData.phone || ''
+                })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || "Update Failed");
+            }
+
+            toast.success("Login & Details Updated!", { id: toastId });
+            setIsEditStudentModalOpen(false);
+            setEditStudentData(null);
+
+        } catch (error) {
+            console.error("Update Error:", error);
+            toast.error("Failed: " + error.message, { id: toastId });
+        } finally {
+            setLoading(false);
+        }
+    };
+
     // --- 4. PASSWORD CHANGE HANDLER ---
     const handleChangePassword = async (e) => {
         e.preventDefault();
@@ -287,40 +373,85 @@ export default function HODDashboard() {
     const studentsList = deptUsers.filter(u => u.role === 'student');
     const teachersList = deptUsers.filter(u => u.role === 'teacher');
 
-    // --- ✅ UPDATED: ANALYTICS PROCESSING (Dynamic Criteria) ---
-    // --- ✅ UPDATED: ANALYTICS PROCESSING ---
+    // ✅ NEW EFFECT: Fetch Accurate Total Classes per Group
+    useEffect(() => {
+        const fetchSessionCounts = async () => {
+            if (!hodInfo) return;
+
+            // Query ALL sessions for this department
+            const q = query(collection(db, 'live_sessions'),
+                where('instituteId', '==', hodInfo.instituteId),
+                where('department', '==', hodInfo.department)
+            );
+
+            try {
+                const snap = await getDocs(q); // Fetch once
+
+                if (isFE) {
+                    // For FE, count by Division
+                    const divCounts = {};
+                    snap.docs.forEach(doc => {
+                        const d = doc.data();
+                        if (d.targetYear === 'FE') {
+                            const div = d.division || 'A';
+                            divCounts[div] = (divCounts[div] || 0) + 1;
+                        }
+                    });
+                    setClassCounts(divCounts);
+                } else {
+                    // For Dept, count by Year
+                    const yearCounts = { SE: 0, TE: 0, BE: 0 };
+                    snap.docs.forEach(doc => {
+                        const d = doc.data();
+                        if (yearCounts[d.targetYear] !== undefined) {
+                            yearCounts[d.targetYear]++;
+                        }
+                    });
+                    setClassCounts(yearCounts);
+                }
+            } catch (e) { console.error("Error counting sessions", e); }
+        };
+        fetchSessionCounts();
+    }, [hodInfo, isFE]);
+
+    // ✅ UPDATED ANALYTICS FUNCTION
     const getYearAnalytics = () => {
         let targetStudents = studentsList;
 
-        // 1. Filter Students based on Role (FE HOD vs Dept HOD)
+        // 1. Filter Students
         if (isFE) {
-            // FE HOD: Only see FE students
             targetStudents = studentsList.filter(s => s.year === 'FE');
-
-            // Apply Division Filter if selected
             if (analyticsDivision !== 'All') {
                 targetStudents = targetStudents.filter(s => s.division === analyticsDivision);
             }
         } else {
-            // Dept HOD: Filter by selected Year (SE, TE, BE)
             targetStudents = studentsList.filter(s => s.year === analyticsYear);
         }
 
-        // Get Threshold
         const threshold = criteria[analyticsYear] || 75;
 
-        // 2. Calculate Percentage
+        // 2. Calculate Percentage using ACCURATE DENOMINATOR
         const processed = targetStudents.map(s => {
             const attended = s.attendanceCount || 0;
-            const percentage = totalClasses > 0 ? (attended / totalClasses) * 100 : (attended > 0 ? 100 : 0);
+
+            // ✅ FIX: Use the specific total for this student's group
+            let localTotal = 0;
+            if (isFE) {
+                // Use Division Count (Fallback to 1 to avoid NaN)
+                localTotal = classCounts[s.division || 'A'] || 0;
+            } else {
+                // Use Year Count
+                localTotal = classCounts[s.year] || 0;
+            }
+
+            // Calculate
+            const percentage = localTotal > 0 ? (attended / localTotal) * 100 : (attended > 0 ? 100 : 0);
             return { ...s, percentage };
         });
 
-        // 3. Categorize
         const safe = processed.filter(s => s.percentage >= threshold);
         const defaulters = processed.filter(s => s.percentage < threshold);
 
-        // 4. Search Filter
         const filteredDefaulters = defaulters.filter(s =>
             (s.firstName && s.firstName.toLowerCase().includes(searchQuery.toLowerCase())) ||
             (s.rollNo && s.rollNo.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -427,7 +558,7 @@ export default function HODDashboard() {
         }
     };
 
-   const handlePostAnnouncement = async (e) => {
+    const handlePostAnnouncement = async (e) => {
         e.preventDefault();
         const toastId = toast.loading("Posting...");
         try {
@@ -445,7 +576,7 @@ export default function HODDashboard() {
 
             // 1. Parse Division (e.g. "Division A" -> Year: "FE", Div: "A")
             if (announcementForm.targetYear.startsWith('Division ')) {
-                finalTargetYear = 'FE'; 
+                finalTargetYear = 'FE';
                 finalDivision = announcementForm.targetYear.split(' ')[1];
             }
 
@@ -487,9 +618,9 @@ export default function HODDashboard() {
             toast.success("Posted Successfully!", { id: toastId });
             setAnnouncementForm({ title: '', message: '', targetYear: 'All' });
             setAnnoFile(null);
-        } catch (err) { 
+        } catch (err) {
             console.error(err);
-            toast.error("Failed to post.", { id: toastId }); 
+            toast.error("Failed to post.", { id: toastId });
         }
     };
     const handleDeleteAnnouncement = (id) => {
@@ -637,7 +768,7 @@ export default function HODDashboard() {
                     password: teacherForm.password,
                     firstName: teacherForm.firstName,
                     lastName: teacherForm.lastName,
-                    phone: teacherForm.phone, 
+                    phone: teacherForm.phone,
                     role: 'teacher',
                     instituteId: hodInfo.instituteId,
                     instituteName: hodInfo.instituteName || 'AcadeX Institute',
@@ -1538,13 +1669,13 @@ export default function HODDashboard() {
                                                     }}>
                                                         <i className={`fas ${a.targetYear === 'Teachers' ? 'fa-chalkboard-teacher' : 'fa-user-graduate'}`}></i>
                                                     </span>
-                                                    
+
                                                     {/* ✅ UPDATED LABEL LOGIC */}
                                                     <span style={{ fontSize: '12px', fontWeight: '700', color: '#64748b' }}>
-                                                        {a.targetYear === 'All' 
-                                                            ? 'Everyone' 
-                                                            : (a.division && a.division !== 'All') 
-                                                                ? `${a.targetYear} (Div ${a.division})` 
+                                                        {a.targetYear === 'All'
+                                                            ? 'Everyone'
+                                                            : (a.division && a.division !== 'All')
+                                                                ? `${a.targetYear} (Div ${a.division})`
                                                                 : a.targetYear
                                                         }
                                                     </span>
@@ -1634,7 +1765,7 @@ export default function HODDashboard() {
                     </div>
                 )}
 
-{activeTab === 'leaves' && (
+                {activeTab === 'leaves' && (
                     <div className="content-section">
                         <div className="section-header">
                             <h2 className="gradient-text">Student Leave Requests</h2>
@@ -1673,7 +1804,7 @@ export default function HODDashboard() {
                                                     <span className="date">{new Date(leave.toDate).toLocaleDateString()}</span>
                                                 </div>
                                             </div>
-                                            
+
                                             <div className="reason-box">
                                                 <p><strong>Reason:</strong> {leave.reason}</p>
                                             </div>
@@ -1687,13 +1818,13 @@ export default function HODDashboard() {
 
                                         {leave.status === 'pending' && (
                                             <div className="leave-actions-modern">
-                                                <button 
+                                                <button
                                                     className="action-btn approve"
                                                     onClick={() => handleLeaveAction(leave.id, 'approved')}
                                                 >
                                                     <i className="fas fa-check"></i> Approve
                                                 </button>
-                                                <button 
+                                                <button
                                                     className="action-btn reject"
                                                     onClick={() => handleLeaveAction(leave.id, 'rejected')}
                                                 >
@@ -1724,15 +1855,15 @@ export default function HODDashboard() {
                                 <h2 className="gradient-text">Student Applications</h2>
                                 <p className="subtitle">Review and manage new registrations.</p>
                             </div>
-                            
+
                             {/* Bulk Action Button (Visible only when items selected) */}
                             {selectedRequestIds.length > 0 && (
-                                <button 
-                                    onClick={() => confirmAction('Approve Selected?', `Approve ${selectedRequestIds.length} students?`, executeBulkApprove)} 
-                                    className="btn-primary" 
+                                <button
+                                    onClick={() => confirmAction('Approve Selected?', `Approve ${selectedRequestIds.length} students?`, executeBulkApprove)}
+                                    className="btn-primary"
                                     style={{ padding: '10px 20px', display: 'flex', alignItems: 'center', gap: '8px', width: 'auto' }}
                                 >
-                                    <i className="fas fa-check-double"></i> 
+                                    <i className="fas fa-check-double"></i>
                                     Approve ({selectedRequestIds.length})
                                 </button>
                             )}
@@ -1741,12 +1872,12 @@ export default function HODDashboard() {
                         {/* Selection Bar (Visible only if requests exist) */}
                         {studentRequests.length > 0 && (
                             <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '10px', background: 'white', padding: '10px 15px', borderRadius: '12px', width: 'fit-content', border: '1px solid #e2e8f0' }}>
-                                <input 
-                                    type="checkbox" 
+                                <input
+                                    type="checkbox"
                                     id="selectAll"
-                                    className="custom-checkbox" 
-                                    checked={selectedRequestIds.length === studentRequests.length} 
-                                    onChange={toggleSelectRequestAll} 
+                                    className="custom-checkbox"
+                                    checked={selectedRequestIds.length === studentRequests.length}
+                                    onChange={toggleSelectRequestAll}
                                     style={{ width: '18px', height: '18px' }}
                                 />
                                 <label htmlFor="selectAll" style={{ fontSize: '14px', fontWeight: '700', color: '#475569', cursor: 'pointer' }}>
@@ -1758,16 +1889,16 @@ export default function HODDashboard() {
                         <div className="requests-grid">
                             {studentRequests.length > 0 ? (
                                 studentRequests.map(req => (
-                                    <div 
-                                        key={req.id} 
+                                    <div
+                                        key={req.id}
                                         className={`request-card ${selectedRequestIds.includes(req.id) ? 'selected' : ''}`}
                                         onClick={() => toggleSelectRequestOne(req.id)}
                                     >
                                         {/* Selection Checkbox */}
                                         <div className="req-selection">
-                                            <input 
-                                                type="checkbox" 
-                                                checked={selectedRequestIds.includes(req.id)} 
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedRequestIds.includes(req.id)}
                                                 onChange={() => toggleSelectRequestOne(req.id)}
                                                 className="custom-checkbox"
                                                 onClick={(e) => e.stopPropagation()} // Prevent card click conflict
@@ -1803,13 +1934,13 @@ export default function HODDashboard() {
 
                                         {/* Actions */}
                                         <div className="req-actions">
-                                            <button 
+                                            <button
                                                 className="action-btn approve"
                                                 onClick={(e) => { e.stopPropagation(); confirmAction('Approve?', `Approve ${req.firstName}?`, () => executeSingleApprove(req)); }}
                                             >
                                                 <i className="fas fa-check"></i> Approve
                                             </button>
-                                            <button 
+                                            <button
                                                 className="action-btn reject"
                                                 onClick={(e) => { e.stopPropagation(); confirmAction('Reject?', `Reject?`, () => executeReject(req.id), 'danger'); }}
                                             >
@@ -1831,12 +1962,12 @@ export default function HODDashboard() {
                         </div>
                     </div>
                 )}
-                {/* ✅ DEPT USERS - Year-wise Scrollable Cards */}
+                {/* ✅ DEPT USERS TAB (Full Code) */}
                 {activeTab === 'manage' && (
                     <div className="content-section">
                         <h2 className="content-title">Department Users</h2>
 
-                        {/* Teachers Table */}
+                        {/* --- 1. TEACHERS LIST --- */}
                         <div className="card card-full-width" style={{ marginBottom: '24px' }}>
                             <h3 style={{ margin: '0 0 10px 0' }}>Teachers ({teachersList.length})</h3>
                             <div className="table-wrapper">
@@ -1846,7 +1977,8 @@ export default function HODDashboard() {
                                             <th style={{ width: '40px' }}></th>
                                             <th>Name</th>
                                             <th>Email</th>
-                                            <th>Assigned Classes</th> {/* Renamed Header */}
+                                            <th>Assigned Classes</th>
+                                            <th style={{ textAlign: 'center' }}>Action</th> {/* ✅ Action Column */}
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -1855,26 +1987,24 @@ export default function HODDashboard() {
                                                 <td>
                                                     <input type="checkbox" checked={selectedUserIds.includes(t.id)} onChange={() => toggleSelectUser(t.id)} className="custom-checkbox" />
                                                 </td>
-                                                <td>{t.firstName} {t.lastName}</td>
+                                                <td>
+                                                    <div style={{ fontWeight: '600', color: '#1e293b' }}>{t.firstName} {t.lastName}</div>
+                                                    <div style={{ fontSize: '11px', color: '#64748b' }}>{t.phone || 'No Phone'}</div>
+                                                </td>
                                                 <td>{t.email}</td>
                                                 <td>
                                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                                         {t.assignedClasses && t.assignedClasses.length > 0 ?
                                                             t.assignedClasses.map((cls, idx) => (
                                                                 <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                                                    {/* Year Badge */}
-                                                                    <span className="status-badge-pill" style={{ fontSize: '11px', padding: '2px 8px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0' }}>
-                                                                        {cls.year}
+                                                                    <span className="status-badge-pill" style={{ fontSize: '10px', padding: '2px 6px', background: '#f1f5f9', color: '#475569', border: '1px solid #e2e8f0' }}>
+                                                                        {cls.year} (Sem {cls.semester})
                                                                     </span>
-
-                                                                    {/* Division Badge (Only if exists) */}
                                                                     {cls.divisions && (
-                                                                        <span style={{ fontSize: '11px', fontWeight: '700', color: '#2563eb', background: '#eff6ff', padding: '2px 6px', borderRadius: '4px' }}>
+                                                                        <span style={{ fontSize: '10px', fontWeight: '700', color: '#2563eb', background: '#eff6ff', padding: '2px 6px', borderRadius: '4px' }}>
                                                                             Div {cls.divisions}
                                                                         </span>
                                                                     )}
-
-                                                                    {/* Subject */}
                                                                     <span style={{ fontSize: '12px', color: '#1e293b', fontWeight: '600' }}>
                                                                         {cls.subject}
                                                                     </span>
@@ -1886,6 +2016,19 @@ export default function HODDashboard() {
                                                         }
                                                     </div>
                                                 </td>
+                                                {/* ✅ TEACHER EDIT BUTTON */}
+                                                <td style={{ textAlign: 'center' }}>
+                                                    <button
+                                                        onClick={() => {
+                                                            setEditTeacherData(JSON.parse(JSON.stringify(t)));
+                                                            setIsEditTeacherModalOpen(true);
+                                                        }}
+                                                        style={{ background: '#eff6ff', color: '#3b82f6', border: 'none', padding: '8px', borderRadius: '8px', cursor: 'pointer', transition: 'all 0.2s' }}
+                                                        title="Edit Assignments"
+                                                    >
+                                                        <i className="fas fa-edit"></i>
+                                                    </button>
+                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -1893,20 +2036,14 @@ export default function HODDashboard() {
                             </div>
                         </div>
 
-                        {/* Students Section - Scrollable Cards */}
+                        {/* --- 2. STUDENTS LIST (Grouped) --- */}
                         <h3 style={{ margin: '0 0 15px 0' }}>Students ({studentsList.length})</h3>
                         <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
 
-                            {/* ✅ LOGIC: Iterate Divisions for FE, Years for Others */}
                             {(isFE ? DIVISIONS : ['SE', 'TE', 'BE']).map(label => {
-
-                                // Filter Students
                                 const groupStudents = studentsList.filter(s =>
                                     isFE ? s.division === label : s.year === label
                                 );
-
-                                // Hide empty cards for Divisions to keep it clean (Optional, currently showing all)
-                                // if (groupStudents.length === 0) return null; 
 
                                 return (
                                     <div key={label} className="card" style={{ display: 'flex', flexDirection: 'column', height: '350px' }}>
@@ -1922,19 +2059,39 @@ export default function HODDashboard() {
                                         <div className="custom-scroll" style={{ flex: 1, overflowY: 'auto' }}>
                                             {groupStudents.length > 0 ? (
                                                 <table className="attendance-table" style={{ fontSize: '13px' }}>
-                                                    <thead><tr><th>Roll</th><th>Name</th></tr></thead>
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Roll</th>
+                                                            <th>Name</th>
+                                                            <th style={{ textAlign: 'right' }}>Edit</th> {/* ✅ Edit Column */}
+                                                        </tr>
+                                                    </thead>
                                                     <tbody>
                                                         {groupStudents.sort((a, b) => (a.rollNo || "").localeCompare(b.rollNo, undefined, { numeric: true })).map(s => (
                                                             <tr key={s.id}>
                                                                 <td style={{ fontWeight: 'bold' }}>{s.rollNo}</td>
                                                                 <td>
-                                                                    {s.firstName} {s.lastName}
-                                                                    {/* Show Division Badge only if NOT in FE View (since card is already Div) */}
-                                                                    {!isFE && s.year === 'FE' && s.division && (
-                                                                        <span style={{ marginLeft: '5px', fontSize: '10px', background: '#e0f2fe', color: '#0284c7', padding: '2px 4px', borderRadius: '4px' }}>
-                                                                            {s.division}
-                                                                        </span>
-                                                                    )}
+                                                                    <div style={{ lineHeight: '1.2' }}>
+                                                                        {s.firstName} {s.lastName}
+                                                                    </div>
+                                                                    <div style={{ fontSize: '10px', color: '#64748b' }}>{s.email}</div>
+                                                                </td>
+                                                                {/* ✅ STUDENT EDIT BUTTON */}
+                                                                <td style={{ textAlign: 'right' }}>
+                                                                    <button
+                                                                        onClick={() => {
+                                                                            setEditStudentData({ ...s });
+                                                                            setIsEditStudentModalOpen(true);
+                                                                        }}
+                                                                        style={{
+                                                                            background: '#f1f5f9', color: '#64748b', border: 'none',
+                                                                            borderRadius: '6px', padding: '6px', cursor: 'pointer', fontSize: '12px'
+                                                                        }}
+                                                                        onMouseOver={e => e.currentTarget.style.color = '#3b82f6'}
+                                                                        onMouseOut={e => e.currentTarget.style.color = '#64748b'}
+                                                                    >
+                                                                        <i className="fas fa-edit"></i>
+                                                                    </button>
                                                                 </td>
                                                             </tr>
                                                         ))}
@@ -1947,6 +2104,7 @@ export default function HODDashboard() {
                             })}
                         </div>
 
+                        {/* --- 3. BULK DELETE BUTTON --- */}
                         {selectedUserIds.length > 0 && (
                             <button className="floating-delete-btn" onClick={handleDeleteUsers}>
                                 <i className="fas fa-trash-alt"></i> Delete ({selectedUserIds.length})
@@ -1985,7 +2143,7 @@ export default function HODDashboard() {
                                         <input type="text" value={hodInfo?.department || ''} disabled style={{ background: '#f1f5f9', color: '#94a3b8' }} />
                                     </div>
 
-                                   {/* Academic Year Select */}
+                                    {/* Academic Year Select */}
                                     <div style={{ position: 'relative', zIndex: 20 }}>
                                         <CustomMobileSelect
                                             label="Academic Year"
@@ -2104,6 +2262,329 @@ export default function HODDashboard() {
 
             {/* Mobile Footer Bar */}
             <MobileFooter />
+            {/* ✅ EDIT TEACHER MODAL (With Email Edit) */}
+            {isEditTeacherModalOpen && editTeacherData && ReactDOM.createPortal(
+                <div className="hod-modal-overlay" style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    background: 'rgba(15, 23, 42, 0.75)',
+                    backdropFilter: 'blur(8px)',
+                    zIndex: 99999,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    animation: 'fadeIn 0.2s ease-out'
+                }}>
+                    <div className="card" style={{
+                        width: '95%', maxWidth: '600px', maxHeight: '90vh',
+                        overflowY: 'auto', padding: '0',
+                        position: 'relative', background: 'white',
+                        borderRadius: '24px', border: '1px solid rgba(255,255,255,0.1)',
+                        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+                        display: 'flex', flexDirection: 'column'
+                    }}>
+
+                        {/* Header */}
+                        <div style={{ padding: '25px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center', position: 'sticky', top: 0, zIndex: 10 }}>
+                            <div>
+                                <h3 style={{ margin: 0, color: '#1e293b', fontSize: '20px', fontWeight: '800' }}>Edit Teacher</h3>
+                                <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>Update credentials & assignments</p>
+                            </div>
+                            <button
+                                onClick={() => setIsEditTeacherModalOpen(false)}
+                                style={{
+                                    background: '#e2e8f0', border: 'none', width: '36px', height: '36px', borderRadius: '50%',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b', fontSize: '18px'
+                                }}
+                            >
+                                &times;
+                            </button>
+                        </div>
+
+                        {/* Scrollable Content */}
+                        <div style={{ padding: '25px', overflowY: 'auto' }}>
+
+                            {/* Personal Info */}
+                            <div className="teacher-form-grid" style={{ marginBottom: '25px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                <div className="input-group">
+                                    <label style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', marginBottom: '8px', display: 'block' }}>FIRST NAME</label>
+                                    <input
+                                        type="text"
+                                        value={editTeacherData.firstName}
+                                        onChange={(e) => setEditTeacherData({ ...editTeacherData, firstName: e.target.value })}
+                                        style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '2px solid #e2e8f0', fontWeight: '600', color: '#1e293b' }}
+                                    />
+                                </div>
+                                <div className="input-group">
+                                    <label style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', marginBottom: '8px', display: 'block' }}>LAST NAME</label>
+                                    <input
+                                        type="text"
+                                        value={editTeacherData.lastName}
+                                        onChange={(e) => setEditTeacherData({ ...editTeacherData, lastName: e.target.value })}
+                                        style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '2px solid #e2e8f0', fontWeight: '600', color: '#1e293b' }}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Email & Phone */}
+                            <div className="teacher-form-grid" style={{ marginBottom: '25px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                <div className="input-group">
+                                    <label style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', marginBottom: '8px', display: 'block' }}>LOGIN EMAIL</label>
+                                    <input
+                                        type="email"
+                                        value={editTeacherData.email}
+                                        onChange={(e) => setEditTeacherData({ ...editTeacherData, email: e.target.value })}
+                                        style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '2px solid #e2e8f0', fontWeight: '600', color: '#1e293b' }}
+                                    />
+                                </div>
+                                <div className="input-group">
+                                    <label style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', marginBottom: '8px', display: 'block' }}>PHONE</label>
+                                    <input
+                                        type="text"
+                                        value={editTeacherData.phone || ''}
+                                        onChange={(e) => setEditTeacherData({ ...editTeacherData, phone: e.target.value })}
+                                        placeholder="+91..."
+                                        style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '2px solid #e2e8f0', fontWeight: '600', color: '#1e293b' }}
+                                    />
+                                </div>
+                            </div>
+
+                            <p style={{ fontSize: '11px', color: '#10b981', background: '#ecfdf5', padding: '10px', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '8px', marginTop: '-15px', marginBottom: '25px' }}>
+                                <i className="fas fa-info-circle"></i>
+                                Changing the email here will immediately update their login credentials.
+                            </p>
+
+                            {/* 🎓 ASSIGNMENTS EDITOR (Standard UI) */}
+                            <div className="class-assignment-container">
+                                <label style={{ fontSize: '12px', fontWeight: '800', color: '#64748b', marginBottom: '15px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                    <i className="fas fa-edit" style={{ marginRight: '8px', color: '#3b82f6' }}></i>
+                                    Modify Assignments
+                                </label>
+
+                                {editTeacherData.assignedClasses.map((cls, index) => {
+                                    const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year';
+                                    const yearOptions = isFE ? [{ value: 'FE', label: 'First Year' }] : [{ value: 'SE', label: 'SE' }, { value: 'TE', label: 'TE' }, { value: 'BE', label: 'BE' }];
+
+                                    let semOptions = [];
+                                    if (cls.year === 'FE') semOptions = [{ value: 1, label: 'Sem 1' }, { value: 2, label: 'Sem 2' }];
+                                    if (cls.year === 'SE') semOptions = [{ value: 3, label: 'Sem 3' }, { value: 4, label: 'Sem 4' }];
+                                    if (cls.year === 'TE') semOptions = [{ value: 5, label: 'Sem 5' }, { value: 6, label: 'Sem 6' }];
+                                    if (cls.year === 'BE') semOptions = [{ value: 7, label: 'Sem 7' }, { value: 8, label: 'Sem 8' }];
+
+                                    return (
+                                        <div key={index} className="subject-card" style={{ zIndex: 50 - index }}>
+                                            <button type="button" className="delete-subject-btn" onClick={() => {
+                                                const updated = editTeacherData.assignedClasses.filter((_, i) => i !== index);
+                                                setEditTeacherData({ ...editTeacherData, assignedClasses: updated });
+                                            }}>
+                                                <i className="fas fa-trash"></i>
+                                            </button>
+
+                                            <div style={{ flex: '1 1 100px' }}>
+                                                <CustomMobileSelect label="Class" value={cls.year} onChange={(val) => {
+                                                    const updated = [...editTeacherData.assignedClasses];
+                                                    updated[index] = { ...updated[index], year: val, semester: val === 'FE' ? 1 : 3 };
+                                                    setEditTeacherData({ ...editTeacherData, assignedClasses: updated });
+                                                }} options={yearOptions} />
+                                            </div>
+
+                                            <div style={{ flex: '1 1 80px' }}>
+                                                <CustomMobileSelect label="Sem" value={cls.semester} onChange={(val) => {
+                                                    const updated = [...editTeacherData.assignedClasses];
+                                                    updated[index] = { ...updated[index], semester: Number(val) };
+                                                    setEditTeacherData({ ...editTeacherData, assignedClasses: updated });
+                                                }} options={semOptions} />
+                                            </div>
+
+                                            {isFE && (
+                                                <div style={{ flex: '0 1 70px' }}>
+                                                    <label style={{ fontSize: '10px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block' }}>DIV</label>
+                                                    <input type="text" value={cls.divisions || ''} onChange={(e) => {
+                                                        const updated = [...editTeacherData.assignedClasses];
+                                                        updated[index] = { ...updated[index], divisions: e.target.value };
+                                                        setEditTeacherData({ ...editTeacherData, assignedClasses: updated });
+                                                    }} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0', textAlign: 'center', fontWeight: 'bold' }} />
+                                                </div>
+                                            )}
+
+                                            <div style={{ flex: '2 1 150px' }}>
+                                                <label style={{ fontSize: '10px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block' }}>SUBJECT</label>
+                                                <input type="text" value={cls.subject} onChange={(e) => {
+                                                    const updated = [...editTeacherData.assignedClasses];
+                                                    updated[index] = { ...updated[index], subject: e.target.value };
+                                                    setEditTeacherData({ ...editTeacherData, assignedClasses: updated });
+                                                }} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0', fontWeight: '600' }} />
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+
+                                <button type="button" className="add-subject-btn" onClick={() => {
+                                    const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year';
+                                    setEditTeacherData({
+                                        ...editTeacherData,
+                                        assignedClasses: [...editTeacherData.assignedClasses, { year: isFE ? 'FE' : 'SE', semester: isFE ? 1 : 3, divisions: '', subject: '' }]
+                                    });
+                                }}>
+                                    <i className="fas fa-plus"></i> Add New Assignment
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Footer Buttons */}
+                        <div style={{
+                            padding: '20px 25px', borderTop: '1px solid #e2e8f0', background: 'white',
+                            display: 'flex', gap: '15px', position: 'sticky', bottom: 0, zIndex: 10, borderRadius: '0 0 24px 24px'
+                        }}>
+                            <button
+                                onClick={() => setIsEditTeacherModalOpen(false)}
+                                style={{
+                                    flex: 1, padding: '14px', borderRadius: '12px', border: 'none',
+                                    background: '#f1f5f9', color: '#475569', fontWeight: '700', fontSize: '15px', cursor: 'pointer', transition: 'background 0.2s'
+                                }}
+                                onMouseOver={e => e.currentTarget.style.background = '#e2e8f0'}
+                                onMouseOut={e => e.currentTarget.style.background = '#f1f5f9'}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSaveTeacherUpdates}
+                                disabled={loading}
+                                style={{
+                                    flex: 2, padding: '14px', borderRadius: '12px', border: 'none',
+                                    background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                                    color: 'white', fontWeight: '700', fontSize: '15px', cursor: 'pointer',
+                                    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
+                                }}
+                            >
+                                {loading ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-save"></i>}
+                                {loading ? 'Saving...' : 'Save Updates'}
+                            </button>
+                        </div>
+
+                    </div>
+                </div>,
+                document.body
+            )}
+
+            {/* ✅ EDIT STUDENT MODAL */}
+            {isEditStudentModalOpen && editStudentData && ReactDOM.createPortal(
+                <div className="hod-modal-overlay" style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    background: 'rgba(15, 23, 42, 0.75)',
+                    backdropFilter: 'blur(8px)',
+                    zIndex: 99999,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    animation: 'fadeIn 0.2s ease-out'
+                }}>
+                    <div className="card" style={{
+                        width: '95%', maxWidth: '500px', maxHeight: '90vh',
+                        overflowY: 'auto', padding: '0',
+                        position: 'relative', background: 'white',
+                        borderRadius: '24px', border: '1px solid rgba(255,255,255,0.1)',
+                        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+                        display: 'flex', flexDirection: 'column'
+                    }}>
+
+                        {/* Header */}
+                        <div style={{ padding: '25px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                                <h3 style={{ margin: 0, color: '#1e293b', fontSize: '18px', fontWeight: '800' }}>Edit Student</h3>
+                                <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>Correct details for {editStudentData.firstName}</p>
+                            </div>
+                            <button
+                                onClick={() => setIsEditStudentModalOpen(false)}
+                                style={{ background: '#e2e8f0', border: 'none', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b', fontSize: '16px' }}
+                            >
+                                &times;
+                            </button>
+                        </div>
+
+                        {/* Form Fields */}
+                        <div style={{ padding: '25px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+                            <div style={{ display: 'flex', gap: '15px' }}>
+                                <div className="input-group" style={{ flex: 1 }}>
+                                    <label style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', marginBottom: '8px', display: 'block' }}>FIRST NAME</label>
+                                    <input
+                                        type="text"
+                                        value={editStudentData.firstName}
+                                        onChange={e => setEditStudentData({ ...editStudentData, firstName: e.target.value })}
+                                        style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: '600' }}
+                                    />
+                                </div>
+                                <div className="input-group" style={{ flex: 1 }}>
+                                    <label style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', marginBottom: '8px', display: 'block' }}>LAST NAME</label>
+                                    <input
+                                        type="text"
+                                        value={editStudentData.lastName}
+                                        onChange={e => setEditStudentData({ ...editStudentData, lastName: e.target.value })}
+                                        style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: '600' }}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="input-group">
+                                <label style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', marginBottom: '8px', display: 'block' }}>EMAIL ADDRESS</label>
+                                <input
+                                    type="email"
+                                    value={editStudentData.email}
+                                    onChange={e => setEditStudentData({ ...editStudentData, email: e.target.value })}
+                                    style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: '600' }}
+                                />
+                                <p style={{ fontSize: '11px', color: '#10b981', marginTop: '5px' }}>
+                                    <i className="fas fa-check-circle"></i> This will update their login email immediately.
+                                </p>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '15px' }}>
+                                <div className="input-group" style={{ flex: 1 }}>
+                                    <label style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', marginBottom: '8px', display: 'block' }}>ROLL NO</label>
+                                    <input
+                                        type="text"
+                                        value={editStudentData.rollNo}
+                                        onChange={e => setEditStudentData({ ...editStudentData, rollNo: e.target.value })}
+                                        style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: '600' }}
+                                    />
+                                </div>
+
+                                {/* Only Show Division for FE */}
+                                {(hodInfo?.department === 'FE' || hodInfo?.department === 'First Year') && (
+                                    <div className="input-group" style={{ flex: 1 }}>
+                                        <label style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', marginBottom: '8px', display: 'block' }}>DIVISION</label>
+                                        <input
+                                            type="text"
+                                            value={editStudentData.division || ''}
+                                            onChange={e => setEditStudentData({ ...editStudentData, division: e.target.value })}
+                                            style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #cbd5e1', fontWeight: '600' }}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Footer */}
+                        <div style={{ padding: '20px 25px', borderTop: '1px solid #e2e8f0', background: 'white', display: 'flex', gap: '15px', borderRadius: '0 0 24px 24px' }}>
+                            <button
+                                onClick={() => setIsEditStudentModalOpen(false)}
+                                style={{ flex: 1, padding: '14px', borderRadius: '12px', border: 'none', background: '#f1f5f9', color: '#475569', fontWeight: '700', cursor: 'pointer' }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSaveStudentUpdates}
+                                disabled={loading}
+                                style={{
+                                    flex: 2, padding: '14px', borderRadius: '12px', border: 'none',
+                                    background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
+                                    color: 'white', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
+                                }}
+                            >
+                                {loading ? 'Saving...' : 'Save Updates'}
+                            </button>
+                        </div>
+
+                    </div>
+                </div>,
+                document.body
+            )}
         </div>
     );
 }
