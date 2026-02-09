@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../firebase';
-import { collection, query, where, onSnapshot, orderBy, limit } from 'firebase/firestore';
+import { auth } from '../firebase'; 
 import { motion } from 'framer-motion'; 
+import toast from 'react-hot-toast';
 import './Dashboard.css';
 
-// ✅ Default Fallback Avatars
-const MALE_AVATAR = "https://cdn-icons-png.flaticon.com/512/4140/4140048.png";
-const FEMALE_AVATAR = "https://cdn-icons-png.flaticon.com/512/4140/4140047.png";
+const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com"; 
+
+// ✅ Single Gender-Neutral Avatar (3D Style)
+const DEFAULT_AVATAR = "https://cdn-icons-png.flaticon.com/512/4140/4140037.png";
 
 export default function Leaderboard({ user }) {
     const [leaders, setLeaders] = useState([]);
@@ -15,54 +16,48 @@ export default function Leaderboard({ user }) {
     const [showAll, setShowAll] = useState(false);
 
     useEffect(() => {
-        if (!user?.instituteId) return;
+        const fetchLeaderboard = async () => {
+            if (!user?.uid) return;
+            setLoading(true);
 
-        setLoading(true);
+            try {
+                const token = await auth.currentUser.getIdToken();
 
-        const q = query(
-            collection(db, 'users'),
-            where('instituteId', '==', user.instituteId),
-            where('role', '==', 'student'),
-            orderBy('xp', 'desc'),
-            limit(showAll ? 500 : 50)
-        );
+                const response = await fetch(`${BACKEND_URL}/getLeaderboard`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ showAll })
+                });
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const data = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
-            
-            setLeaders(data);
-            
-            const myIndex = data.findIndex(u => u.id === user.uid);
-            if (myIndex !== -1) setMyRank(myIndex + 1);
-            
-            setLoading(false);
-        }, (error) => {
-            console.error("Leaderboard Error:", error);
-            setLoading(false);
-        });
+                if (!response.ok) throw new Error("Failed to fetch ranks");
 
-        return () => unsubscribe();
-    }, [user?.instituteId, user.uid, showAll]);
+                const data = await response.json();
+                setLeaders(data.leaders);
 
-    // ✅ FIXED: Updated Avatar logic to support Custom Profile Pics + Gender Defaults
+                const myIndex = data.leaders.findIndex(u => u.id === user.uid);
+                if (myIndex !== -1) setMyRank(myIndex + 1);
+
+            } catch (error) {
+                console.error("Leaderboard Error:", error);
+                toast.error("Could not load leaderboard.");
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchLeaderboard();
+    }, [user?.uid, showAll]);
+
+    // ✅ Simplified Avatar Logic
     const getAvatar = (student) => {
-        if (student.profilePic) return student.profilePic;
-        
-        const gender = (student.gender || student.sex || 'male').toLowerCase();
-        if (gender === 'female' || gender === 'f' || gender === 'girl') {
-            return FEMALE_AVATAR;
-        }
-        return MALE_AVATAR;
+        return student.profilePic || DEFAULT_AVATAR;
     };
 
-    // ✅ Helper to get "Actual Name" (Sushant) instead of "Surname" (Markad)
     const getDisplayName = (student) => {
-        if (student.lastName) {
-            return student.lastName.trim().split(' ')[0];
-        }
+        if (student.lastName) return student.lastName.trim().split(' ')[0];
         return student.firstName || "Student";
     };
 
@@ -70,17 +65,28 @@ export default function Leaderboard({ user }) {
     const rest = leaders.slice(3);
     const podiumOrder = [top3[1], top3[0], top3[2]].filter(Boolean); 
 
-    if (loading && leaders.length === 0) return <div className="lb-loading">Loading Ranks...</div>;
+    // ⚡⚡⚡ NEW MODERN LOADER ⚡⚡⚡
+    if (loading && leaders.length === 0) {
+        return (
+            <div className="content-section">
+                <div className="lb-loader-container">
+                    <div className="lb-spinner"></div>
+                    <span className="lb-loading-text">Summoning Champions...</span>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="content-section">
-            
-            {/* HEADER */}
             <div className="leaderboard-header-banner">
                 <div style={{ position: 'relative', zIndex: 2 }}>
                     <h2 className="content-title" style={{color:'white', marginBottom:0, fontSize:'24px'}}>🏆 Champions League</h2>
-                    <p style={{color:'rgba(255,255,255,0.9)', margin:'5px 0 20px 0', fontSize:'14px'}}>Compete with the best minds.</p>
-                    
+                    <p style={{color:'rgba(255,255,255,0.9)', margin:'5px 0 20px 0', fontSize:'14px'}}>
+                        {user.year === 'FE' 
+                            ? 'Top Performers in First Year' 
+                            : `Top Performers in ${user.year} ${user.department}`}
+                    </p>
                     <div className="lb-my-stats">
                         <div className="stat-item">
                             <span className="stat-label">YOUR RANK</span>
@@ -96,7 +102,6 @@ export default function Leaderboard({ user }) {
                 <div className="lb-banner-decor"></div>
             </div>
 
-            {/* PODIUM */}
             <div className="podium-stage-container">
                 <div className="podium-stage">
                     {podiumOrder.map((student) => {
@@ -129,7 +134,6 @@ export default function Leaderboard({ user }) {
                 </div>
             </div>
 
-            {/* LIST */}
             <div className="leaderboard-list-container">
                 {rest.map((student, index) => (
                     <motion.div 
@@ -149,7 +153,13 @@ export default function Leaderboard({ user }) {
                                     <span className="lb-name-text">{student.firstName} {student.lastName}</span>
                                     {user.uid === student.id && <span className="me-pill-small">YOU</span>}
                                 </div>
-                                <div className="lb-dept">{student.department || 'General'}</div>
+                                
+                                <div className="lb-dept">
+                                    {student.year} 
+                                    {student.department && student.department !== student.year && ` ${student.department}`}
+                                    {student.division && <span style={{opacity:0.8}}> • Div {student.division}</span>}
+                                </div>
+
                             </div>
                         </div>
                         <div className="lb-badges-col">

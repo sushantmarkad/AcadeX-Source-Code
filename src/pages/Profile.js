@@ -457,12 +457,13 @@ export default function Profile({ user }) {
                                 
                                 {user.role === 'student' && (
                                     <>
-                                        <ProfInput label="Academic Year" value={profileData.year || "N/A"} disabled={true} lockIcon={true} />
-                                        
-                                        {/* ✅ Show Division ONLY for FE Students */}
-                                        {profileData.year === 'FE' && (
-                                            <ProfInput label="Division" value={profileData.div || "N/A"} disabled={true} lockIcon={true} />
-                                        )}
+                                        {/* Division Field: Updated logic to check both 'division' and 'div' and removed FE restriction */}
+                                        <ProfInput 
+                                            label="Division" 
+                                            value={profileData.division || profileData.div || "N/A"} 
+                                            disabled={true} 
+                                            lockIcon={true} 
+                                        />
                                     </>
                                 )}
                             </div>

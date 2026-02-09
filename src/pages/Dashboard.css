@@ -2579,3 +2579,45 @@ textarea.modern-input:focus { border-color: var(--tech-blue); box-shadow: 0 0 0 
 }
 
 .fp-btn-cancel:active, .fp-btn-claim:active { transform: scale(0.96); }
+
+/* -------------------------------- */
+/* ⚡ MODERN LEADERBOARD LOADER ⚡ */
+/* -------------------------------- */
+
+.lb-loader-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 500px; /* Takes up the whole leaderboard height */
+    width: 100%;
+    background: transparent;
+}
+
+.lb-spinner {
+    width: 50px;
+    height: 50px;
+    border: 4px solid rgba(37, 99, 235, 0.1); /* Light Blue Fade */
+    border-left-color: #2563eb; /* Primary Blue */
+    border-radius: 50%;
+    animation: lb-spin 1s linear infinite;
+    margin-bottom: 15px;
+}
+
+.lb-loading-text {
+    font-size: 15px;
+    font-weight: 600;
+    background: linear-gradient(90deg, #2563eb, #9333ea);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: lb-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes lb-spin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes lb-pulse {
+    0%, 100% { opacity: 0.6; transform: scale(0.98); }
+    50% { opacity: 1; transform: scale(1); }
+}

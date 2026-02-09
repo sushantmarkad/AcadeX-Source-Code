@@ -622,7 +622,6 @@ export default function HODDashboard() {
         } catch (e) { toast.error("Error rejecting", { id: toastId }); }
     };
 
-    // --- ✅ ADD TEACHER (With Toasts & Backend Creation) ---
     const handleAddTeacher = async (e) => {
         e.preventDefault();
 
@@ -638,18 +637,18 @@ export default function HODDashboard() {
                     password: teacherForm.password,
                     firstName: teacherForm.firstName,
                     lastName: teacherForm.lastName,
-                    phone: teacherForm.phone, // ✅ ADDED: Send Phone Number to Backend
+                    phone: teacherForm.phone, 
                     role: 'teacher',
                     instituteId: hodInfo.instituteId,
                     instituteName: hodInfo.instituteName || 'AcadeX Institute',
                     department: hodInfo.department,
 
-                    // ✅ FIXED: Send in Root
                     academicYear: teacherForm.academicYear,
                     assignedClasses: teacherForm.assignedClasses,
 
-                    // ✅ FIXED: Also send in extras (Safety Net)
+                    // ✅ FIX: Add phone to 'extras' so it gets saved to Firestore
                     extras: {
+                        phone: teacherForm.phone, // <--- ADDED HERE
                         academicYear: teacherForm.academicYear,
                         createdAt: new Date().toISOString()
                     }
@@ -675,7 +674,7 @@ export default function HODDashboard() {
 
             toast.success("Teacher Added & Email Sent!", { id: toastId });
 
-            // ✅ Reset Form (Included phone reset)
+            // ✅ Reset Form
             setTeacherForm({
                 firstName: '', lastName: '', email: '', password: '', phone: '',
                 academicYear: '2025-2026', assignedClasses: []
