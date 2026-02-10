@@ -15,6 +15,8 @@ import { Capacitor } from '@capacitor/core';
 import NativeFriendlyDateInput from '../components/NativeFriendlyDateInput';
 import { useFileDownloader } from '../hooks/useFileDownloader';
 import ReactDOM from 'react-dom';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 
 // Component Imports
@@ -636,6 +638,152 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv }) => {
     );
 };
 
+// --- HELPER 1: Prepare Matrix Data ---
+const prepareReportData = (sessions, allStudents) => {
+    // 1. Sort Sessions Chronologically
+    const sortedSessions = [...sessions].sort((a, b) => new Date(a.rawDate) - new Date(b.rawDate));
+
+    // 2. Define Columns (Date headers)
+    const dateColumns = sortedSessions.map((s) => ({
+        header: `${s.startTime.split(',')[0].slice(0, 5)}\n${s.type === 'practical' ? '(Pr)' : '(Th)'}`,
+        dataKey: s.sessionId
+    }));
+
+    // 3. Fallback: If Master List is Empty, Extract from Sessions
+    let targetStudents = allStudents;
+    if (!targetStudents || targetStudents.length === 0) {
+        const studentMap = new Map();
+        sessions.forEach(session => {
+            session.students.forEach(s => {
+                if (!studentMap.has(s.rollNo)) {
+                    studentMap.set(s.rollNo, {
+                        rollNo: s.rollNo,
+                        firstName: s.name.split(' ')[0],
+                        lastName: s.name.split(' ').slice(1).join(' ') || ''
+                    });
+                }
+            });
+        });
+        targetStudents = Array.from(studentMap.values());
+    }
+
+    // 4. Build Rows
+    const tableRows = targetStudents.map(student => {
+        const row = {
+            rollNo: student.rollNo,
+            name: `${student.firstName} ${student.lastName}`,
+            totalHeld: 0,
+            totalAttended: 0
+        };
+
+        sortedSessions.forEach(session => {
+            let isApplicable = true;
+            // Practical Batch Logic
+            if (session.type === 'practical' && session.rollRange) {
+                const r = parseInt(student.rollNo);
+                if (r < session.rollRange.start || r > session.rollRange.end) isApplicable = false;
+            }
+
+            if (isApplicable) {
+                row.totalHeld++;
+                // Loose equality for Roll No (String vs Int safety)
+                const studentRecord = session.students.find(s => s.rollNo == student.rollNo);
+                const status = studentRecord && studentRecord.status === 'Present' ? 'P' : 'A';
+                
+                if (status === 'P') row.totalAttended++;
+                row[session.sessionId] = status; 
+            } else {
+                row[session.sessionId] = '-'; 
+            }
+        });
+
+        row.percentage = row.totalHeld > 0 
+            ? ((row.totalAttended / row.totalHeld) * 100).toFixed(0) + '%' 
+            : '0%';
+
+        return row;
+    });
+
+    // Sort by Roll No
+    tableRows.sort((a, b) => parseInt(a.rollNo) - parseInt(b.rollNo));
+
+    return { columns: dateColumns, rows: tableRows };
+};
+
+// --- HELPER 2: Generate PDF Report ---
+const generatePDFReport = (teacherInfo, selectedYear, selectedDiv, subject, startDate, endDate, historySessions, allStudents) => {
+    const doc = new jsPDF('landscape');
+    const { columns, rows } = prepareReportData(historySessions, allStudents);
+
+    // Dynamic Header Info
+    const currentClass = teacherInfo.assignedClasses?.find(c => c.year === selectedYear);
+    const semester = currentClass ? `Sem ${currentClass.semester}` : 'Semester N/A';
+    const academicYear = teacherInfo.academicYear || `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`;
+
+    const pageWidth = doc.internal.pageSize.width;
+    const centerX = pageWidth / 2;
+
+    doc.setFontSize(16);
+    doc.setFont('helvetica', 'bold');
+    doc.text(teacherInfo.instituteName || "College Name", centerX, 15, { align: 'center' });
+
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Attendance Report (${academicYear})`, centerX, 22, { align: 'center' });
+
+    doc.setFontSize(10);
+    doc.text(`Dept: ${teacherInfo.department}`, 14, 32);
+    doc.text(`Class: ${selectedYear} ${selectedYear === 'FE' ? `(Div ${selectedDiv})` : ''}  |  ${semester}`, 14, 37);
+    doc.text(`Subject: ${subject}`, 14, 42);
+    doc.text(`Teacher: ${teacherInfo.firstName} ${teacherInfo.lastName}`, 14, 47);
+
+    doc.text(`From: ${startDate} To: ${endDate}`, pageWidth - 14, 32, { align: 'right' });
+    doc.text(`Generated: ${new Date().toLocaleDateString()}`, pageWidth - 14, 37, { align: 'right' });
+
+    // Legend
+    doc.setFontSize(9);
+    doc.setTextColor(100);
+    doc.text("P=Present, A=Absent, -=N/A", 14, 55);
+    doc.setTextColor(0);
+
+    const tableColumns = [
+        { header: 'Roll', dataKey: 'rollNo' },
+        { header: 'Name', dataKey: 'name' },
+        ...columns,
+        { header: 'Total', dataKey: 'totalHeld' },
+        { header: 'Attd', dataKey: 'totalAttended' },
+        { header: '%', dataKey: 'percentage' }
+    ];
+
+    // ✅ CORRECT USAGE: Pass 'doc' as first argument
+    autoTable(doc, {
+        startY: 60,
+        head: [tableColumns.map(c => c.header)],
+        body: rows.map(r => tableColumns.map(c => r[c.dataKey])),
+        theme: 'grid',
+        styles: { fontSize: 8, cellPadding: 2, halign: 'center', valign: 'middle' },
+        headStyles: { fillColor: [59, 130, 246], textColor: 255, fontStyle: 'bold' },
+        columnStyles: {
+            0: { cellWidth: 12, fontStyle: 'bold' }, 
+            1: { cellWidth: 40, halign: 'left' }
+        },
+        didParseCell: function(data) {
+            if (data.section === 'body') {
+                if (data.cell.raw === 'A') {
+                    data.cell.styles.textColor = [220, 38, 38]; 
+                    data.cell.styles.fontStyle = 'bold';
+                }
+                if (data.cell.raw === 'P') {
+                    data.cell.styles.textColor = [22, 163, 74];
+                    data.cell.styles.fontStyle = 'bold';
+                }
+            }
+        }
+    });
+
+    doc.save(`Report_${subject}_${startDate}.pdf`);
+};
+
 // ------------------------------------
 //  COMPONENT: DASHBOARD HOME
 // ------------------------------------
@@ -654,7 +802,9 @@ const DashboardHome = ({
     const [classStrength, setClassStrength] = useState(0);
     const [attendanceMode, setAttendanceMode] = useState('qr'); // 'qr' or 'pin'
     const [currentPin, setCurrentPin] = useState('------');
-    const [editingSession, setEditingSession] = useState(null); // Stores the session object being edited
+    const [editingSession, setEditingSession] = useState(null);
+    const [allStudentsReport, setAllStudentsReport] = useState([]);
+
 
     // Fetch Class Strength for Percentage (Fixed for Division)
     useEffect(() => {
@@ -819,185 +969,185 @@ const DashboardHome = ({
     };
 
     // ✅ NEW COMPONENT: Edit Attendance Modal (Perfectly Curved & Responsive)
-const EditAttendanceModal = ({ session, onClose, onUpdate }) => {
-    const [students, setStudents] = useState(session.students);
-    const [loading, setLoading] = useState(false);
-    const [search, setSearch] = useState("");
+    const EditAttendanceModal = ({ session, onClose, onUpdate }) => {
+        const [students, setStudents] = useState(session.students);
+        const [loading, setLoading] = useState(false);
+        const [search, setSearch] = useState("");
 
-    const toggleStatus = (rollNo) => {
-        setStudents(prev => prev.map(s => 
-            s.rollNo === rollNo ? { ...s, status: s.status === 'Present' ? 'Absent' : 'Present' } : s
-        ));
-    };
+        const toggleStatus = (rollNo) => {
+            setStudents(prev => prev.map(s =>
+                s.rollNo === rollNo ? { ...s, status: s.status === 'Present' ? 'Absent' : 'Present' } : s
+            ));
+        };
 
-    const handleSave = async () => {
-        setLoading(true);
-        const changes = [];
-        students.forEach(s => {
-            const original = session.students.find(os => os.rollNo === s.rollNo);
-            if (original.status !== s.status) {
-                changes.push(s);
+        const handleSave = async () => {
+            setLoading(true);
+            const changes = [];
+            students.forEach(s => {
+                const original = session.students.find(os => os.rollNo === s.rollNo);
+                if (original.status !== s.status) {
+                    changes.push(s);
+                }
+            });
+
+            if (changes.length === 0) {
+                onClose();
+                return;
             }
-        });
 
-        if (changes.length === 0) {
+            await onUpdate(session, changes);
+            setLoading(false);
             onClose();
-            return;
-        }
+        };
 
-        await onUpdate(session, changes);
-        setLoading(false);
-        onClose();
-    };
+        const filteredStudents = students.filter(s =>
+            s.rollNo.toString().includes(search) || s.name.toLowerCase().includes(search.toLowerCase())
+        );
 
-    const filteredStudents = students.filter(s => 
-        s.rollNo.toString().includes(search) || s.name.toLowerCase().includes(search.toLowerCase())
-    );
-
-    // ✅ USE PORTAL TO FIX SIDEBAR OVERLAP
-    return ReactDOM.createPortal(
-        <div style={{ 
-            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, 
-            background: 'rgba(15, 23, 42, 0.65)', 
-            backdropFilter: 'blur(8px)',
-            zIndex: 9999999, 
-            display: 'flex', justifyContent: 'center', alignItems: 'center',
-            animation: 'fadeIn 0.2s ease-out',
-            padding: '20px' // Prevents touching edges on mobile
-        }}>
-            {/* Internal Animation Styles */}
-            <style>{`
+        // ✅ USE PORTAL TO FIX SIDEBAR OVERLAP
+        return ReactDOM.createPortal(
+            <div style={{
+                position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                background: 'rgba(15, 23, 42, 0.65)',
+                backdropFilter: 'blur(8px)',
+                zIndex: 9999999,
+                display: 'flex', justifyContent: 'center', alignItems: 'center',
+                animation: 'fadeIn 0.2s ease-out',
+                padding: '20px' // Prevents touching edges on mobile
+            }}>
+                {/* Internal Animation Styles */}
+                <style>{`
                 @keyframes popInModal {
                     0% { opacity: 0; transform: scale(0.95) translateY(10px); }
                     100% { opacity: 1; transform: scale(1) translateY(0); }
                 }
             `}</style>
 
-            <div className="card" style={{ 
-                width: '100%', maxWidth: '480px', maxHeight: '85vh', 
-                display: 'flex', flexDirection: 'column', padding: '0', 
-                borderRadius: '24px', // 🚀 MAIN CURVE
-                boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-                border: '1px solid rgba(255,255,255,0.1)', background: 'white',
-                animation: 'popInModal 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
-                overflow: 'hidden' // 🚀 CLIPS CHILDREN TO CURVE
-            }}>
-                {/* Header (Explicitly Curved Top) */}
-                <div style={{ 
-                    padding: '20px 25px', 
-                    borderBottom: '1px solid #e2e8f0', 
-                    background: '#f8fafc', 
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'start',
-                    borderRadius: '24px 24px 0 0' // 🚀 CURVE TOP
+                <div className="card" style={{
+                    width: '100%', maxWidth: '480px', maxHeight: '85vh',
+                    display: 'flex', flexDirection: 'column', padding: '0',
+                    borderRadius: '24px', // 🚀 MAIN CURVE
+                    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+                    border: '1px solid rgba(255,255,255,0.1)', background: 'white',
+                    animation: 'popInModal 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+                    overflow: 'hidden' // 🚀 CLIPS CHILDREN TO CURVE
                 }}>
-                    <div>
-                        <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>Edit Attendance</h3>
-                        
-                        {/* Instruction Note */}
-                        <p style={{ margin: '6px 0 0', fontSize: '13px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <i className="fas fa-info-circle" style={{ color: '#3b82f6' }}></i> 
-                            Tap status to toggle Present/Absent
-                        </p>
-                    </div>
-                    <button 
-                        onClick={onClose} 
-                        style={{ 
-                            background: '#e2e8f0', border: 'none', width: '32px', height: '32px', borderRadius: '50%', 
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b', fontSize: '18px'
-                        }}
-                    >
-                        &times;
-                    </button>
-                </div>
+                    {/* Header (Explicitly Curved Top) */}
+                    <div style={{
+                        padding: '20px 25px',
+                        borderBottom: '1px solid #e2e8f0',
+                        background: '#f8fafc',
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'start',
+                        borderRadius: '24px 24px 0 0' // 🚀 CURVE TOP
+                    }}>
+                        <div>
+                            <h3 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#1e293b' }}>Edit Attendance</h3>
 
-                {/* Search */}
-                <div style={{ padding: '15px 20px', borderBottom: '1px solid #f1f5f9' }}>
-                    <div style={{ position: 'relative' }}>
-                        <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '14px' }}></i>
-                        <input 
-                            placeholder="Search Name or Roll No..." 
-                            value={search} 
-                            onChange={e => setSearch(e.target.value)}
-                            style={{ 
-                                width: '100%', padding: '10px 10px 10px 36px', borderRadius: '12px', 
-                                border: '1px solid #e2e8f0', outline: 'none', background: '#f8fafc', fontSize: '14px', transition: 'all 0.2s'
+                            {/* Instruction Note */}
+                            <p style={{ margin: '6px 0 0', fontSize: '13px', color: '#64748b', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                <i className="fas fa-info-circle" style={{ color: '#3b82f6' }}></i>
+                                Tap status to toggle Present/Absent
+                            </p>
+                        </div>
+                        <button
+                            onClick={onClose}
+                            style={{
+                                background: '#e2e8f0', border: 'none', width: '32px', height: '32px', borderRadius: '50%',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#64748b', fontSize: '18px'
                             }}
-                            onFocus={(e) => { e.target.style.background = 'white'; e.target.style.borderColor = '#3b82f6'; }}
-                            onBlur={(e) => { e.target.style.background = '#f8fafc'; e.target.style.borderColor = '#e2e8f0'; }}
-                        />
+                        >
+                            &times;
+                        </button>
                     </div>
-                </div>
 
-                {/* List - Scrollable Area */}
-                <div style={{ overflowY: 'auto', flex: 1, padding: '0 10px' }}>
-                    {filteredStudents.length > 0 ? (
-                        filteredStudents.map(s => (
-                            <div key={s.rollNo} 
-                                style={{ 
-                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
-                                    padding: '12px 15px', borderBottom: '1px solid #f1f5f9'
+                    {/* Search */}
+                    <div style={{ padding: '15px 20px', borderBottom: '1px solid #f1f5f9' }}>
+                        <div style={{ position: 'relative' }}>
+                            <i className="fas fa-search" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: '14px' }}></i>
+                            <input
+                                placeholder="Search Name or Roll No..."
+                                value={search}
+                                onChange={e => setSearch(e.target.value)}
+                                style={{
+                                    width: '100%', padding: '10px 10px 10px 36px', borderRadius: '12px',
+                                    border: '1px solid #e2e8f0', outline: 'none', background: '#f8fafc', fontSize: '14px', transition: 'all 0.2s'
                                 }}
-                            >
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                                    <div style={{ 
-                                        width: '36px', height: '36px', borderRadius: '10px', background: '#f1f5f9', 
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: '#475569', fontSize: '13px'
-                                    }}>
-                                        {s.rollNo}
-                                    </div>
-                                    <span style={{ fontSize: '14px', fontWeight: '600', color: '#334155' }}>{s.name}</span>
-                                </div>
-                                
-                                {/* Status Button (Toggle) */}
-                                <button
-                                    onClick={() => toggleStatus(s.rollNo)}
+                                onFocus={(e) => { e.target.style.background = 'white'; e.target.style.borderColor = '#3b82f6'; }}
+                                onBlur={(e) => { e.target.style.background = '#f8fafc'; e.target.style.borderColor = '#e2e8f0'; }}
+                            />
+                        </div>
+                    </div>
+
+                    {/* List - Scrollable Area */}
+                    <div style={{ overflowY: 'auto', flex: 1, padding: '0 10px' }}>
+                        {filteredStudents.length > 0 ? (
+                            filteredStudents.map(s => (
+                                <div key={s.rollNo}
                                     style={{
-                                        padding: '6px 14px', borderRadius: '20px', border: 'none', 
-                                        fontWeight: 'bold', fontSize: '12px', cursor: 'pointer',
-                                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                        // Dynamic Colors
-                                        background: s.status === 'Present' ? '#dcfce7' : '#fee2e2',
-                                        color: s.status === 'Present' ? '#166534' : '#991b1b',
-                                        minWidth: '80px', textAlign: 'center'
+                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                        padding: '12px 15px', borderBottom: '1px solid #f1f5f9'
                                     }}
                                 >
-                                    {s.status}
-                                </button>
-                            </div>
-                        ))
-                    ) : (
-                        <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
-                            <i className="fas fa-search" style={{ fontSize: '24px', marginBottom: '10px', opacity: 0.5 }}></i>
-                            <p style={{ margin: 0, fontSize: '13px' }}>No student found</p>
-                        </div>
-                    )}
-                </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                        <div style={{
+                                            width: '36px', height: '36px', borderRadius: '10px', background: '#f1f5f9',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: '#475569', fontSize: '13px'
+                                        }}>
+                                            {s.rollNo}
+                                        </div>
+                                        <span style={{ fontSize: '14px', fontWeight: '600', color: '#334155' }}>{s.name}</span>
+                                    </div>
 
-                {/* Footer (Explicitly Curved Bottom) */}
-                <div style={{ 
-                    padding: '20px', 
-                    borderTop: '1px solid #e2e8f0', 
-                    background: 'white',
-                    borderRadius: '0 0 24px 24px' // 🚀 CURVE BOTTOM
-                }}>
-                    <button 
-                        onClick={handleSave} 
-                        disabled={loading}
-                        className="btn-primary"
-                        style={{ 
-                            width: '100%', justifyContent: 'center', padding: '14px', borderRadius: '14px',
-                            background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                            boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)', fontSize: '15px'
-                        }}
-                    >
-                        {loading ? <i className="fas fa-spinner fa-spin"></i> : 'Save Changes'}
-                    </button>
+                                    {/* Status Button (Toggle) */}
+                                    <button
+                                        onClick={() => toggleStatus(s.rollNo)}
+                                        style={{
+                                            padding: '6px 14px', borderRadius: '20px', border: 'none',
+                                            fontWeight: 'bold', fontSize: '12px', cursor: 'pointer',
+                                            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                            // Dynamic Colors
+                                            background: s.status === 'Present' ? '#dcfce7' : '#fee2e2',
+                                            color: s.status === 'Present' ? '#166534' : '#991b1b',
+                                            minWidth: '80px', textAlign: 'center'
+                                        }}
+                                    >
+                                        {s.status}
+                                    </button>
+                                </div>
+                            ))
+                        ) : (
+                            <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8' }}>
+                                <i className="fas fa-search" style={{ fontSize: '24px', marginBottom: '10px', opacity: 0.5 }}></i>
+                                <p style={{ margin: 0, fontSize: '13px' }}>No student found</p>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Footer (Explicitly Curved Bottom) */}
+                    <div style={{
+                        padding: '20px',
+                        borderTop: '1px solid #e2e8f0',
+                        background: 'white',
+                        borderRadius: '0 0 24px 24px' // 🚀 CURVE BOTTOM
+                    }}>
+                        <button
+                            onClick={handleSave}
+                            disabled={loading}
+                            className="btn-primary"
+                            style={{
+                                width: '100%', justifyContent: 'center', padding: '14px', borderRadius: '14px',
+                                background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                                boxShadow: '0 4px 12px rgba(37, 99, 235, 0.2)', fontSize: '15px'
+                            }}
+                        >
+                            {loading ? <i className="fas fa-spinner fa-spin"></i> : 'Save Changes'}
+                        </button>
+                    </div>
                 </div>
-            </div>
-        </div>,
-        document.body 
-    );
-};
+            </div>,
+            document.body
+        );
+    };
 
     // ✅ HANDLE QR ROTATION & DYNAMIC PIN UPDATES (FIXED)
     useEffect(() => {
@@ -1056,7 +1206,7 @@ const EditAttendanceModal = ({ session, onClose, onUpdate }) => {
     const percentage = classStrength > 0 ? Math.round((presentCount / classStrength) * 100) : 0;
 
     // ✅ BULK EXPORT LOGIC
-    const bulkCsvData = historySessions.flatMap(session => 
+    const bulkCsvData = historySessions.flatMap(session =>
         session.students.map(s => ({
             Date: s.date,
             Time: session.startTime.split(',')[1],
@@ -1317,16 +1467,16 @@ const EditAttendanceModal = ({ session, onClose, onUpdate }) => {
                 </div>
             )}
 
-           {viewMode === 'history' && (
+            {/* --- HISTORY MODE (Unified) --- */}
+            {viewMode === 'history' && (
                 <div className="cards-grid">
-                    {/* FILTERS CONTAINER */}
+                    
+                    {/* 1. FILTERS & EXPORT CONTROLS */}
                     <div className="card card-full-width" style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '20px', background: '#f8fafc', flexWrap: 'wrap' }}>
-
-                        {/* 1. SEMESTER SELECTOR */}
+                        
+                        {/* Semester Selector */}
                         <div style={{ flex: 1, minWidth: '150px' }}>
-                            <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', textTransform: 'uppercase', marginBottom: '5px' }}>
-                                Semester
-                            </label>
+                            <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', textTransform: 'uppercase', marginBottom: '5px' }}>Semester</label>
                             <CustomDropdown
                                 value={historySemester}
                                 onChange={(val) => setHistorySemester(Number(val))}
@@ -1335,137 +1485,135 @@ const EditAttendanceModal = ({ session, onClose, onUpdate }) => {
                                     ...(selectedYear === 'SE' ? [{ value: 3, label: 'Sem 3' }, { value: 4, label: 'Sem 4' }] : []),
                                     ...(selectedYear === 'TE' ? [{ value: 5, label: 'Sem 5' }, { value: 6, label: 'Sem 6' }] : []),
                                     ...(selectedYear === 'BE' ? [{ value: 7, label: 'Sem 7' }, { value: 8, label: 'Sem 8' }] : []),
-                                    // Fallback
                                     ...(!['FE', 'SE', 'TE', 'BE'].includes(selectedYear) ? [{ value: 1, label: 'Sem 1' }, { value: 2, label: 'Sem 2' }] : [])
                                 ]}
                                 placeholder="Select Sem"
                             />
                         </div>
 
-                        {/* 2. DATE SELECTOR */}
+                        {/* ✅ FIXED DATE PICKERS (Click to Open) */}
                         <div style={{ flex: 2, minWidth: '220px', display: 'flex', gap: '10px' }}>
                             <div style={{ flex: 1 }}>
                                 <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>From</label>
-                                <NativeFriendlyDateInput value={startDate} onChange={setStartDate} />
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                    <input 
+                                        type="date" 
+                                        value={startDate} 
+                                        onChange={(e) => setStartDate(e.target.value)}
+                                        onClick={(e) => e.target.showPicker && e.target.showPicker()} // 👈 FORCES CALENDAR OPEN
+                                        style={{
+                                            width: '100%', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1',
+                                            fontSize: '14px', fontWeight: '600', color: '#334155', outline: 'none', background: 'white',
+                                            cursor: 'pointer'
+                                        }}
+                                    />
+                                </div>
                             </div>
                             <div style={{ flex: 1 }}>
                                 <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>To</label>
-                                <NativeFriendlyDateInput value={endDate} onChange={setEndDate} />
+                                <div style={{ position: 'relative', width: '100%' }}>
+                                    <input 
+                                        type="date" 
+                                        value={endDate} 
+                                        onChange={(e) => setEndDate(e.target.value)}
+                                        onClick={(e) => e.target.showPicker && e.target.showPicker()} // 👈 FORCES CALENDAR OPEN
+                                        style={{
+                                            width: '100%', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1',
+                                            fontSize: '14px', fontWeight: '600', color: '#334155', outline: 'none', background: 'white',
+                                            cursor: 'pointer'
+                                        }}
+                                    />
+                                </div>
                             </div>
                         </div>
 
-                        {/* 3. DYNAMIC HEADER & BULK EXPORT */}
-                        <div style={{ flex: 2, minWidth: '200px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                            <div>
-                                <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>Viewing Report for:</p>
-                                <h3 style={{ margin: '4px 0 0 0', fontSize: '18px', color: '#1e293b' }}>
-                                    <span style={{ color: '#2563eb' }}>
-                                        {getSubjectForHistory()} {selectedYear === 'FE' && selectedDiv ? `(Div ${selectedDiv})` : ''}
-                                    </span>
-                                </h3>
-                            </div>
+                        {/* Export Buttons (PDF & Excel) */}
+                        <div style={{ flex: 2, minWidth: '200px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '10px' }}>
                             
-                            {/* ✅ BULK DOWNLOAD BUTTON */}
-                            {historySessions.length > 0 && (
-                                <CSVLink 
-                                    data={bulkCsvData} 
-                                    headers={bulkHeaders} 
-                                    filename={`Report_${getSubjectForHistory()}_${startDate}_to_${endDate}.csv`}
+                            <button 
+                                onClick={() => {
+                                    if (historySessions.length === 0) return toast.error("No data to download");
+                                    generatePDFReport(
+                                        teacherInfo, selectedYear, selectedDiv, getSubjectForHistory(), 
+                                        startDate, endDate, historySessions, allStudentsReport
+                                    );
+                                }}
+                                className="btn-primary"
+                                style={{ 
+                                    background: '#ef4444', border: 'none', padding: '10px 15px', borderRadius: '8px', 
+                                    cursor: historySessions.length > 0 ? 'pointer' : 'not-allowed', 
+                                    display: 'flex', alignItems: 'center', gap: '8px', color: 'white', fontWeight: 'bold', 
+                                    opacity: historySessions.length > 0 ? 1 : 0.5,
+                                    boxShadow: '0 4px 10px rgba(239, 68, 68, 0.2)'
+                                }}
+                            >
+                                <i className="fas fa-file-pdf"></i> PDF
+                            </button>
+
+                            {/* Excel Button */}
+                            {historySessions.length > 0 ? (
+                                <CSVLink
+                                    data={prepareReportData(historySessions, allStudentsReport).rows} 
+                                    headers={[
+                                        { label: "Roll No", key: "rollNo" },
+                                        { label: "Name", key: "name" },
+                                        ...prepareReportData(historySessions, allStudentsReport).columns.map(c => ({ label: c.header.replace('\n', ' '), key: c.dataKey })),
+                                        { label: "Total Lectures", key: "totalHeld" },
+                                        { label: "Attended", key: "totalAttended" },
+                                        { label: "Percentage", key: "percentage" }
+                                    ]}
+                                    filename={`Attendance_Report_${getSubjectForHistory()}.csv`}
                                     className="btn-primary"
                                     style={{ 
-                                        textDecoration: 'none', padding: '10px 20px', borderRadius: '10px', fontSize: '14px', 
-                                        background: '#10b981', display: 'flex', alignItems: 'center', gap: '8px', 
-                                        boxShadow: '0 4px 10px rgba(16, 185, 129, 0.2)', width: 'fit-content'
+                                        textDecoration: 'none', background: '#10b981', border: 'none', padding: '10px 15px', borderRadius: '8px', 
+                                        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', color: 'white', fontWeight: 'bold', 
+                                        boxShadow: '0 4px 10px rgba(16, 185, 129, 0.2)'
                                     }}
                                 >
-                                    <i className="fas fa-file-csv"></i> Download All
+                                    <i className="fas fa-file-excel"></i> Excel
                                 </CSVLink>
+                            ) : (
+                                <button disabled style={{ background: '#10b981', border: 'none', padding: '10px 15px', borderRadius: '8px', cursor: 'not-allowed', display: 'flex', alignItems: 'center', gap: '8px', color: 'white', fontWeight: 'bold', opacity: 0.5 }}>
+                                    <i className="fas fa-file-excel"></i> Excel
+                                </button>
                             )}
                         </div>
                     </div>
 
-                    {/* 4. SESSION LIST */}
+                    {/* ❌ BAR CHART REMOVED FROM HERE */}
+
+                    {/* 3. SESSION LIST (Cards) */}
                     {historySessions.length === 0 ? (
-                        <div className="card card-full-width" style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
-                            <i className="fas fa-calendar-times" style={{ fontSize: '30px', marginBottom: '10px' }}></i>
-                            <p>No sessions found in this range.</p>
+                         <div className="card card-full-width" style={{ textAlign: 'center', padding: '60px', color: '#94a3b8' }}>
+                            <i className="fas fa-calendar-times" style={{ fontSize: '40px', marginBottom: '15px', opacity: 0.5 }}></i>
+                            <p style={{ fontSize: '16px', fontWeight: '600' }}>No sessions found in this date range.</p>
+                            <p style={{ fontSize: '13px' }}>Try selecting a different date range above.</p>
                         </div>
                     ) : (
                         historySessions.map((session) => (
-                            <div key={session.sessionId} className="card card-full-width" style={{ marginTop: '20px', borderLeft: session.type === 'practical' ? '5px solid #8b5cf6' : '5px solid #3b82f6' }}>
-
-                                {/* ✅ FIX: Added flexWrap and gap to parent for mobile responsiveness */}
-                                <div style={{ 
-                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
-                                    borderBottom: '1px solid #e2e8f0', paddingBottom: '15px', marginBottom: '15px',
-                                    flexWrap: 'wrap', gap: '15px' 
-                                }}>
-
-                                    {/* Left Side: Session Info */}
+                            <div key={session.sessionId} className="card card-full-width" style={{ marginBottom: '20px', borderLeft: session.type === 'practical' ? '5px solid #8b5cf6' : '5px solid #3b82f6' }}>
+                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '15px', marginBottom: '15px', flexWrap: 'wrap', gap: '15px' }}>
                                     <div style={{ flex: 1, minWidth: '200px' }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                                             <span style={{ background: '#f1f5f9', color: '#64748b', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>
                                                 {session.startTime}
                                             </span>
-
                                             {selectedYear === 'FE' && session.division && (
                                                 <span style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>
                                                     Div {session.division}
                                                 </span>
                                             )}
-
-                                            {session.type === 'practical' ? (
-                                                <span style={{ background: '#ede9fe', color: '#7c3aed', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                                                    🧪 Practical (Batch {session.batch})
-                                                </span>
-                                            ) : (
-                                                <span style={{ background: '#eff6ff', color: '#2563eb', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>
-                                                    📚 Theory
-                                                </span>
-                                            )}
+                                            <span style={{ background: session.type === 'practical' ? '#ede9fe' : '#eff6ff', color: session.type === 'practical' ? '#7c3aed' : '#2563eb', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                                                {session.type === 'practical' ? `🧪 Practical (Batch ${session.batch})` : '📚 Theory'}
+                                            </span>
                                         </div>
                                         <p style={{ fontSize: '13px', color: '#64748b', margin: '8px 0 0 0' }}>
                                             Present: <strong style={{ color: '#166534' }}>{session.presentCount}</strong> | Absent: <strong style={{ color: '#dc2626' }}>{session.absentCount}</strong>
                                         </p>
                                     </div>
-
-                                    {/* ✅ FIX: Grouped Buttons in a Flex Container */}
+                                    
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                        <CSVLink
-                                            data={session.students.map(s => ({
-                                                ...s,
-                                                type: session.type === 'practical' ? 'Practical' : 'Theory',
-                                                batch: session.type === 'practical' ? session.batch : 'All',
-                                                division: session.division || 'All'
-                                            }))}
-                                            headers={[
-                                                { label: "Roll No", key: "rollNo" },
-                                                { label: "Name", key: "name" },
-                                                { label: "Status", key: "status" },
-                                                { label: "Time In", key: "timeIn" },
-                                                { label: "Type", key: "type" },
-                                                { label: "Batch", key: "batch" },
-                                                { label: "Division", key: "division" }
-                                            ]}
-                                            filename={`${session.type}-Attendance-${session.startTime.replace(/[\/,: ]/g, '_')}${selectedYear === 'FE' ? `-${session.division}` : ''}.csv`}
-                                            style={{ 
-                                                fontSize: '13px', color: '#3b82f6', textDecoration: 'none', fontWeight: '600',
-                                                display: 'flex', alignItems: 'center', gap: '6px',
-                                                padding: '8px 12px', background: '#eff6ff', borderRadius: '8px'
-                                            }}
-                                        >
-                                            <i className="fas fa-download"></i> CSV
-                                        </CSVLink>
-
-                                        <button 
-                                            onClick={() => setEditingSession(session)}
-                                            style={{
-                                                display: 'inline-flex', alignItems: 'center', gap: '6px',
-                                                color: '#4f46e5', fontSize: '13px', fontWeight: '600', 
-                                                background: '#eef2ff', border: 'none', cursor: 'pointer',
-                                                padding: '8px 12px', borderRadius: '8px'
-                                            }}
-                                        >
+                                         <button onClick={() => setEditingSession(session)} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#4f46e5', fontSize: '13px', fontWeight: '600', background: '#eef2ff', border: 'none', cursor: 'pointer', padding: '8px 12px', borderRadius: '8px' }}>
                                             <i className="fas fa-edit"></i> Edit
                                         </button>
                                     </div>
@@ -1473,19 +1621,13 @@ const EditAttendanceModal = ({ session, onClose, onUpdate }) => {
 
                                 <div className="table-wrapper" style={{ maxHeight: '300px', overflowY: 'auto' }}>
                                     <table className="attendance-table">
-                                        <thead style={{ position: 'sticky', top: 0, zIndex: 5 }}>
-                                            <tr><th>Roll No</th><th>Name</th><th>Status</th></tr>
-                                        </thead>
+                                        <thead style={{ position: 'sticky', top: 0, zIndex: 5 }}><tr><th>Roll No</th><th>Name</th><th>Status</th></tr></thead>
                                         <tbody>
                                             {session.students.map(s => (
                                                 <tr key={s.id} style={{ background: s.status === 'Absent' ? '#fef2f2' : 'white' }}>
                                                     <td style={{ fontWeight: 'bold' }}>{s.rollNo}</td>
                                                     <td>{s.name}</td>
-                                                    <td>
-                                                        <span className={`status-badge ${s.status === 'Present' ? 'status-approved' : 'status-rejected'}`}>
-                                                            {s.status}
-                                                        </span>
-                                                    </td>
+                                                    <td><span className={`status-badge ${s.status === 'Present' ? 'status-approved' : 'status-rejected'}`}>{s.status}</span></td>
                                                 </tr>
                                             ))}
                                         </tbody>
@@ -1669,6 +1811,7 @@ export default function TeacherDashboard() {
     const [unreadNoticeCount, setUnreadNoticeCount] = useState(0);
     const [historyDivision, setHistoryDivision] = useState('All');
     const { downloadFile } = useFileDownloader();
+    const [allStudentsReport, setAllStudentsReport] = useState([]);
 
 
     // Year & Subject Logic
@@ -1909,7 +2052,7 @@ export default function TeacherDashboard() {
                     where('department', '==', teacherInfo.department)
                 );
                 const studentsSnap = await getDocs(qStudents);
-                
+
                 let allStudents = studentsSnap.docs.map(doc => ({
                     id: doc.id,
                     ...doc.data(),
@@ -1919,6 +2062,8 @@ export default function TeacherDashboard() {
                 if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
                     allStudents = allStudents.filter(s => s.division === selectedDiv);
                 }
+
+                setAllStudentsReport(allStudents);
 
                 // 2. Get Attendance Records (Filtered by Range)
                 const qAttendance = query(
@@ -1978,7 +2123,7 @@ export default function TeacherDashboard() {
                     }
 
                     const studentsWithStatus = targetStudents.map(student => {
-                        const attendanceId = session.presentRolls.get(student.rollNo); 
+                        const attendanceId = session.presentRolls.get(student.rollNo);
                         const isPresent = !!attendanceId;
                         return {
                             id: student.id,
@@ -2015,6 +2160,8 @@ export default function TeacherDashboard() {
 
     }, [viewMode, startDate, endDate, teacherInfo, selectedYear, historySemester, selectedDiv]);
 
+
+
     const handleSession = async () => {
         if (activeSession) {
             // --- END SESSION LOGIC ---
@@ -2028,7 +2175,7 @@ export default function TeacherDashboard() {
                 toast.success("Session Ended", { id: toastId });
 
                 setActiveSession(null);
-                
+
             } catch (e) {
                 toast.error("Error: " + e.message, { id: toastId });
             }
@@ -2115,6 +2262,8 @@ export default function TeacherDashboard() {
         }
     };
 
+
+
     const handleLogout = async () => { await signOut(auth); navigate('/'); };
 
     const renderContent = () => {
@@ -2198,17 +2347,90 @@ export default function TeacherDashboard() {
                                     </div>
                                 </div>
 
-                                {/* 4. Export Button */}
-                                <div>
-                                    <CSVLink
-                                        data={csvData}
-                                        headers={csvHeaders}
-                                        filename={csvFilename}
+                                {/* 4. NEW REPORT BUTTONS (Always Visible) */}
+                                <div style={{ flex: 2, minWidth: '200px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '10px' }}>
+
+                                    {/* PDF BUTTON */}
+                                    <button
+                                        onClick={() => {
+                                            if (historySessions.length === 0) return toast.error("No data to download");
+                                            generatePDFReport(
+                                                teacherInfo, selectedYear, selectedDiv, getSubjectForHistory(),
+                                                startDate, endDate, historySessions, allStudentsReport
+                                            );
+                                        }}
                                         className="btn-primary"
-                                        style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '48px', textDecoration: 'none', width: '100%', borderRadius: '12px', fontSize: '14px' }}
+                                        style={{
+                                            background: '#ef4444',
+                                            border: 'none',
+                                            padding: '10px 15px',
+                                            borderRadius: '8px',
+                                            cursor: historySessions.length > 0 ? 'pointer' : 'not-allowed', // Change cursor
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px',
+                                            color: 'white',
+                                            fontWeight: 'bold',
+                                            opacity: historySessions.length > 0 ? 1 : 0.5, // Grey out if disabled
+                                            boxShadow: '0 4px 10px rgba(239, 68, 68, 0.2)'
+                                        }}
                                     >
-                                        <i className="fas fa-download" style={{ marginRight: '8px' }}></i> Export
-                                    </CSVLink>
+                                        <i className="fas fa-file-pdf"></i> PDF Report
+                                    </button>
+
+                                    {/* EXCEL BUTTON */}
+                                    {historySessions.length > 0 ? (
+                                        <CSVLink
+                                            data={prepareReportData(historySessions, allStudentsReport).rows}
+                                            headers={[
+                                                { label: "Roll No", key: "rollNo" },
+                                                { label: "Name", key: "name" },
+                                                ...prepareReportData(historySessions, allStudentsReport).columns.map(c => ({ label: c.header.replace('\n', ' '), key: c.dataKey })),
+                                                { label: "Total Lectures", key: "totalHeld" },
+                                                { label: "Attended", key: "totalAttended" },
+                                                { label: "Percentage", key: "percentage" }
+                                            ]}
+                                            filename={`Attendance_Report_${getSubjectForHistory()}.csv`}
+                                            className="btn-primary"
+                                            style={{
+                                                textDecoration: 'none',
+                                                background: '#10b981',
+                                                border: 'none',
+                                                padding: '10px 15px',
+                                                borderRadius: '8px',
+                                                cursor: 'pointer',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '8px',
+                                                color: 'white',
+                                                fontWeight: 'bold',
+                                                boxShadow: '0 4px 10px rgba(16, 185, 129, 0.2)'
+                                            }}
+                                        >
+                                            <i className="fas fa-file-excel"></i> Excel Report
+                                        </CSVLink>
+                                    ) : (
+                                        /* Disabled Excel Button Placeholder */
+                                        <button
+                                            className="btn-primary"
+                                            disabled
+                                            style={{
+                                                background: '#10b981',
+                                                border: 'none',
+                                                padding: '10px 15px',
+                                                borderRadius: '8px',
+                                                cursor: 'not-allowed',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '8px',
+                                                color: 'white',
+                                                fontWeight: 'bold',
+                                                opacity: 0.5
+                                            }}
+                                        >
+                                            <i className="fas fa-file-excel"></i> Excel Report
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         </div>

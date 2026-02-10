@@ -91,6 +91,10 @@ export default function HODDashboard() {
     const [leaves, setLeaves] = useState([]);
     const [totalClasses, setTotalClasses] = useState(0);
     const [searchQuery, setSearchQuery] = useState("");
+    const [analyticsFilter, setAnalyticsFilter] = useState('Overall');
+   // --- ✅ FIXED: SPLIT STATE FOR RELIABLE UPDATES ---
+    const [sessionStats, setSessionStats] = useState({ counts: {}, meta: {} }); // counts = total lectures, meta = type/div info
+    const [studentAttendanceMap, setStudentAttendanceMap] = useState({}); // { uid: { theory: 5, practical: 2 } }
     const [annoTab, setAnnoTab] = useState('create');
     const [isEditStudentModalOpen, setIsEditStudentModalOpen] = useState(false);
     const [editStudentData, setEditStudentData] = useState(null);
@@ -206,6 +210,77 @@ export default function HODDashboard() {
         }
     }, [hodInfo]);
 
+// --- 1. FETCH SESSIONS (Total Classes Held) ---
+    useEffect(() => {
+        if (!hodInfo) return;
+
+        const qSessions = query(collection(db, 'live_sessions'), 
+            where('instituteId', '==', hodInfo.instituteId),
+            where('department', '==', hodInfo.department)
+        );
+
+        const unsub = onSnapshot(qSessions, (snap) => {
+            const counts = {}; 
+            const meta = {}; 
+
+            snap.docs.forEach(doc => {
+                const d = doc.data();
+                const type = d.type || 'theory';
+                const year = d.targetYear;
+                const div = d.division || 'A'; 
+
+                // 1. Store Metadata for Attendance Matching
+                meta[doc.id] = { type, year, div };
+
+                // 2. Increment Denominators (Total Classes)
+                // Key Format: "Year-Div-Type" (e.g. "SE-A-Theory")
+                const keys = div === 'All' 
+                    ? DIVISIONS.map(dv => `${year}-${dv}-${type}`) 
+                    : [`${year}-${div}-${type}`];
+                
+                keys.forEach(k => counts[k] = (counts[k] || 0) + 1);
+            });
+
+            setSessionStats({ counts, meta });
+        });
+
+        return () => unsub();
+    }, [hodInfo]);
+
+    // --- 2. FETCH & PROCESS ATTENDANCE (Student Counts) ---
+    useEffect(() => {
+        if (!hodInfo || Object.keys(sessionStats.meta).length === 0) return;
+
+        // ✅ QUERY UPDATE: Removed 'department' filter to prevent empty results if fields are missing in docs.
+        // We filter in-memory using the session IDs we fetched above (which are already Dept filtered).
+        const qAttendance = query(collection(db, 'attendance'), 
+            where('instituteId', '==', hodInfo.instituteId)
+        );
+
+        const unsub = onSnapshot(qAttendance, (snap) => {
+            const tempMap = {}; // { uid: { theory: 0, practical: 0 } }
+
+            snap.docs.forEach(doc => {
+                const att = doc.data();
+                
+                // ✅ CRITICAL CHECK: Only count if this attendance belongs to a session from this Dept
+                const sessionInfo = sessionStats.meta[att.sessionId];
+                
+                if (sessionInfo) {
+                    const uid = att.studentId;
+                    if (!tempMap[uid]) tempMap[uid] = { theory: 0, practical: 0 };
+                    
+                    if (sessionInfo.type === 'practical') tempMap[uid].practical++;
+                    else tempMap[uid].theory++;
+                }
+            });
+
+            setStudentAttendanceMap(tempMap);
+        });
+
+        return () => unsub();
+    }, [hodInfo, sessionStats.meta]); // Re-run if session metadata changes
+
 
 
     // --- 1. FUNCTIONAL ATTENDANCE GRAPH (UPDATED) ---
@@ -285,13 +360,13 @@ export default function HODDashboard() {
             // 2. Call Backend API with Token
             const response = await fetch(`${BACKEND_URL}/updateUser`, {
                 method: 'POST',
-                headers: { 
+                headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}` // 👈 THIS WAS MISSING
                 },
                 body: JSON.stringify({
                     uid: editTeacherData.id,
-                    email: editTeacherData.email, 
+                    email: editTeacherData.email,
                     firstName: editTeacherData.firstName,
                     lastName: editTeacherData.lastName,
                     phone: editTeacherData.phone || '',
@@ -318,7 +393,7 @@ export default function HODDashboard() {
         }
     };
 
-   // ✅ SAVE STUDENT UPDATES (Fixed: Sends Token)
+    // ✅ SAVE STUDENT UPDATES (Fixed: Sends Token)
     const handleSaveStudentUpdates = async () => {
         if (!editStudentData) return;
         setLoading(true);
@@ -331,7 +406,7 @@ export default function HODDashboard() {
             // 2. Call Backend API with Token
             const response = await fetch(`${BACKEND_URL}/updateUser`, {
                 method: 'POST',
-                headers: { 
+                headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}` // 👈 THIS WAS MISSING
                 },
@@ -426,53 +501,62 @@ export default function HODDashboard() {
         fetchSessionCounts();
     }, [hodInfo, isFE]);
 
-    // ✅ UPDATED ANALYTICS FUNCTION
-    const getYearAnalytics = () => {
-        let targetStudents = studentsList;
-
+// ✅ NEW CALCULATION ENGINE
+    const getCalculatedAnalytics = () => {
         // 1. Filter Students
-        if (isFE) {
-            targetStudents = studentsList.filter(s => s.year === 'FE');
-            if (analyticsDivision !== 'All') {
-                targetStudents = targetStudents.filter(s => s.division === analyticsDivision);
-            }
-        } else {
-            targetStudents = studentsList.filter(s => s.year === analyticsYear);
+        let targetStudents = deptUsers.filter(u => u.role === 'student' && u.year === analyticsYear);
+        if (isFE && analyticsDivision !== 'All') {
+            targetStudents = targetStudents.filter(u => u.division === analyticsDivision);
         }
 
         const threshold = criteria[analyticsYear] || 75;
 
-        // 2. Calculate Percentage using ACCURATE DENOMINATOR
+        // 2. Calculate Percentage
         const processed = targetStudents.map(s => {
-            const attended = s.attendanceCount || 0;
+            const sId = s.id || s.uid;
+            
+            // ✅ Use new state map
+            const myStats = studentAttendanceMap[sId] || { theory: 0, practical: 0 };
+            const userDiv = s.division || 'A';
 
-            // ✅ FIX: Use the specific total for this student's group
-            let localTotal = 0;
-            if (isFE) {
-                // Use Division Count (Fallback to 1 to avoid NaN)
-                localTotal = classCounts[s.division || 'A'] || 0;
+            // ✅ Use new session counts
+            const totalTheory = sessionStats.counts[`${analyticsYear}-${userDiv}-theory`] || 0;
+            const totalPractical = sessionStats.counts[`${analyticsYear}-${userDiv}-practical`] || 0;
+
+            let attended = 0;
+            let total = 0;
+
+            if (analyticsFilter === 'Theory') {
+                attended = myStats.theory;
+                total = totalTheory;
+            } else if (analyticsFilter === 'Practical') {
+                attended = myStats.practical;
+                total = totalPractical;
             } else {
-                // Use Year Count
-                localTotal = classCounts[s.year] || 0;
+                // Overall
+                attended = myStats.theory + myStats.practical;
+                total = totalTheory + totalPractical;
             }
 
-            // Calculate
-            const percentage = localTotal > 0 ? (attended / localTotal) * 100 : (attended > 0 ? 100 : 0);
-            return { ...s, percentage };
+            // Calculate % (Avoid NaN)
+            const percentage = total === 0 ? 100 : Math.round((attended / total) * 100);
+
+            return { ...s, percentage, attended, total };
         });
 
-        const safe = processed.filter(s => s.percentage >= threshold);
-        const defaulters = processed.filter(s => s.percentage < threshold);
-
-        const filteredDefaulters = defaulters.filter(s =>
+        // 3. Search Filter
+        const searchFiltered = processed.filter(s => 
             (s.firstName && s.firstName.toLowerCase().includes(searchQuery.toLowerCase())) ||
-            (s.rollNo && s.rollNo.toLowerCase().includes(searchQuery.toLowerCase()))
+            (s.rollNo && s.rollNo.toString().includes(searchQuery))
         );
 
-        return { total: processed.length, safe, defaulters, filteredDefaulters, threshold };
+        const safe = searchFiltered.filter(s => s.percentage >= threshold);
+        const defaulters = searchFiltered.filter(s => s.percentage < threshold);
+
+        return { total: searchFiltered.length, safe, defaulters, threshold };
     };
 
-    const analyticsData = getYearAnalytics();
+    const analyticsData = getCalculatedAnalytics();
 
     // Pie Chart Data with colors
     const pieData = [
@@ -1136,7 +1220,7 @@ export default function HODDashboard() {
                     </div>
                 )}
 
-                {/* ✅ UPDATED ANALYTICS TAB */}
+               {/* ✅ UPDATED ANALYTICS TAB */}
                 {activeTab === 'analytics' && (
                     <div className="content-section">
                         {/* Header: Title & Year/Division Selector */}
@@ -1165,7 +1249,27 @@ export default function HODDashboard() {
                                     />
                                 </div>
 
-                                {/* ✅ FE HOD: Show Division Dropdown | Dept HOD: Show Year Tabs */}
+                                {/* ✅ NEW: Report Type Toggle (Theory / Practical) */}
+                                <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '12px', display: 'flex', gap: '5px' }}>
+                                    {['Overall', 'Theory', 'Practical'].map(type => (
+                                        <button
+                                            key={type}
+                                            onClick={() => setAnalyticsFilter(type)}
+                                            style={{
+                                                padding: '8px 16px', border: 'none', borderRadius: '10px', cursor: 'pointer',
+                                                fontSize: '13px', fontWeight: '700',
+                                                background: analyticsFilter === type ? '#ffffff' : 'transparent',
+                                                color: analyticsFilter === type ? '#2563eb' : '#64748b',
+                                                boxShadow: analyticsFilter === type ? '0 4px 12px rgba(0,0,0,0.05)' : 'none',
+                                                transition: 'all 0.2s ease'
+                                            }}
+                                        >
+                                            {type}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {/* Division/Year Selector */}
                                 {isFE ? (
                                     <div style={{ minWidth: '100px', zIndex: 50 }}>
                                         <CustomMobileSelect
@@ -1257,18 +1361,17 @@ export default function HODDashboard() {
                             />
                         </div>
 
-                        {/* ✅ Chart & Defaulters List Grid */}
+                        {/* Charts & List Grid */}
                         <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '25px', alignItems: 'start' }}>
 
-                            {/* Card 1: Pie Chart with Center Count */}
+                            {/* Card 1: Pie Chart */}
                             <div className="card" style={{ minHeight: '420px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '25px', position: 'relative' }}>
                                 <h3 style={{ alignSelf: 'flex-start', marginBottom: '15px', fontSize: '16px', color: '#334155', fontWeight: '700' }}>
-                                    Status Distribution ({isFE ? (analyticsDivision === 'All' ? 'FE Total' : `Div ${analyticsDivision}`) : analyticsYear})
+                                    {analyticsFilter} Status ({isFE ? (analyticsDivision === 'All' ? 'FE Total' : `Div ${analyticsDivision}`) : analyticsYear})
                                 </h3>
 
                                 <div style={{ width: '100%', height: '300px', position: 'relative' }}>
-
-                                    {/* 🔥 CENTERED COUNT FOR MOBILE VISIBILITY */}
+                                    {/* Center Count */}
                                     <div style={{
                                         position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -60%)',
                                         textAlign: 'center', pointerEvents: 'none', zIndex: 10
@@ -1287,7 +1390,7 @@ export default function HODDashboard() {
                                                 data={pieData}
                                                 cx="50%"
                                                 cy="50%"
-                                                innerRadius={85}  // Increased inner radius for text space
+                                                innerRadius={85}
                                                 outerRadius={115}
                                                 paddingAngle={5}
                                                 dataKey="value"
@@ -1302,30 +1405,29 @@ export default function HODDashboard() {
                                 </div>
                             </div>
 
-                            {/* Card 2: Defaulters List (Fixed Layout) */}
+                            {/* Card 2: Defaulters List */}
                             <div className="card" style={{ borderTop: '4px solid #ef4444', height: '420px', display: 'flex', flexDirection: 'column', padding: '0' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 20px 15px', borderBottom: '1px solid #f1f5f9' }}>
                                     <h3 style={{ color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px', margin: 0, fontSize: '16px', fontWeight: '700' }}>
                                         ⚠️ Critical List
                                     </h3>
                                     <span className="nav-badge" style={{ background: '#fee2e2', color: '#ef4444', fontSize: '12px', padding: '4px 10px' }}>
-                                        {analyticsData.filteredDefaulters.length}
+                                        {analyticsData.defaulters.length}
                                     </span>
                                 </div>
 
-                                {/* 🔥 FIXED: Removed minWidth constraint to prevent laptop scrollbar */}
                                 <div className="table-wrapper custom-scroll" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', border: 'none', padding: '0' }}>
-                                    {analyticsData.filteredDefaulters.length > 0 ? (
+                                    {analyticsData.defaulters.length > 0 ? (
                                         <table className="attendance-table" style={{ width: '100%', minWidth: 'auto' }}>
                                             <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
                                                 <tr>
                                                     <th style={{ background: 'white', fontSize: '11px', color: '#64748b', paddingLeft: '20px' }}>Student</th>
-                                                    <th style={{ background: 'white', fontSize: '11px', color: '#64748b', textAlign: 'center' }}>Att %</th>
+                                                    <th style={{ background: 'white', fontSize: '11px', color: '#64748b', textAlign: 'center' }}>{analyticsFilter} %</th>
                                                     <th style={{ background: 'white', fontSize: '11px', color: '#64748b', textAlign: 'right', paddingRight: '20px' }}>Action</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
-                                                {analyticsData.filteredDefaulters.map(s => (
+                                                {analyticsData.defaulters.map(s => (
                                                     <tr key={s.id} style={{ borderBottom: '1px solid #f8fafc' }}>
                                                         <td style={{ padding: '12px 20px' }}>
                                                             <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '13px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '120px' }}>
@@ -2075,7 +2177,7 @@ export default function HODDashboard() {
                                                         <tr>
                                                             <th>Roll</th>
                                                             <th>Name</th>
-                                                            <th style={{ textAlign: 'right' }}>Edit</th> {/* ✅ Edit Column */}
+                                                            <th style={{ textAlign: 'right' }}>Edit</th>
                                                         </tr>
                                                     </thead>
                                                     <tbody>

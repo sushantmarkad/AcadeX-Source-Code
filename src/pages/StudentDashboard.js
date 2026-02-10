@@ -398,23 +398,32 @@ const SmartScheduleCard = ({ user, currentSlot, loading }) => {
     );
 };
 
-// --- COMPONENT: Attendance Overview (Fixed for Year/Div Accuracy) ---
+// --- COMPONENT: Attendance Overview (Split Theory & Practical) ---
 const AttendanceOverview = ({ user }) => {
-    const [percentage, setPercentage] = useState(0);
-    const [totalClasses, setTotalClasses] = useState(0);
-    const [attendedClasses, setAttendedClasses] = useState(0);
+    const [stats, setStats] = useState({ 
+        overall: 0, 
+        theory: 0, 
+        practical: 0,
+        totalTheory: 0, 
+        attendedTheory: 0,
+        totalPractical: 0, 
+        attendedPractical: 0 
+    });
 
     useEffect(() => {
         const fetchAccurateStats = async () => {
             if (!user?.instituteId || !user?.department || !user?.year) return;
 
             try {
-                // 1. Get My Attendance Count
-                const myAttended = user.attendanceCount || 0;
-                setAttendedClasses(myAttended);
+                // 1. Fetch My Attendance Records to count specific types
+                const myAttendanceQ = query(
+                    collection(db, 'attendance'),
+                    where('studentId', '==', user.uid)
+                );
+                const myAttendanceSnap = await getDocs(myAttendanceQ);
+                const myPresentSessionIds = new Set(myAttendanceSnap.docs.map(d => d.data().sessionId));
 
-                // 2. Count TOTAL Relevant Sessions for THIS Student
-                // We query all sessions for the department, then filter by Year & Division
+                // 2. Fetch ALL Relevant Sessions for this student's Class
                 const sessionsQuery = query(
                     collection(db, 'live_sessions'),
                     where('instituteId', '==', user.instituteId),
@@ -423,32 +432,52 @@ const AttendanceOverview = ({ user }) => {
 
                 const snap = await getDocs(sessionsQuery);
 
-                // ✅ STRICT FILTERING
-                const relevantSessions = snap.docs.filter(doc => {
+                let tTotal = 0, tPresent = 0;
+                let pTotal = 0, pPresent = 0;
+
+                snap.docs.forEach(doc => {
                     const data = doc.data();
 
-                    // Filter 1: Must match Student's Year (or be for 'All')
-                    if (data.targetYear !== 'All' && data.targetYear !== user.year) return false;
+                    // Filter 1: Must match Year
+                    if (data.targetYear !== 'All' && data.targetYear !== user.year) return;
 
-                    // Filter 2: If FE, Must match Division
-                    // Support both 'division' and 'div' fields
+                    // Filter 2: Must match Division (if applicable)
                     const studentDiv = user.division || user.div;
                     if (user.year === 'FE' && data.division && studentDiv) {
-                        if (data.division !== 'All' && data.division !== studentDiv) return false;
+                        if (data.division !== 'All' && data.division !== studentDiv) return;
                     }
 
-                    return true;
+                    // Filter 3: Check Type & Batch (for Practicals)
+                    const isPractical = data.type === 'practical';
+                    
+                    // Count Totals
+                    if (isPractical) {
+                        // Check if student is in this batch roll range
+                        if (data.rollRange) {
+                            const r = parseInt(user.rollNo);
+                            if (r >= data.rollRange.start && r <= data.rollRange.end) {
+                                pTotal++;
+                                if (myPresentSessionIds.has(doc.id)) pPresent++;
+                            }
+                        } else {
+                            // If no range defined, assume applicable
+                            pTotal++; 
+                            if (myPresentSessionIds.has(doc.id)) pPresent++;
+                        }
+                    } else {
+                        // Theory
+                        tTotal++;
+                        if (myPresentSessionIds.has(doc.id)) tPresent++;
+                    }
                 });
 
-                const calculatedTotal = relevantSessions.length;
-                setTotalClasses(calculatedTotal);
-
-                // 3. Calculate Accurate Percentage
-                if (calculatedTotal > 0) {
-                    setPercentage(Math.min(100, Math.round((myAttended / calculatedTotal) * 100)));
-                } else {
-                    setPercentage(0); // Avoid NaN
-                }
+                setStats({
+                    theory: tTotal > 0 ? Math.round((tPresent / tTotal) * 100) : 0,
+                    practical: pTotal > 0 ? Math.round((pPresent / pTotal) * 100) : 0,
+                    overall: (tTotal + pTotal) > 0 ? Math.round(((tPresent + pPresent) / (tTotal + pTotal)) * 100) : 0,
+                    totalTheory: tTotal, attendedTheory: tPresent,
+                    totalPractical: pTotal, attendedPractical: pPresent
+                });
 
             } catch (err) { console.error("Stats Error:", err); }
         };
@@ -456,21 +485,45 @@ const AttendanceOverview = ({ user }) => {
     }, [user]);
 
     const getColor = (pct) => pct >= 75 ? '#10b981' : pct >= 60 ? '#f59e0b' : '#ef4444';
-    const strokeColor = getColor(percentage);
 
     return (
-        <div className="card" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '20px' }}>
-            <div style={{ position: 'relative', width: '80px', height: '80px' }}>
-                <svg width="80" height="80" viewBox="0 0 100 100">
-                    <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" strokeWidth="10" />
-                    <circle cx="50" cy="50" r="45" fill="none" stroke={strokeColor} strokeWidth="10" strokeDasharray="283" strokeDashoffset={283 - (283 * percentage) / 100} strokeLinecap="round" transform="rotate(-90 50 50)" style={{ transition: 'stroke-dashoffset 1s ease-out' }} />
-                </svg>
-                <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: '#1e293b' }}>{percentage}%</div>
-            </div>
-            <div>
-                <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Attendance</h3>
-                <p style={{ margin: '5px 0 0 0', fontSize: '13px', color: '#64748b' }}>You have attended <strong>{attendedClasses}</strong> out of <strong>{totalClasses}</strong> classes.</p>
-                {percentage < 75 && <span style={{ fontSize: '11px', color: '#ef4444', fontWeight: '600' }}>⚠️ Low Attendance!</span>}
+        <div className="card">
+            <h3 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#1e293b' }}>Attendance Overview</h3>
+            
+            <div style={{ display: 'flex', gap: '20px', justifyContent: 'space-around' }}>
+                {/* Theory Circle */}
+                <div style={{ textAlign: 'center' }}>
+                    <div style={{ position: 'relative', width: '70px', height: '70px', margin: '0 auto' }}>
+                        <svg width="70" height="70" viewBox="0 0 100 100">
+                            <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" strokeWidth="8" />
+                            <circle cx="50" cy="50" r="45" fill="none" stroke={getColor(stats.theory)} strokeWidth="8"
+                                strokeDasharray="283" strokeDashoffset={283 - (283 * stats.theory) / 100}
+                                transform="rotate(-90 50 50)" style={{ transition: 'stroke-dashoffset 1s' }} />
+                        </svg>
+                        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '14px' }}>
+                            {stats.theory}%
+                        </div>
+                    </div>
+                    <p style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', marginTop: '5px' }}>Theory</p>
+                    <p style={{ fontSize: '10px', color: '#94a3b8' }}>{stats.attendedTheory}/{stats.totalTheory}</p>
+                </div>
+
+                {/* Practical Circle */}
+                <div style={{ textAlign: 'center' }}>
+                    <div style={{ position: 'relative', width: '70px', height: '70px', margin: '0 auto' }}>
+                        <svg width="70" height="70" viewBox="0 0 100 100">
+                            <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" strokeWidth="8" />
+                            <circle cx="50" cy="50" r="45" fill="none" stroke={getColor(stats.practical)} strokeWidth="8"
+                                strokeDasharray="283" strokeDashoffset={283 - (283 * stats.practical) / 100}
+                                transform="rotate(-90 50 50)" style={{ transition: 'stroke-dashoffset 1s' }} />
+                        </svg>
+                        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '14px' }}>
+                            {stats.practical}%
+                        </div>
+                    </div>
+                    <p style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', marginTop: '5px' }}>Practical</p>
+                    <p style={{ fontSize: '10px', color: '#94a3b8' }}>{stats.attendedPractical}/{stats.totalPractical}</p>
+                </div>
             </div>
         </div>
     );
