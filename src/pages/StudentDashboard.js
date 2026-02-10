@@ -1271,6 +1271,54 @@ export default function StudentDashboard() {
         }
     }, [activePage, notices, assignments, readCount, taskReadCount]);
 
+    // ✅ MISSING LOGIC: FETCH NOTICES (Fixed for FE/First Year & Divisions)
+    useEffect(() => {
+        if (!user?.instituteId) return;
+
+        // Fetch ALL announcements for this institute (then filter in JS for complex logic)
+        const q = query(
+            collection(db, 'announcements'),
+            where('instituteId', '==', user.instituteId)
+        );
+
+        const unsub = onSnapshot(q, (snapshot) => {
+            const allNotices = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            const relevantNotices = allNotices.filter(n => {
+                // 1. Department Check (Handle "FE" vs "First Year" mismatch)
+                const userDept = user.department ? user.department.trim().toLowerCase() : '';
+                const noticeDept = n.department ? n.department.trim().toLowerCase() : '';
+
+                const isUserFE = userDept === 'fe' || userDept === 'first year' || userDept === 'firstyear';
+                const isNoticeFE = noticeDept === 'fe' || noticeDept === 'first year' || noticeDept === 'firstyear';
+
+                if (isUserFE && isNoticeFE) {
+                    // Match! (Both are FE)
+                } else if (userDept !== noticeDept) {
+                    return false; // Different departments
+                }
+
+                // 2. Year Check (Hide Staff notices)
+                if (n.targetYear === 'Teachers') return false; 
+                if (n.targetYear !== 'All' && n.targetYear !== user.year) return false;
+
+                // 3. Division Check
+                if (n.division && n.division !== 'All') {
+                    const myDiv = user.division || user.div;
+                    if (n.division !== myDiv) return false;
+                }
+
+                return true;
+            });
+
+            // Sort by Date (Newest First)
+            relevantNotices.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+            setNotices(relevantNotices);
+        });
+
+        return () => unsub();
+    }, [user]);
+
     // ✅ 7. PUSH NOTIFICATION SETUP (Get Token & Save to DB)
     useEffect(() => {
         const registerPushNotifications = async () => {

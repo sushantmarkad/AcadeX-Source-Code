@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth, storage } from '../firebase';
-import { collection, query, where, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, deleteDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import toast from 'react-hot-toast';
 import ReactDOM from 'react-dom';
@@ -77,7 +77,7 @@ export default function AddTasks({ teacherInfo }) {
     };
 
     
-    // --- 🚀 SUBMIT / CREATE LOGIC ---
+  // --- 🚀 SUBMIT / CREATE LOGIC (Fixed: Uses Firestore Directly) ---
     const handleCreate = async (e) => {
         e.preventDefault();
         if (!form.targetYear) return toast.error("Please select a class.");
@@ -98,24 +98,22 @@ export default function AddTasks({ teacherInfo }) {
                 attachmentUrl = await getDownloadURL(fileRef);
             }
 
-            // 1. Save Assignment
-            await fetch(`${BACKEND_URL}/createAssignment`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    ...form,
-                    targetYear: targetYear,    // Clean Year (e.g. "FE")
-                    division: targetDivision,  // Clean Division (e.g. "A")
-                    attachmentUrl,
-                    teacherId: auth.currentUser.uid,
-                    teacherName: `${teacherInfo.firstName} ${teacherInfo.lastName}`,
-                    department: teacherInfo.department,
-                    instituteId: teacherInfo.instituteId,
-                    createdAt: new Date().toISOString()
-                })
-            }).then(res => { if(!res.ok) throw new Error("Backend failed"); });
+            // 1. ✅ SAVE TO FIRESTORE DIRECTLY (Reliable)
+            await addDoc(collection(db, 'assignments'), {
+                title: form.title,
+                description: form.description,
+                targetYear: targetYear,        // Clean Year (e.g. "FE")
+                division: targetDivision,      // Clean Division (e.g. "A")
+                dueDate: form.dueDate,
+                attachmentUrl,
+                teacherId: auth.currentUser.uid,
+                teacherName: `${teacherInfo.firstName} ${teacherInfo.lastName}`,
+                department: teacherInfo.department,
+                instituteId: teacherInfo.instituteId,
+                createdAt: new Date().toISOString()
+            });
 
-            // 2. Trigger Notification
+            // 2. Trigger Notification (Optional Backend Call - Non-blocking)
             fetch(`${BACKEND_URL}/sendAnnouncementNotification`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -128,13 +126,14 @@ export default function AddTasks({ teacherInfo }) {
                     department: teacherInfo.department,
                     senderName: `${teacherInfo.firstName} ${teacherInfo.lastName}`
                 })
-            }).catch(err => console.error("Notification trigger failed:", err));
+            }).catch(err => console.log("Notification trigger skipped:", err));
 
-            toast.success("Assignment Live & Students Notified!", { id: toastId });
+            toast.success("Assignment Live!", { id: toastId });
             setForm({ title: '', description: '', targetYear: '', dueDate: '' });
             setFile(null);
 
         } catch (err) { 
+            console.error(err);
             toast.error(`Failed: ${err.message}`, { id: toastId }); 
         } finally { 
             setLoading(false); 
