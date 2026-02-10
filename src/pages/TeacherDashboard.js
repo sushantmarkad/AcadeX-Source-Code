@@ -2026,6 +2026,9 @@ export default function TeacherDashboard() {
                     body: JSON.stringify({ sessionId: activeSession.sessionId })
                 });
                 toast.success("Session Ended", { id: toastId });
+
+                setActiveSession(null);
+                
             } catch (e) {
                 toast.error("Error: " + e.message, { id: toastId });
             }

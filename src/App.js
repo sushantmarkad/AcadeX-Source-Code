@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useState, useEffect } from "react";
-import { Routes, Route, useLocation, Navigate } from "react-router-dom";
+import { Routes, Route, useLocation, Navigate, useNavigate } from "react-router-dom"; // ✅ Added useNavigate
 import { AnimatePresence } from "framer-motion";
 import { Toaster, toast } from 'react-hot-toast';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -9,6 +9,8 @@ import { usePushNotifications } from './hooks/usePushNotifications';
 import IOSSplashScreen from "./components/IOSSplashScreen";
 import logo from "./assets/logo.png"; 
 import DashboardSkeleton from "./components/DashboardSkeleton";
+import { App as CapApp } from '@capacitor/app';
+
 
 // ✅ OPTIMIZATION: Lazy load heavy components not needed for First Paint
 const Onboarding = lazy(() => import('./pages/Onboarding')); 
@@ -40,6 +42,7 @@ function App() {
   usePushNotifications();
   const location = useLocation();
   const [showSplash, setShowSplash] = useState(true);
+  const navigate = useNavigate();
   
   const [user, setUser] = useState(null);
   const [userRole, setUserRole] = useState(null);
@@ -95,6 +98,40 @@ function App() {
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    let backButtonListener;
+
+    const setupBackButton = async () => {
+      backButtonListener = await CapApp.addListener('backButton', ({ canGoBack }) => {
+        // Define "Root" paths where the app should exit/minimize
+        const rootPaths = [
+            '/', 
+            '/login', 
+            '/student-dashboard', 
+            '/teacher-dashboard', 
+            '/admin-dashboard', 
+            '/super-admin'
+        ];
+
+        if (rootPaths.includes(location.pathname)) {
+          // If on a main page, exit/minimize the app
+          CapApp.exitApp();
+        } else {
+          // Otherwise, go back to the previous page
+          navigate(-1);
+        }
+      });
+    };
+
+    setupBackButton();
+
+    return () => {
+      if (backButtonListener) {
+        backButtonListener.remove();
+      }
+    };
+  }, [location, navigate]);
 
   // --- 🔐 HANDLE 2FA VERIFICATION ---
   const handleVerify2FA = async (code) => {

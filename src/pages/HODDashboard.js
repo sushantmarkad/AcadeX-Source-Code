@@ -272,24 +272,30 @@ export default function HODDashboard() {
         fetchAttendanceStats();
     }, [hodInfo, deptUsers, timeRange, isFE]); // Added isFE dependency
 
-    // ✅ SAVE TEACHER UPDATES (Via Backend to fix Login Email)
+    // ✅ SAVE TEACHER UPDATES (Fixed: Sends Token)
     const handleSaveTeacherUpdates = async () => {
         if (!editTeacherData) return;
         setLoading(true);
         const toastId = toast.loading("Updating Teacher Credentials...");
 
         try {
-            // Call Backend API
+            // 1. Get the Security Token
+            const token = await auth.currentUser.getIdToken();
+
+            // 2. Call Backend API with Token
             const response = await fetch(`${BACKEND_URL}/updateUser`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}` // 👈 THIS WAS MISSING
+                },
                 body: JSON.stringify({
                     uid: editTeacherData.id,
-                    email: editTeacherData.email, // ✅ Updates Login Email
+                    email: editTeacherData.email, 
                     firstName: editTeacherData.firstName,
                     lastName: editTeacherData.lastName,
                     phone: editTeacherData.phone || '',
-                    assignedClasses: editTeacherData.assignedClasses, // ✅ Preserves Assignments
+                    assignedClasses: editTeacherData.assignedClasses,
                     academicYear: editTeacherData.academicYear || '2024-2025'
                 })
             });
@@ -312,20 +318,26 @@ export default function HODDashboard() {
         }
     };
 
-    // ✅ SAVE STUDENT UPDATES (Via Backend to fix Login Email)
+   // ✅ SAVE STUDENT UPDATES (Fixed: Sends Token)
     const handleSaveStudentUpdates = async () => {
         if (!editStudentData) return;
         setLoading(true);
         const toastId = toast.loading("Updating Credentials...");
 
         try {
-            // Call your Backend API
+            // 1. Get the Security Token
+            const token = await auth.currentUser.getIdToken();
+
+            // 2. Call Backend API with Token
             const response = await fetch(`${BACKEND_URL}/updateUser`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}` // 👈 THIS WAS MISSING
+                },
                 body: JSON.stringify({
-                    uid: editStudentData.id, // The User ID
-                    email: editStudentData.email, // ✅ Updates Login Email
+                    uid: editStudentData.id,
+                    email: editStudentData.email,
                     firstName: editStudentData.firstName,
                     lastName: editStudentData.lastName,
                     rollNo: editStudentData.rollNo,

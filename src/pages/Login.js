@@ -41,6 +41,7 @@ export default function Login() {
 
   const navigate = useNavigate();
   const playSound = useIOSSound(); 
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -302,15 +303,38 @@ export default function Login() {
               />
             </div>
 
-            <div className="input-group">
+            {/* Password Field with Toggle Eye Icon */}
+            <div className="input-group" style={{ position: "relative" }}>
               <label>Password</label>
-              <input
-                type="password"
-                placeholder="********"
-                value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-                required
-              />
+              <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                <input
+                  type={showPassword ? "text" : "password"}
+                  placeholder="********"
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  required
+                  style={{ paddingRight: "40px" }} // Make room for the icon
+                />
+                <button
+                  type="button" // Prevents form submission
+                  onClick={() => setShowPassword(!showPassword)}
+                  style={{
+                    position: "absolute",
+                    right: "12px",
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    color: "#64748b",
+                    fontSize: "16px",
+                    padding: "4px",
+                    display: "flex",
+                    alignItems: "center",
+                    zIndex: 10
+                  }}
+                >
+                  <i className={showPassword ? "fas fa-eye-slash" : "fas fa-eye"}></i>
+                </button>
+              </div>
             </div>
 
             <div style={{ textAlign: 'right', marginTop: '-10px', marginBottom: '15px' }}>

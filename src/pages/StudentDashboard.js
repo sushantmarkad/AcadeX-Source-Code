@@ -14,6 +14,7 @@ import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
 import { BarcodeScanner } from '@capacitor-mlkit/barcode-scanning'; // ✅ NATIVE CAMERA
 import NativeFriendlyDateInput from '../components/NativeFriendlyDateInput';
 import { useFileDownloader } from '../hooks/useFileDownloader';
+import { Geolocation } from '@capacitor/geolocation';
 
 // ✅ NEW IMPORTS FOR SECURITY
 import { Device } from '@capacitor/device';
@@ -81,19 +82,37 @@ const getUniqueDeviceId = async () => {
     }
 };
 
-const getLocation = () => {
-    return new Promise((resolve, reject) => {
-        if (!navigator.geolocation) {
-            reject(new Error("Geolocation not supported"));
-            return;
+// ✅ UPDATED: Native Location (Auto-Activates GPS)
+const getLocation = async () => {
+    try {
+        // 1. Check permissions first
+        const permissionStatus = await Geolocation.checkPermissions();
+        
+        if (permissionStatus.location === 'denied') {
+            throw new Error("Location permission denied. Please enable it in settings.");
         }
-        // Added 'enableHighAccuracy' and 'timeout' to fix the race condition
-        navigator.geolocation.getCurrentPosition(
-            (position) => resolve(position),
-            (error) => reject(error),
-            { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
-        );
-    });
+
+        // 2. Request permission if not granted (This triggers the popup)
+        if (permissionStatus.location !== 'granted') {
+            const request = await Geolocation.requestPermissions();
+            if (request.location !== 'granted') {
+                throw new Error("Location permission is required to mark attendance.");
+            }
+        }
+
+        // 3. Get Position (This triggers "Turn on Device Location" if GPS is off)
+        const position = await Geolocation.getCurrentPosition({
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0
+        });
+
+        return position; // Returns { coords: { latitude, longitude, ... } }
+
+    } catch (error) {
+        console.error("Location Error:", error);
+        throw error;
+    }
 };
 
 // --- COMPONENT: Leave Request Form ---
@@ -311,44 +330,48 @@ const handleAttendance = async (sessionIdFromQR) => {
         // 1. Generate the Unique Device Hardware ID
         const fp = await FingerprintJS.load();
         const result = await fp.get();
-        const hardwareId = result.visitorId; // This is the unique "Device Fingerprint"
+        const hardwareId = result.visitorId;
 
-        // 2. Get Student's Current Location
-        navigator.geolocation.getCurrentPosition(async (position) => {
-            const token = await auth.currentUser.getIdToken();
+        // 2. ✅ UPDATED: Get Location using the new Native Plugin
+        // (This line now waits for the user to turn on GPS if needed)
+        const position = await getLocation();
 
-            // 3. Send Attendance to Backend with Device ID
-            const response = await fetch(`${BACKEND_URL}/markAttendance`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
+        const token = await auth.currentUser.getIdToken();
+
+        // 3. Send Attendance to Backend
+        const response = await fetch(`${BACKEND_URL}/markAttendance`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                sessionId: sessionIdFromQR,
+                deviceId: hardwareId,
+                studentLocation: {
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude
                 },
-                body: JSON.stringify({
-                    sessionId: sessionIdFromQR,
-                    deviceId: hardwareId, // ✅ Crucial for Hardware Binding
-                    studentLocation: {
-                        latitude: position.coords.latitude,
-                        longitude: position.coords.longitude
-                    },
-                    verificationMethod: 'qr' // or 'biometric' if using fingerprint
-                })
-            });
-
-            const data = await response.json();
-
-            if (response.ok) {
-                toast.success(data.message, { id: toastId });
-            } else {
-                // If this is a device mismatch, the backend sends a 403 error
-                toast.error(data.error, { id: toastId });
-            }
-        }, (err) => {
-            toast.error("Location access denied. Attendance failed.", { id: toastId });
+                verificationMethod: 'qr'
+            })
         });
 
+        const data = await response.json();
+
+        if (response.ok) {
+            toast.success(data.message, { id: toastId });
+        } else {
+            toast.error(data.error, { id: toastId });
+        }
+
     } catch (error) {
-        toast.error("Security check failed.", { id: toastId });
+        console.error(error);
+        // Handle specific errors for better UX
+        if (error.message.includes("denied")) {
+            toast.error("Permission Denied: Enable Location in Settings", { id: toastId });
+        } else {
+            toast.error("Location failed. Ensure GPS is ON.", { id: toastId });
+        }
     }
 };
 
