@@ -691,17 +691,17 @@ const prepareReportData = (sessions, allStudents) => {
                 // Loose equality for Roll No
                 const studentRecord = session.students.find(s => s.rollNo == student.rollNo);
                 const status = studentRecord && studentRecord.status === 'Present' ? 'P' : 'A';
-
+                
                 if (status === 'P') row.totalAttended++;
-                row[session.sessionId] = status;
+                row[session.sessionId] = status; 
             } else {
-                row[session.sessionId] = '-';
+                row[session.sessionId] = '-'; 
             }
         });
 
         // Calculate Percentage
-        row.percentage = row.totalHeld > 0
-            ? ((row.totalAttended / row.totalHeld) * 100).toFixed(0) + '%'
+        row.percentage = row.totalHeld > 0 
+            ? ((row.totalAttended / row.totalHeld) * 100).toFixed(0) + '%' 
             : '0%';
 
         return row;
@@ -726,9 +726,9 @@ const generatePDFReport = (teacherInfo, selectedYear, selectedDiv, subject, star
     // ✅ DETECT BATCH CONTEXT
     // If the filtered sessions are practical, try to find a common batch or list them
     const uniqueBatches = [...new Set(historySessions.map(s => s.batch).filter(b => b && b !== 'All'))];
-    const batchInfo = uniqueBatches.length === 1
+    const batchInfo = uniqueBatches.length === 1 
         ? `Batch: ${uniqueBatches[0]}` // "Batch: A1"
-        : uniqueBatches.length > 1
+        : uniqueBatches.length > 1 
             ? `Batches: ${uniqueBatches.join(', ')}` // "Batches: A1, A2"
             : ''; // Empty if theory or no specific batch
 
@@ -750,11 +750,11 @@ const generatePDFReport = (teacherInfo, selectedYear, selectedDiv, subject, star
     const rightMargin = pageWidth - 14;
 
     doc.text(`Department: ${teacherInfo.department}`, leftMargin, 32);
-
+    
     // ✅ UPDATED LINE: Includes Batch Info if available
     let classLine = `Class: ${selectedYear} ${selectedYear === 'FE' ? `(Div ${selectedDiv})` : ''}   |   ${currentSemester}`;
     if (batchInfo) classLine += `   |   ${batchInfo}`; // Append Batch Info
-
+    
     doc.text(classLine, leftMargin, 37);
     doc.text(`Subject: ${subject}`, leftMargin, 42);
     doc.text(`Teacher: ${teacherInfo.firstName} ${teacherInfo.lastName}`, leftMargin, 47);
@@ -789,7 +789,7 @@ const generatePDFReport = (teacherInfo, selectedYear, selectedDiv, subject, star
             0: { cellWidth: 12, fontStyle: 'bold' },
             1: { cellWidth: 40, halign: 'left' },
         },
-        didParseCell: function (data) {
+        didParseCell: function(data) {
             if (data.section === 'body') {
                 if (data.cell.raw === 'A') {
                     data.cell.styles.textColor = [220, 38, 38];
@@ -814,7 +814,7 @@ const DashboardHome = ({
     selectedDate, setSelectedDate, historySessions, selectedYear, sessionLoading,
     sessionType, setSessionType, selectedBatch, setSelectedBatch,
     rollStart, setRollStart, rollEnd, setRollEnd,
-    historySemester, setHistorySemester, getSubjectForHistory, historyLoading,refreshHistory,
+    historySemester, setHistorySemester, getSubjectForHistory,historyLoading,
     selectedDiv // ✅ We rely ONLY on this now
 }) => {
     const [qrCodeValue, setQrCodeValue] = useState('');
@@ -863,7 +863,7 @@ const DashboardHome = ({
     useEffect(() => {
         // Construct unique key for this batch (e.g., "FE_A1", "SE_S1")
         const key = `${selectedYear}_${selectedBatch}`;
-
+        
         if (teacherInfo?.batchSettings && teacherInfo.batchSettings[key]) {
             const saved = teacherInfo.batchSettings[key];
             setRollStart(saved.start);
@@ -873,7 +873,7 @@ const DashboardHome = ({
             setRollStart(1);
             setRollEnd(20);
         }
-    }, [selectedBatch, selectedYear, teacherInfo]);
+    }, [selectedBatch, selectedYear, teacherInfo]); 
 
     // --- 🔄 AUTO-UPDATE BATCH DEFAULT (C -> C1, SE -> S1) ---
     useEffect(() => {
@@ -899,7 +899,7 @@ const DashboardHome = ({
     // 2. Save settings to Database (Triggered on Blur)
     const saveBatchRange = async () => {
         if (!teacherInfo || !auth.currentUser) return;
-
+        
         const key = `${selectedYear}_${selectedBatch}`;
         try {
             // Save to 'batchSettings' map in the user's document
@@ -908,7 +908,7 @@ const DashboardHome = ({
                     [key]: { start: rollStart, end: rollEnd }
                 }
             }, { merge: true });
-
+            
             // console.log("Batch range saved for", key);
         } catch (err) {
             console.error("Failed to save batch settings", err);
@@ -993,73 +993,51 @@ const DashboardHome = ({
             toast.error("Connection error.", { id: toastId });
         }
     };
-   // ✅ HANDLE SAVE FROM EDIT MODAL (Fixed: Robust Delete Logic)
+    // ✅ HANDLE SAVE FROM EDIT MODAL
     const handleAttendanceUpdate = async (session, changes) => {
         const toastId = toast.loading("Updating Attendance...");
-        const batch = writeBatch(db); // Use Batch for efficiency
-
         try {
-            // Pre-fetch all attendance records for this session to find IDs reliably
-            // This avoids the issue where 'student.attendanceId' might be stale or missing in the UI object
-            const q = query(collection(db, 'attendance'), where('sessionId', '==', session.sessionId));
-            const snap = await getDocs(q);
-            
-            // Map Roll No -> Doc ID
-            const attendanceMap = new Map();
-            snap.docs.forEach(doc => {
-                // Store by Roll No (ensure consistent string type)
-                attendanceMap.set(doc.data().rollNo.toString(), doc.id);
-            });
-
-            for (const student of changes) {
-                const rollStr = student.rollNo.toString();
-
+            const promises = changes.map(async (student) => {
                 if (student.status === 'Present') {
-                    // --- MARK PRESENT ---
-                    // Only add if not already present (avoid duplicates)
-                    if (!attendanceMap.has(rollStr)) {
-                        const newDocRef = doc(collection(db, 'attendance')); // Generate new ID
-                        batch.set(newDocRef, {
-                            rollNo: rollStr,
-                            studentId: student.id,
-                            name: student.name,
-                            teacherId: auth.currentUser.uid,
-                            subject: getSubjectForHistory(),
-                            department: teacherInfo.department,
-                            year: selectedYear,
-                            division: session.division || null,
-                            instituteId: teacherInfo.instituteId,
-                            sessionId: session.sessionId,
-                            timestamp: serverTimestamp(),
-                            markedBy: 'teacher_edit',
-                            status: 'Present'
-                        });
-                    }
+                    // Mark Present (Create Doc)
+                    // We use the same backend API to ensure consistency, or write directly
+                    // Writing directly for speed/edit mode:
+                    await addDoc(collection(db, 'attendance'), {
+                        rollNo: student.rollNo.toString(),
+                        studentId: student.id,
+                        name: student.name, // Ensure name is saved
+                        teacherId: auth.currentUser.uid,
+                        subject: getSubjectForHistory(), // Reuse subject logic
+                        department: teacherInfo.department,
+                        year: selectedYear,
+                        division: session.division || null, // Important for FE
+                        instituteId: teacherInfo.instituteId,
+                        sessionId: session.sessionId,
+                        timestamp: serverTimestamp(),
+                        markedBy: 'teacher_edit', // Track who edited
+                        status: 'Present'
+                    });
                 } else {
-                    // --- MARK ABSENT (DELETE) ---
-                    // Look up the ID from our fresh map
-                    const docIdToDelete = attendanceMap.get(rollStr);
-                    
-                    if (docIdToDelete) {
-                        const docRef = doc(db, 'attendance', docIdToDelete);
-                        batch.delete(docRef);
-                    } else {
-                        console.warn(`Could not find attendance record to delete for Roll ${rollStr}`);
+                    // Mark Absent (Delete Doc)
+                    if (student.attendanceId) {
+                        await deleteDoc(doc(db, 'attendance', student.attendanceId));
                     }
                 }
-            }
+            });
 
-            await batch.commit();
+            await Promise.all(promises);
             toast.success("Attendance Updated!", { id: toastId });
 
+            // Refresh Data
+            // We can just toggle viewMode to trigger refetch or force a reload
             setEditingSession(null);
-            
-            // Force Refresh with delay to allow Firestore to sync
-            if (refreshHistory) setTimeout(refreshHistory, 800);
+            const currentMode = viewMode;
+            setViewMode('live');
+            setTimeout(() => setViewMode(currentMode), 50); // Hacky refresh
 
         } catch (err) {
-            console.error("Update Error:", err);
-            toast.error("Update Failed: " + err.message, { id: toastId });
+            console.error(err);
+            toast.error("Update Failed", { id: toastId });
         }
     };
 
@@ -1418,14 +1396,14 @@ const DashboardHome = ({
                                     {/* Practical Config (Restored Roll Nos) */}
                                     {sessionType === 'practical' && (
                                         <div style={{ marginTop: '10px', background: 'white', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', overflow: 'visible' }}>
-
+                                            
                                             {/* Batch Dropdown */}
                                             <div className="input-group" style={{ marginBottom: '8px' }}>
                                                 <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b' }}>Batch Name</label>
                                                 <CustomDropdown
                                                     value={selectedBatch}
                                                     onChange={(val) => setSelectedBatch(val)}
-                                                    options={getBatchOptions()}
+                                                    options={getBatchOptions()} 
                                                     placeholder="Select Batch"
                                                 />
                                             </div>
@@ -1433,8 +1411,8 @@ const DashboardHome = ({
                                             {/* ✅ RESTORED & PERSISTENT: Roll Number Range Inputs */}
                                             <div style={{ display: 'flex', gap: '8px' }}>
                                                 <div style={{ flex: 1 }}>
-                                                    <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '4px' }}>Start Roll</label>
-                                                    <input
+                                                     <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', display:'block', marginBottom:'4px' }}>Start Roll</label>
+                                                     <input
                                                         type="number"
                                                         value={rollStart}
                                                         onChange={(e) => setRollStart(e.target.value)}
@@ -1444,8 +1422,8 @@ const DashboardHome = ({
                                                     />
                                                 </div>
                                                 <div style={{ flex: 1 }}>
-                                                    <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '4px' }}>End Roll</label>
-                                                    <input
+                                                     <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', display:'block', marginBottom:'4px' }}>End Roll</label>
+                                                     <input
                                                         type="number"
                                                         value={rollEnd}
                                                         onChange={(e) => setRollEnd(e.target.value)}
@@ -1613,13 +1591,13 @@ const DashboardHome = ({
                 </div>
             )}
 
-            {/* --- HISTORY MODE (Unified & Filtered) --- */}
+           {/* --- HISTORY MODE (Unified & Filtered) --- */}
             {viewMode === 'history' && (
                 <div className="cards-grid">
-
+                    
                     {/* 1. FILTERS & EXPORT CONTROLS */}
                     <div className="card card-full-width" style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '20px', background: '#f8fafc', flexWrap: 'wrap' }}>
-
+                        
                         {/* Semester Selector */}
                         <div style={{ flex: 1, minWidth: '150px' }}>
                             <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', textTransform: 'uppercase', marginBottom: '5px' }}>Semester</label>
@@ -1642,7 +1620,7 @@ const DashboardHome = ({
                             <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>Report Type</label>
                             <div style={{ display: 'flex', gap: '5px', background: 'white', padding: '4px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
                                 {['All', 'Theory', 'Practical'].map(type => (
-                                    <button
+                                    <button 
                                         key={type}
                                         onClick={() => setReportFilter(type)}
                                         style={{
@@ -1664,7 +1642,7 @@ const DashboardHome = ({
                             <div style={{ flex: 1 }}>
                                 <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>From</label>
                                 <div style={{ position: 'relative', width: '100%' }}>
-                                    <input
+                                    <input 
                                         type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
                                         onClick={(e) => e.target.showPicker && e.target.showPicker()}
                                         style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '14px', fontWeight: '600', color: '#334155', outline: 'none', background: 'white', cursor: 'pointer' }}
@@ -1674,7 +1652,7 @@ const DashboardHome = ({
                             <div style={{ flex: 1 }}>
                                 <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>To</label>
                                 <div style={{ position: 'relative', width: '100%' }}>
-                                    <input
+                                    <input 
                                         type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
                                         onClick={(e) => e.target.showPicker && e.target.showPicker()}
                                         style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '14px', fontWeight: '600', color: '#334155', outline: 'none', background: 'white', cursor: 'pointer' }}
@@ -1685,12 +1663,12 @@ const DashboardHome = ({
 
                         {/* ✅ MODERN EXPORT BUTTONS */}
                         <div className="export-actions">
-                            <button
+                            <button 
                                 onClick={() => {
                                     if (filteredHistorySessions.length === 0) return toast.error("No data matches current filter");
                                     generatePDFReport(
-                                        teacherInfo, selectedYear, selectedDiv,
-                                        `${getSubjectForHistory()} (${reportFilter})`,
+                                        teacherInfo, selectedYear, selectedDiv, 
+                                        `${getSubjectForHistory()} (${reportFilter})`, 
                                         startDate, endDate, filteredHistorySessions, allStudentsReport
                                     );
                                 }}
@@ -1702,7 +1680,7 @@ const DashboardHome = ({
 
                             {filteredHistorySessions.length > 0 ? (
                                 <CSVLink
-                                    data={prepareReportData(filteredHistorySessions, allStudentsReport).rows}
+                                    data={prepareReportData(filteredHistorySessions, allStudentsReport).rows} 
                                     headers={[
                                         { label: "Roll No", key: "rollNo" },
                                         { label: "Name", key: "name" },
@@ -1955,7 +1933,7 @@ const getLocation = async () => {
     try {
         // 1. Check permissions first
         const permissionStatus = await Geolocation.checkPermissions();
-
+        
         if (permissionStatus.location === 'denied') {
             throw new Error("Location permission denied. Please enable it in settings.");
         }
@@ -1976,7 +1954,7 @@ const getLocation = async () => {
             maximumAge: 0
         });
 
-        return position;
+        return position; 
 
     } catch (error) {
         console.error("Location Error:", error);
@@ -2095,7 +2073,6 @@ export default function TeacherDashboard() {
     // ✅ NEW: Store an array of SESSIONS, not just a flat list of students
     const [historySessions, setHistorySessions] = useState([]);
     const [historyLoading, setHistoryLoading] = useState(false);
-    const [refreshKey, setRefreshKey] = useState(0);
     const navigate = useNavigate();
     const getSubjectForHistory = () => {
         if (!teacherInfo) return "";
@@ -2289,7 +2266,7 @@ export default function TeacherDashboard() {
         return () => { if (unsubscribe) unsubscribe(); };
     }, [activeSession, teacherInfo]);
 
-    // ✅ UPDATED HISTORY FETCH (With Loader)
+   // ✅ UPDATED HISTORY FETCH (With Loader)
     useEffect(() => {
         const fetchHistory = async () => {
             if (!teacherInfo?.instituteId || !selectedYear) return;
@@ -2421,7 +2398,7 @@ export default function TeacherDashboard() {
 
         if (viewMode === 'history') fetchHistory();
 
-    }, [viewMode, startDate, endDate, teacherInfo, selectedYear, historySemester, selectedDiv, refreshKey]);
+    }, [viewMode, startDate, endDate, teacherInfo, selectedYear, historySemester, selectedDiv]);
 
 
 
@@ -2451,7 +2428,7 @@ export default function TeacherDashboard() {
             }
 
             setSessionLoading(true);
-            const startToast = toast.loading("Acquiring Location...");
+            const startToast = toast.loading("Acquiring Location..."); 
 
             try {
                 // ✅ 1. Get Location using Native Plugin
@@ -2495,7 +2472,7 @@ export default function TeacherDashboard() {
                 // Handle Location or Network Errors
                 let msg = err.message || "Failed to start session";
                 if (msg.includes("denied")) msg = "Location Access Denied";
-
+                
                 toast.error(msg, { id: startToast });
             } finally {
                 setSessionLoading(false);
@@ -2537,7 +2514,6 @@ export default function TeacherDashboard() {
                 setSelectedDiv={setSelectedDiv}
                 historyDivision={historyDivision}
                 setHistoryDivision={setHistoryDivision}
-                refreshHistory={() => setRefreshKey(k => k + 1)}
             />;
             case 'analytics': return <TeacherAnalytics teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} />;
             case 'reports':
