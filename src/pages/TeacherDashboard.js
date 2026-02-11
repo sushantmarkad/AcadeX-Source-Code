@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { auth, db, storage } from '../firebase';
-import { collection, doc, getDoc, serverTimestamp, onSnapshot, query, where, getDocs, setDoc, addDoc, deleteDoc, updateDoc, Timestamp, writeBatch, increment } from 'firebase/firestore';
+import { collection, doc, getDoc, serverTimestamp, onSnapshot, query, where, getDocs, setDoc, addDoc, deleteDoc, updateDoc, Timestamp, writeBatch, increment,getDocsFromServer } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
 import { CSVLink } from 'react-csv';
 import toast from 'react-hot-toast';
@@ -815,7 +815,7 @@ const DashboardHome = ({
     sessionType, setSessionType, selectedBatch, setSelectedBatch,
     rollStart, setRollStart, rollEnd, setRollEnd,
     historySemester, setHistorySemester, getSubjectForHistory,historyLoading,
-    selectedDiv // ✅ We rely ONLY on this now
+    selectedDiv,setRefreshTrigger
 }) => {
     const [qrCodeValue, setQrCodeValue] = useState('');
     const [timer, setTimer] = useState(10);
@@ -993,51 +993,50 @@ const DashboardHome = ({
             toast.error("Connection error.", { id: toastId });
         }
     };
-    // ✅ HANDLE SAVE FROM EDIT MODAL
+   // ✅ HANDLE SAVE FROM EDIT MODAL
     const handleAttendanceUpdate = async (session, changes) => {
         const toastId = toast.loading("Updating Attendance...");
         try {
             const promises = changes.map(async (student) => {
                 if (student.status === 'Present') {
-                    // Mark Present (Create Doc)
-                    // We use the same backend API to ensure consistency, or write directly
-                    // Writing directly for speed/edit mode:
+                    // Mark Present
                     await addDoc(collection(db, 'attendance'), {
                         rollNo: student.rollNo.toString(),
                         studentId: student.id,
-                        name: student.name, // Ensure name is saved
+                        name: student.name,
                         teacherId: auth.currentUser.uid,
-                        subject: getSubjectForHistory(), // Reuse subject logic
+                        subject: getSubjectForHistory(),
                         department: teacherInfo.department,
                         year: selectedYear,
-                        division: session.division || null, // Important for FE
+                        division: session.division || null, 
                         instituteId: teacherInfo.instituteId,
                         sessionId: session.sessionId,
                         timestamp: serverTimestamp(),
-                        markedBy: 'teacher_edit', // Track who edited
+                        markedBy: 'teacher_edit',
                         status: 'Present'
                     });
                 } else {
-                    // Mark Absent (Delete Doc)
+                    // Mark Absent
+                    // ✅ CRITICAL CHECK: Ensure attendanceId exists before deleting
                     if (student.attendanceId) {
                         await deleteDoc(doc(db, 'attendance', student.attendanceId));
+                    } else {
+                        console.warn(`Cannot mark absent: Missing attendanceId for ${student.name}`);
                     }
                 }
             });
 
             await Promise.all(promises);
             toast.success("Attendance Updated!", { id: toastId });
-
-            // Refresh Data
-            // We can just toggle viewMode to trigger refetch or force a reload
             setEditingSession(null);
-            const currentMode = viewMode;
-            setViewMode('live');
-            setTimeout(() => setViewMode(currentMode), 50); // Hacky refresh
+
+            setTimeout(() => {
+                setRefreshTrigger(prev => prev + 1);
+            }, 500);
 
         } catch (err) {
             console.error(err);
-            toast.error("Update Failed", { id: toastId });
+            toast.error("Update Failed: " + err.message, { id: toastId });
         }
     };
 
@@ -2074,6 +2073,7 @@ export default function TeacherDashboard() {
     const [historySessions, setHistorySessions] = useState([]);
     const [historyLoading, setHistoryLoading] = useState(false);
     const navigate = useNavigate();
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
     const getSubjectForHistory = () => {
         if (!teacherInfo) return "";
 
@@ -2315,7 +2315,7 @@ export default function TeacherDashboard() {
                     where('timestamp', '>=', Timestamp.fromDate(start)),
                     where('timestamp', '<=', Timestamp.fromDate(end))
                 );
-                const attSnap = await getDocs(qAttendance);
+                const attSnap = await getDocsFromServer(qAttendance);
 
                 // 3. Process Session Data
                 const uniqueSessionIds = new Set();
@@ -2398,7 +2398,7 @@ export default function TeacherDashboard() {
 
         if (viewMode === 'history') fetchHistory();
 
-    }, [viewMode, startDate, endDate, teacherInfo, selectedYear, historySemester, selectedDiv]);
+    }, [viewMode, startDate, endDate, teacherInfo, selectedYear, historySemester, selectedDiv, refreshTrigger]);
 
 
 
@@ -2514,6 +2514,7 @@ export default function TeacherDashboard() {
                 setSelectedDiv={setSelectedDiv}
                 historyDivision={historyDivision}
                 setHistoryDivision={setHistoryDivision}
+                setRefreshTrigger={setRefreshTrigger}
             />;
             case 'analytics': return <TeacherAnalytics teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} />;
             case 'reports':
