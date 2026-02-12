@@ -565,6 +565,99 @@ const AttendanceOverview = ({ user }) => {
     );
 };
 
+// --- COMPONENT: Student Test Marks (New Card) ---
+const StudentTestResults = ({ user }) => {
+    const [results, setResults] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        if (!user?.uid) return;
+
+        // Fetch all exams where this student has a score
+        // Since exams are stored in 'exam_marks' and scores is a Map, we fetch relevant exams first
+        // Optimization: Filter by Year & Dept to reduce reads
+        const q = query(
+            collection(db, 'exam_marks'),
+            where('year', '==', user.year),
+            where('department', '==', user.department),
+            orderBy('date', 'desc'),
+            limit(5) // Show top 5 recent tests
+        );
+
+        const unsub = onSnapshot(q, (snapshot) => {
+            const myResults = [];
+            snapshot.docs.forEach(doc => {
+                const data = doc.data();
+                // Check if this student's ID exists in the scores map
+                const studentScore = data.scores ? data.scores[user.uid] : null;
+
+                if (studentScore) {
+                    myResults.push({
+                        id: doc.id,
+                        testName: data.testName,
+                        subject: data.subject,
+                        date: data.date,
+                        maxMarks: data.maxMarks,
+                        obtained: studentScore.marks,
+                        status: studentScore.status
+                    });
+                }
+            });
+            setResults(myResults);
+            setLoading(false);
+        });
+
+        return () => unsub();
+    }, [user]);
+
+    if (loading) return <div className="card" style={{padding:'20px', textAlign:'center', color:'#94a3b8'}}>Loading results...</div>;
+
+    return (
+        <div className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Recent Test Results</h3>
+                <span style={{ fontSize: '12px', background: '#eff6ff', padding: '4px 10px', borderRadius: '20px', color: '#2563eb', fontWeight:'600' }}>
+                    {results.length} Tests
+                </span>
+            </div>
+
+            {results.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {results.map(res => (
+                        <div key={res.id} style={{ 
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            padding: '12px', background: '#f8fafc', borderRadius: '12px',
+                            borderLeft: res.status === 'Pass' ? '4px solid #10b981' : '4px solid #ef4444'
+                        }}>
+                            <div>
+                                <h4 style={{ margin: '0 0 4px 0', fontSize: '14px', color: '#334155' }}>{res.testName}</h4>
+                                <p style={{ margin: 0, fontSize: '11px', color: '#64748b' }}>
+                                    {res.subject} • {new Date(res.date).toLocaleDateString()}
+                                </p>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                                <span style={{ display: 'block', fontSize: '16px', fontWeight: 'bold', color: '#1e293b' }}>
+                                    {res.obtained} <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight:'normal' }}>/ {res.maxMarks}</span>
+                                </span>
+                                <span style={{ 
+                                    fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase',
+                                    color: res.status === 'Pass' ? '#16a34a' : '#dc2626'
+                                }}>
+                                    {res.status}
+                                </span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8', fontSize: '14px' }}>
+                    No test results released yet.
+                </div>
+            )}
+        </div>
+    );
+};
+
 // --- DASHBOARD HOME (Updated with Biometrics) ---
 const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession, recentAttendance, setShowScanner, currentSlot, onBiometricAttendance, bioLoading, openNativeCameraForQR, setShowPinModal }) => {
 
@@ -613,6 +706,7 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                 <SmartScheduleCard user={user} currentSlot={currentSlot} loading={!currentSlot} />
 
                 <AttendanceOverview user={user} />
+                <StudentTestResults user={user} />
                 {/* ✅ MODERN LIVE ATTENDANCE CARD */}
                 {/* ✨ ULTRA-MODERN ATTENDANCE CARD ✨ */}
                 <div className="card" style={{
