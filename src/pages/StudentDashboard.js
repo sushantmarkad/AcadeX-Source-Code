@@ -82,36 +82,72 @@ const getUniqueDeviceId = async () => {
     }
 };
 
-// ✅ UPDATED: Native Location (Auto-Activates GPS)
-const getLocation = async () => {
-    try {
-        // 1. Check permissions first
-        const permissionStatus = await Geolocation.checkPermissions();
-        
-        if (permissionStatus.location === 'denied') {
-            throw new Error("Location permission denied. Please enable it in settings.");
+// ✅ HELPER: Force GPS On (Android Only)
+const enableAndroidLocation = async () => {
+    return new Promise((resolve, reject) => {
+        // 1. If not Android, skip (Web/iOS don't support this plugin)
+        if (Capacitor.getPlatform() !== 'android') {
+            resolve(true);
+            return;
         }
 
-        // 2. Request permission if not granted (This triggers the popup)
-        if (permissionStatus.location !== 'granted') {
-            const request = await Geolocation.requestPermissions();
-            if (request.location !== 'granted') {
-                throw new Error("Location permission is required to mark attendance.");
+        // 2. Check if Cordova plugin is loaded
+        if (window.cordova && window.cordova.plugins && window.cordova.plugins.locationAccuracy) {
+            const mode = window.cordova.plugins.locationAccuracy.REQUEST_PRIORITY_HIGH_ACCURACY;
+            
+            window.cordova.plugins.locationAccuracy.request(
+                () => resolve(true), // ✅ Success: User clicked "OK"
+                (error) => reject(error), // ❌ Failed: User clicked "No" or Error
+                mode
+            );
+        } else {
+            // Plugin failed to load (Rare), just continue
+            resolve(true); 
+        }
+    });
+};
+
+// ✅ UPDATED: The "Master" Location Function (Web + Android + iOS)
+const getLocation = async () => {
+    try {
+        // STEP 1: If Android, try to Force GPS On
+        if (Capacitor.getPlatform() === 'android') {
+            try {
+                await enableAndroidLocation(); 
+            } catch (err) {
+                // User clicked "No" on the popup
+                throw new Error("You must enable Location to mark attendance.");
             }
         }
 
-        // 3. Get Position (This triggers "Turn on Device Location" if GPS is off)
+        // STEP 2: Check Permissions (Works on Web & App)
+        const permissionStatus = await Geolocation.checkPermissions();
+        if (permissionStatus.location === 'denied') {
+            throw new Error("Location permission denied. Enable it in settings.");
+        }
+        
+        // Request if needed (Web trigger)
+        if (permissionStatus.location !== 'granted') {
+            const request = await Geolocation.requestPermissions();
+            if (request.location !== 'granted') {
+                throw new Error("Permission is required.");
+            }
+        }
+
+        // STEP 3: Get the Actual Position
+        // On Web: This uses navigator.geolocation
+        // On App: This uses the Native GPS Chip
         const position = await Geolocation.getCurrentPosition({
-            enableHighAccuracy: true,
-            timeout: 10000,
-            maximumAge: 0
+            enableHighAccuracy: true, // Critical for "Real Time" check
+            timeout: 10000,           // 10 second limit
+            maximumAge: 0             // Do not use cached location
         });
 
-        return position; // Returns { coords: { latitude, longitude, ... } }
+        return position;
 
     } catch (error) {
         console.error("Location Error:", error);
-        throw error;
+        throw error; // Pass error to the UI to show Toast
     }
 };
 
@@ -400,14 +436,14 @@ const SmartScheduleCard = ({ user, currentSlot, loading }) => {
 
 // --- COMPONENT: Attendance Overview (Split Theory & Practical) ---
 const AttendanceOverview = ({ user }) => {
-    const [stats, setStats] = useState({ 
-        overall: 0, 
-        theory: 0, 
+    const [stats, setStats] = useState({
+        overall: 0,
+        theory: 0,
         practical: 0,
-        totalTheory: 0, 
+        totalTheory: 0,
         attendedTheory: 0,
-        totalPractical: 0, 
-        attendedPractical: 0 
+        totalPractical: 0,
+        attendedPractical: 0
     });
 
     useEffect(() => {
@@ -449,7 +485,7 @@ const AttendanceOverview = ({ user }) => {
 
                     // Filter 3: Check Type & Batch (for Practicals)
                     const isPractical = data.type === 'practical';
-                    
+
                     // Count Totals
                     if (isPractical) {
                         // Check if student is in this batch roll range
@@ -461,7 +497,7 @@ const AttendanceOverview = ({ user }) => {
                             }
                         } else {
                             // If no range defined, assume applicable
-                            pTotal++; 
+                            pTotal++;
                             if (myPresentSessionIds.has(doc.id)) pPresent++;
                         }
                     } else {
@@ -489,7 +525,7 @@ const AttendanceOverview = ({ user }) => {
     return (
         <div className="card">
             <h3 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#1e293b' }}>Attendance Overview</h3>
-            
+
             <div style={{ display: 'flex', gap: '20px', justifyContent: 'space-around' }}>
                 {/* Theory Circle */}
                 <div style={{ textAlign: 'center' }}>
@@ -1299,7 +1335,7 @@ export default function StudentDashboard() {
                 }
 
                 // 2. Year Check (Hide Staff notices)
-                if (n.targetYear === 'Teachers') return false; 
+                if (n.targetYear === 'Teachers') return false;
                 if (n.targetYear !== 'All' && n.targetYear !== user.year) return false;
 
                 // 3. Division Check
@@ -1457,13 +1493,25 @@ export default function StudentDashboard() {
 
         } catch (error) {
             console.error("Attendance Error:", error);
-            // Handle specific location errors
-            if (error.code === 1) { // PERMISSION_DENIED
-                toast.error("Location Denied. Please enable GPS.", { id: toastId, duration: 4000 });
-            } else if (error.code === 3) { // TIMEOUT
-                toast.error("GPS Timeout. Move to an open area.", { id: toastId, duration: 4000 });
-            } else {
-                toast.error(error.message || "Verification Failed", { id: toastId, duration: 4000 });
+            
+            // Code 2 is POSITION_UNAVAILABLE (Usually means GPS is OFF)
+            if (error.code === 2 || error.message.includes("location disabled")) {
+                toast.error("⚠️ GPS is OFF! Please turn on Location in Quick Settings.", { 
+                    id: toastId, 
+                    duration: 5000,
+                    icon: '📍'
+                });
+            } 
+            // Code 1 is PERMISSION_DENIED
+            else if (error.code === 1) { 
+                toast.error("🚫 Permission Denied. Allow Location in App Settings.", { id: toastId, duration: 4000 });
+            } 
+            // Code 3 is TIMEOUT
+            else if (error.code === 3) { 
+                toast.error("📡 GPS Timeout. Try moving outdoors.", { id: toastId, duration: 4000 });
+            } 
+            else {
+                toast.error("❌ Error: " + (error.message || "Verification Failed"), { id: toastId, duration: 4000 });
             }
         }
     };
@@ -1477,23 +1525,31 @@ export default function StudentDashboard() {
 
         try {
             // 1. Find the session that has this active PIN
+            // Remove 'isActive' from the query to make it simpler
             const q = query(
                 collection(db, 'live_sessions'),
                 where('instituteId', '==', user.instituteId),
-                where('currentPin', '==', enteredPin),
-                where('isActive', '==', true)
+                where('currentPin', '==', enteredPin)
             );
 
             const querySnapshot = await getDocs(q);
 
             if (querySnapshot.empty) {
-                toast.error("Invalid or Expired PIN", { id: toastId });
+                toast.error("Invalid PIN", { id: toastId });
                 setLoading(false);
                 return;
             }
 
-            // 2. Get the Session ID
+            // Check 'isActive' manually in Javascript instead
             const sessionDoc = querySnapshot.docs[0];
+            const sessionData = sessionDoc.data();
+
+            if (!sessionData.isActive) {
+                toast.error("Session has ended", { id: toastId });
+                setLoading(false);
+                return;
+            }
+
             const targetSessionId = sessionDoc.id;
 
             // 3. Close Modal & Call Secure Function
