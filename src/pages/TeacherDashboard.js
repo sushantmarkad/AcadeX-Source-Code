@@ -33,6 +33,516 @@ const getGreeting = () => {
 };
 
 // ------------------------------------
+//  MODERN MARKS MANAGER (With Edit, Delete & PDF Fixes)
+// ------------------------------------
+const MarksManager = ({ teacherInfo, selectedYear, selectedDiv }) => {
+    const [view, setView] = useState('list'); // 'list', 'create', 'grading'
+    const [tests, setTests] = useState([]);
+    const [currentTest, setCurrentTest] = useState(null);
+    const [students, setStudents] = useState([]);
+    const [loading, setLoading] = useState(false);
+    
+    // Edit Mode State
+    const [isEditingTest, setIsEditingTest] = useState(false);
+    const [editForm, setEditForm] = useState({ maxMarks: 0, passingMarks: 0 });
+
+    // Create Form State
+    const [testForm, setTestForm] = useState({ name: '', maxMarks: 20, passingMarks: 8, date: new Date().toISOString().split('T')[0] });
+
+    // Helper: Get Current Class Details (Sem & Subject)
+    const getClassDetails = () => {
+        if (!teacherInfo?.assignedClasses) return { semester: 'N/A', subject: teacherInfo?.subject || 'Subject' };
+        const cls = teacherInfo.assignedClasses.find(c => c.year === selectedYear);
+        return {
+            semester: cls ? `Semester ${cls.semester}` : 'Semester --',
+            subject: cls ? cls.subject : teacherInfo.subject
+        };
+    };
+
+    // Fetch Tests
+    useEffect(() => {
+        if (!teacherInfo?.instituteId) return;
+        
+        const q = query(
+            collection(db, 'exam_marks'),
+            where('teacherId', '==', auth.currentUser.uid),
+            where('year', '==', selectedYear),
+            where('department', '==', teacherInfo.department)
+        );
+
+        const unsub = onSnapshot(q, (snap) => {
+            const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            // Filter by division if FE
+            const filtered = selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All' 
+                ? data.filter(d => d.division === selectedDiv)
+                : data;
+            
+            filtered.sort((a, b) => new Date(b.date) - new Date(a.date));
+            setTests(filtered);
+        });
+        return () => unsub();
+    }, [teacherInfo, selectedYear, selectedDiv]);
+
+    // Fetch Students & Merge Scores
+    const fetchStudentsForGrading = async (testData) => {
+        setLoading(true);
+        try {
+            const qStudents = query(
+                collection(db, 'users'),
+                where('instituteId', '==', teacherInfo.instituteId),
+                where('role', '==', 'student'),
+                where('year', '==', selectedYear),
+                where('department', '==', teacherInfo.department)
+            );
+            const snap = await getDocs(qStudents);
+            let studentList = snap.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data(),
+                rollNo: parseInt(doc.data().rollNo) || 9999,
+                obtainedMarks: '', 
+                status: '-'
+            }));
+
+            if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
+                studentList = studentList.filter(s => s.division === selectedDiv);
+            }
+            
+            studentList.sort((a, b) => a.rollNo - b.rollNo);
+
+            if (testData && testData.scores) {
+                studentList = studentList.map(s => {
+                    const savedScore = testData.scores[s.id];
+                    return savedScore ? { ...s, obtainedMarks: savedScore.marks, status: savedScore.status } : s;
+                });
+            }
+
+            setStudents(studentList);
+        } catch (err) {
+            toast.error("Failed to load student list");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // --- ACTIONS ---
+
+    const handleCreateTest = async (e) => {
+        e.preventDefault();
+        setLoading(true);
+        try {
+            const { subject } = getClassDetails();
+            const newTest = {
+                testName: testForm.name,
+                maxMarks: Number(testForm.maxMarks),
+                passingMarks: Number(testForm.passingMarks),
+                date: testForm.date,
+                teacherId: auth.currentUser.uid,
+                teacherName: `${teacherInfo.firstName} ${teacherInfo.lastName}`,
+                subject: subject, 
+                department: teacherInfo.department,
+                year: selectedYear,
+                division: selectedYear === 'FE' ? selectedDiv : null,
+                instituteId: teacherInfo.instituteId,
+                createdAt: serverTimestamp(),
+                scores: {}
+            };
+
+            const docRef = await addDoc(collection(db, 'exam_marks'), newTest);
+            setCurrentTest({ id: docRef.id, ...newTest });
+            await fetchStudentsForGrading({ scores: {} });
+            setView('grading');
+        } catch (err) {
+            toast.error("Error creating test: " + err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDeleteTest = async (e, testId) => {
+        e.stopPropagation();
+        if(window.confirm("Are you sure you want to delete this test permanently? This cannot be undone.")) {
+            try {
+                await deleteDoc(doc(db, 'exam_marks', testId));
+                toast.success("Test deleted successfully");
+                if(currentTest?.id === testId) setView('list');
+            } catch (err) {
+                toast.error("Delete failed: " + err.message);
+            }
+        }
+    };
+
+    const handleUpdateTestDetails = async () => {
+        if(!currentTest) return;
+        try {
+            await updateDoc(doc(db, 'exam_marks', currentTest.id), {
+                maxMarks: Number(editForm.maxMarks),
+                passingMarks: Number(editForm.passingMarks)
+            });
+            setCurrentTest(prev => ({ ...prev, maxMarks: Number(editForm.maxMarks), passingMarks: Number(editForm.passingMarks) }));
+            setIsEditingTest(false);
+            toast.success("Test details updated!");
+        } catch (err) {
+            toast.error("Update failed");
+        }
+    };
+
+    const handleMarkChange = (studentId, value) => {
+        const val = value === '' ? '' : Number(value);
+        if (val > currentTest.maxMarks) return toast.error(`Max marks is ${currentTest.maxMarks}`);
+
+        setStudents(prev => prev.map(s => {
+            if (s.id === studentId) {
+                const status = val === '' ? '-' : (val >= currentTest.passingMarks ? 'Pass' : 'Fail');
+                return { ...s, obtainedMarks: val, status };
+            }
+            return s;
+        }));
+    };
+
+    const saveMarks = async () => {
+        setLoading(true);
+        const toastId = toast.loading("Saving Marks...");
+        try {
+            const scoresMap = {};
+            students.forEach(s => {
+                if (s.obtainedMarks !== '') {
+                    scoresMap[s.id] = {
+                        rollNo: s.rollNo,
+                        name: `${s.firstName} ${s.lastName}`,
+                        marks: Number(s.obtainedMarks),
+                        status: s.status
+                    };
+                }
+            });
+
+            await updateDoc(doc(db, 'exam_marks', currentTest.id), {
+                scores: scoresMap,
+                updatedAt: serverTimestamp()
+            });
+
+            toast.success("Marks Saved!", { id: toastId });
+            setView('list');
+        } catch (err) {
+            toast.error("Save failed: " + err.message, { id: toastId });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const generatePDF = () => {
+        const doc = new jsPDF();
+        const { semester, subject } = getClassDetails(); // ✅ Get Correct Subject & Sem
+        
+        // Header
+        const pageWidth = doc.internal.pageSize.width;
+        doc.setFillColor(248, 250, 252); 
+        doc.rect(0, 0, pageWidth, 40, 'F'); // Light gray header bg
+
+        doc.setFontSize(18);
+        doc.setTextColor(30, 41, 59);
+        doc.setFont('helvetica', 'bold');
+        doc.text(teacherInfo.instituteName || "Institute Name", pageWidth / 2, 18, { align: 'center' });
+        
+        doc.setFontSize(12);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(71, 85, 105);
+        doc.text(`Academic Year: ${teacherInfo.academicYear || '2025-26'}`, pageWidth / 2, 26, { align: 'center' });
+        
+        // Test Details Grid
+        doc.setFontSize(10);
+        doc.setTextColor(51, 65, 85);
+        const startY = 50;
+        
+        doc.text(`Test Name: ${currentTest.testName}`, 14, startY);
+        doc.text(`Subject: ${subject}`, 14, startY + 6); // ✅ Dynamic Subject
+        doc.text(`Class: ${selectedYear} ${selectedDiv ? `(Div ${selectedDiv})` : ''}`, 14, startY + 12);
+        doc.text(`Semester: ${semester}`, 14, startY + 18); // ✅ Dynamic Semester
+
+        doc.text(`Date: ${currentTest.date}`, pageWidth - 14, startY, { align: 'right' });
+        doc.text(`Max Marks: ${currentTest.maxMarks}`, pageWidth - 14, startY + 6, { align: 'right' });
+        doc.text(`Passing Marks: ${currentTest.passingMarks}`, pageWidth - 14, startY + 12, { align: 'right' });
+
+        // Table
+        const tableColumn = ["Roll No", "Student Name", "Marks Obtained", "Status"];
+        const tableRows = students.map(s => [
+            s.rollNo,
+            `${s.firstName} ${s.lastName}`,
+            s.obtainedMarks !== '' ? s.obtainedMarks : '-',
+            s.status
+        ]);
+
+        autoTable(doc, {
+            startY: startY + 25,
+            head: [tableColumn],
+            body: tableRows,
+            theme: 'grid',
+            headStyles: { fillColor: [59, 130, 246], textColor: 255, fontStyle: 'bold' },
+            styles: { fontSize: 10, cellPadding: 4 },
+            didParseCell: function (data) {
+                if (data.section === 'body' && data.column.index === 3) {
+                    if (data.cell.raw === 'Fail') {
+                        data.cell.styles.textColor = [220, 38, 38];
+                        data.cell.styles.fontStyle = 'bold';
+                    }
+                    if (data.cell.raw === 'Pass') {
+                        data.cell.styles.textColor = [22, 163, 74];
+                        data.cell.styles.fontStyle = 'bold';
+                    }
+                }
+            }
+        });
+
+        doc.save(`${currentTest.testName}_${selectedYear}_Report.pdf`);
+    };
+
+    return (
+        <div className="content-section">
+            
+            {/* Header Area */}
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'25px'}}>
+                <div>
+                    <h2 className="gradient-text">Marks & Results</h2>
+                    <p className="content-subtitle">Manage class tests and student performance.</p>
+                </div>
+                {view === 'list' && (
+                    <button onClick={() => { 
+                        setTestForm({ name: '', maxMarks: 20, passingMarks: 8, date: new Date().toISOString().split('T')[0] }); 
+                        setView('create'); 
+                    }} className="modern-btn-primary">
+                        <i className="fas fa-plus"></i> New Test
+                    </button>
+                )}
+            </div>
+
+            {/* --- LIST VIEW --- */}
+            {view === 'list' && (
+                <div className="test-cards-grid">
+                    {tests.length > 0 ? tests.map(test => (
+                        <div key={test.id} className="test-card" onClick={() => { setCurrentTest(test); fetchStudentsForGrading(test); setView('grading'); }}>
+                            <div className="test-card-header">
+                                <span className="test-subject-badge">{test.subject}</span>
+                                <div className="test-actions">
+                                    <button className="delete-btn" onClick={(e) => handleDeleteTest(e, test.id)} title="Delete Test">
+                                        <i className="fas fa-trash-alt"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            <h4 className="test-title">{test.testName}</h4>
+                            <div className="test-meta">
+                                <span><i className="far fa-calendar-alt"></i> {test.date}</span>
+                                <span><i className="fas fa-star-half-alt"></i> {test.maxMarks} Marks</span>
+                            </div>
+                            <div className="test-card-footer">
+                                <span>Click to Grade</span>
+                                <i className="fas fa-arrow-right"></i>
+                            </div>
+                        </div>
+                    )) : (
+                        <div className="empty-state">
+                            <div className="empty-icon"><i className="fas fa-clipboard-list"></i></div>
+                            <p>No tests created for this class yet.</p>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* --- CREATE VIEW --- */}
+            {view === 'create' && (
+                <div className="create-card fade-in-up">
+                    <div className="create-card-header">
+                        <h3>Create New Assessment</h3>
+                    </div>
+                    <form onSubmit={handleCreateTest} className="create-form">
+                        <div className="input-group">
+                            <label>Test Name</label>
+                            <input required value={testForm.name} onChange={e => setTestForm({...testForm, name: e.target.value})} placeholder="e.g. Unit Test 1" />
+                        </div>
+                        <div className="input-group">
+                            <label>Date</label>
+                            <input type="date" required value={testForm.date} onChange={e => setTestForm({...testForm, date: e.target.value})} />
+                        </div>
+                        <div className="input-group">
+                            <label>Max Marks</label>
+                            <input type="number" required value={testForm.maxMarks} onChange={e => setTestForm({...testForm, maxMarks: e.target.value})} />
+                        </div>
+                        <div className="input-group">
+                            <label>Passing Marks</label>
+                            <input type="number" required value={testForm.passingMarks} onChange={e => setTestForm({...testForm, passingMarks: e.target.value})} />
+                        </div>
+                        <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '15px', marginTop: '10px' }}>
+                            <button type="button" onClick={() => setView('list')} className="btn-modern-ghost">Cancel</button>
+                            <button type="submit" className="modern-btn-primary" style={{flex: 1}}>Create & Grade</button>
+                        </div>
+                    </form>
+                </div>
+            )}
+
+            {/* --- GRADING VIEW --- */}
+            {view === 'grading' && currentTest && (
+                <div className="grading-container fade-in-up">
+                    <div className="grading-header">
+                        <div>
+                            <div style={{display:'flex', alignItems:'center', gap:'10px'}}>
+                                <button onClick={() => setView('list')} className="back-btn"><i className="fas fa-arrow-left"></i></button>
+                                <h3 style={{ margin: 0, color: '#1e293b' }}>{currentTest.testName}</h3>
+                            </div>
+                            <p style={{ margin: '5px 0 0 40px', fontSize: '13px', color: '#64748b' }}>
+                                Max: {currentTest.maxMarks} | Pass: {currentTest.passingMarks}
+                                <span onClick={() => { 
+                                    setEditForm({ maxMarks: currentTest.maxMarks, passingMarks: currentTest.passingMarks });
+                                    setIsEditingTest(true);
+                                }} style={{marginLeft: '10px', color: '#3b82f6', cursor: 'pointer', fontWeight: 'bold'}}>
+                                    <i className="fas fa-pencil-alt"></i> Edit
+                                </span>
+                            </p>
+                        </div>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button onClick={generatePDF} className="btn-modern-danger">
+                                <i className="fas fa-file-pdf"></i> Report
+                            </button>
+                            <button onClick={saveMarks} className="modern-btn-primary">
+                                <i className="fas fa-save"></i> Save Marks
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* EDIT DETAILS MODAL (Inline) */}
+                    {isEditingTest && (
+                        <div className="inline-edit-box">
+                            <div className="input-group">
+                                <label>New Max Marks</label>
+                                <input type="number" value={editForm.maxMarks} onChange={e => setEditForm({...editForm, maxMarks: e.target.value})} />
+                            </div>
+                            <div className="input-group">
+                                <label>New Passing Marks</label>
+                                <input type="number" value={editForm.passingMarks} onChange={e => setEditForm({...editForm, passingMarks: e.target.value})} />
+                            </div>
+                            <button onClick={handleUpdateTestDetails} className="btn-save-mini"><i className="fas fa-check"></i></button>
+                            <button onClick={() => setIsEditingTest(false)} className="btn-cancel-mini"><i className="fas fa-times"></i></button>
+                        </div>
+                    )}
+
+                    <div className="table-wrapper">
+                        <table className="attendance-table">
+                            <thead>
+                                <tr>
+                                    <th>Roll No</th>
+                                    <th>Student Name</th>
+                                    <th>Marks ({currentTest.maxMarks})</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {students.map(s => (
+                                    <tr key={s.id}>
+                                        <td style={{ fontWeight: 'bold', color: '#475569' }}>{s.rollNo}</td>
+                                        <td style={{fontWeight:'500'}}>{s.firstName} {s.lastName}</td>
+                                        <td>
+                                            <input 
+                                                type="number" 
+                                                value={s.obtainedMarks} 
+                                                onChange={(e) => handleMarkChange(s.id, e.target.value)}
+                                                className="marks-input"
+                                                placeholder="-"
+                                            />
+                                        </td>
+                                        <td>
+                                            <span className={`status-badge ${s.status === 'Pass' ? 'status-approved' : s.status === 'Fail' ? 'status-rejected' : 'status-pending'}`}>
+                                                {s.status}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+
+            {/* --- STYLES --- */}
+            <style>{`
+                .modern-btn-primary {
+                    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+                    color: white; border: none; padding: 10px 20px;
+                    border-radius: 10px; font-weight: 600; cursor: pointer;
+                    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+                    transition: transform 0.2s;
+                    display: flex; alignItems: center; gap: 8px;
+                }
+                .modern-btn-primary:hover { transform: translateY(-2px); }
+
+                .btn-modern-ghost {
+                    background: transparent; border: 2px solid #e2e8f0;
+                    color: #64748b; padding: 10px 20px; border-radius: 10px;
+                    font-weight: 600; cursor: pointer;
+                }
+
+                .test-cards-grid {
+                    display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px;
+                }
+
+                .test-card {
+                    background: white; border-radius: 16px; padding: 20px;
+                    border: 1px solid #f1f5f9; box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+                    cursor: pointer; transition: all 0.2s ease; position: relative;
+                    display: flex; flex-direction: column;
+                }
+                .test-card:hover {
+                    transform: translateY(-5px);
+                    box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+                    border-color: #3b82f6;
+                }
+
+                .test-card-header { display: flex; justify-content: space-between; margin-bottom: 12px; }
+                .test-subject-badge { background: #eff6ff; color: #2563eb; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 20px; text-transform: uppercase; }
+                
+                .delete-btn { background: transparent; border: none; color: #ef4444; opacity: 0.6; cursor: pointer; transition: opacity 0.2s; }
+                .delete-btn:hover { opacity: 1; transform: scale(1.1); }
+
+                .test-title { margin: 0 0 10px 0; color: #1e293b; font-size: 16px; font-weight: 700; }
+                .test-meta { display: flex; gap: 15px; font-size: 12px; color: #64748b; margin-bottom: 20px; }
+                .test-meta span { display: flex; alignItems: center; gap: 5px; }
+
+                .test-card-footer { 
+                    margin-top: auto; padding-top: 15px; border-top: 1px solid #f8fafc;
+                    display: flex; justify-content: space-between; alignItems: center;
+                    font-size: 12px; font-weight: 600; color: #3b82f6; 
+                }
+
+                .grading-container { background: white; border-radius: 16px; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
+                .grading-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px; }
+                
+                .back-btn { background: #f1f5f9; border: none; width: 32px; height: 32px; borderRadius: 50%; color: #64748b; cursor: pointer; display: flex; alignItems: center; justify-content: center; transition: background 0.2s; }
+                .back-btn:hover { background: #e2e8f0; color: #1e293b; }
+
+                .marks-input {
+                    width: 70px; padding: 8px; border-radius: 8px; border: 1px solid #cbd5e1;
+                    text-align: center; font-weight: 700; font-size: 14px; outline: none;
+                    transition: border 0.2s;
+                }
+                .marks-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+
+                .status-pending { background: #f1f5f9; color: #94a3b8; padding: 4px 10px; border-radius: 6px; font-size: 12px; }
+
+                .inline-edit-box {
+                    background: #fffbeb; border: 1px solid #fcd34d; padding: 10px 15px;
+                    border-radius: 10px; display: flex; align-items: flex-end; gap: 15px;
+                    margin-bottom: 20px; animation: fadeIn 0.2s ease;
+                }
+                .inline-edit-box .input-group { margin-bottom: 0; }
+                .inline-edit-box label { font-size: 10px; margin-bottom: 4px; color: #b45309; }
+                .inline-edit-box input { padding: 6px; font-size: 13px; width: 80px; }
+                .btn-save-mini { background: #16a34a; color: white; border: none; width: 30px; height: 30px; border-radius: 6px; cursor: pointer; }
+                .btn-cancel-mini { background: #ef4444; color: white; border: none; width: 30px; height: 30px; border-radius: 6px; cursor: pointer; }
+
+                .fade-in-up { animation: fadeInUp 0.3s ease-out; }
+                @keyframes fadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+            `}</style>
+        </div>
+    );
+};
+
+// ------------------------------------
 //  COMPONENT: ANNOUNCEMENTS (Styled like Add Tasks)
 // ------------------------------------
 const TeacherAnnouncements = ({ teacherInfo }) => {
@@ -1262,7 +1772,7 @@ const DashboardHome = ({
 
         // ✅ Check if sessionId exists
         if (activeSession?.sessionId) {
-            
+
             // Helper function to refresh security
             const updateSessionSecurity = async () => {
                 // 1. Update QR (Local)
@@ -1932,7 +2442,7 @@ const getLocation = async () => {
     try {
         // 1. 🌍 WEB SUPPORT: If on Browser, just ask for position (Browser handles the prompt)
         if (!Capacitor.isNativePlatform()) {
-             return await Geolocation.getCurrentPosition({
+            return await Geolocation.getCurrentPosition({
                 enableHighAccuracy: true,
                 timeout: 10000,
                 maximumAge: 0
@@ -2273,7 +2783,7 @@ export default function TeacherDashboard() {
             setAttendanceList([]);
         }
         return () => { if (unsubscribe) unsubscribe(); };
-    }, [activeSession, teacherInfo]);
+    }, [activeSession?.sessionId, teacherInfo?.instituteId]);
 
     // ✅ UPDATED HISTORY FETCH (With Loader)
     useEffect(() => {
@@ -2680,6 +3190,8 @@ export default function TeacherDashboard() {
                 );
             case 'announcements': return <TeacherAnnouncements teacherInfo={teacherInfo} />;
             case 'addTasks': return <AddTasks teacherInfo={teacherInfo} />;
+            case 'marks':
+                return <MarksManager teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} />;
             case 'adminNotices': return (
                 <div className="content-section">
                     {/* ✅ UPDATED TITLE CLASS */}
@@ -2930,6 +3442,7 @@ export default function TeacherDashboard() {
                     <NavLink page="analytics" iconClass="fa-chart-bar" label="Analytics" />
                     <NavLink page="announcements" iconClass="fa-bullhorn" label="Announcements" />
                     <NavLink page="addTasks" iconClass="fa-tasks" label="Add Tasks" />
+                    <NavLink page="marks" iconClass="fa-clipboard-check" label="Marks & Results" />
 
                     {/* ✅ ADDED PROFILE TAB */}
                     <NavLink page="profile" iconClass="fa-user-circle" label="Profile" />
