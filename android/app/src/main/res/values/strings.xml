@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">AcadeX</string>
-    <string name="title_activity_main">AcadeX</string>
-    <string name="package_name">com.acadex.app</string>
-    <string name="custom_url_scheme">com.acadex.app</string>
+    <string name="app_name">trackee</string>
+    <string name="title_activity_main">trackee</string>
+    <string name="package_name">com.trackee.app</string>
+    <string name="custom_url_scheme">com.trackee.app</string>
 </resources>

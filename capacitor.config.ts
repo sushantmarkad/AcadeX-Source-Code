@@ -1,8 +1,8 @@
 import { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.acadex.app',
-  appName: 'AcadeX',
+  appId: 'com.trackee.app',
+  appName: 'Trackee',
   webDir: 'build',
   server: {
     androidScheme: 'https'
