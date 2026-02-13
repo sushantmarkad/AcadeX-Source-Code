@@ -3,7 +3,7 @@ import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { auth, db, sendPasswordResetEmail } from '../firebase';
 import { collection, onSnapshot, doc, updateDoc, getDoc } from 'firebase/firestore'; 
-import toast, { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion'; 
 import './Dashboard.css'; 
 import './SuperAdminDashboard.css'; 
@@ -239,12 +239,12 @@ export default function SuperAdminDashboard() {
 
     return (
         <div className="dashboard-container" style={{ position: 'relative' }}> 
-            <Toaster position="top-center" reverseOrder={false} />
+            
             
             {isMobileNavOpen && <div className="nav-overlay" onClick={() => setIsMobileNavOpen(false)}></div>}
 
             <aside className={`sidebar ${isMobileNavOpen ? 'open' : ''}`}>
-                <div className="logo-container"><img src={logo} alt="Logo" className="sidebar-logo"/><span className="logo-text">AcadeX</span></div>
+                <div className="logo-container"><img src={logo} alt="Logo" className="sidebar-logo"/><span className="logo-text">trackee</span></div>
                 <div className="teacher-info"><h4>Super Admin</h4><p>Platform Manager</p></div>
                 <ul className="menu">
                     <li className={activeTab === 'applications' ? 'active' : ''} onClick={() => { setActiveTab('applications'); setIsMobileNavOpen(false); }}>
@@ -260,7 +260,7 @@ export default function SuperAdminDashboard() {
             <main className="main-content">
                 <header className="mobile-header">
                     <button className="hamburger-btn" onClick={() => setIsMobileNavOpen(true)}><i className="fas fa-bars"></i></button>
-                    <div className="mobile-brand"><img src={logo} alt="Logo" className="mobile-logo-img" /><span className="mobile-logo-text">AcadeX</span></div>
+                    <div className="mobile-brand"><img src={logo} alt="Logo" className="mobile-logo-img" /><span className="mobile-logo-text">trackee</span></div>
                     <div style={{width:'40px'}}></div>
                 </header>
 

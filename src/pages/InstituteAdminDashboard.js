@@ -469,7 +469,7 @@ export default function InstituteAdminDashboard() {
             <aside className={`sidebar ${isMobileNavOpen ? 'open' : ''}`}>
                 <div className="logo-container">
                     <img src={logo} alt="Logo" className="sidebar-logo" />
-                    <span className="logo-text">Acadex</span>
+                    <span className="logo-text">trackee</span>
                 </div>
                 
                 {adminInfo && (
@@ -502,7 +502,7 @@ export default function InstituteAdminDashboard() {
                     </button>
                     <div className="mobile-brand">
                         <img src={logo} alt="Logo" className="mobile-logo-img" />
-                        <span className="mobile-logo-text">AcadeX</span>
+                        <span className="mobile-logo-text">trackee</span>
                     </div>
                     <div style={{ width: '40px' }}></div>
                 </header>

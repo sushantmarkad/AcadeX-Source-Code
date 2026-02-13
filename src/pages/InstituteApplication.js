@@ -90,9 +90,9 @@ export default function InstituteApplication() {
         <div className="application-container">
           <div className="application-header">
             <img className="application-logo" src={logo} alt="AcadeX Logo" />
-            <h1>Apply to use AcadeX</h1>
+            <h1>Apply to use trackee</h1>
             <p className="subtitle">
-              Submit your institute's application to get access to the Acadex platform.
+              Submit your institute's application to get access to the trackee platform.
             </p>
           </div>
           

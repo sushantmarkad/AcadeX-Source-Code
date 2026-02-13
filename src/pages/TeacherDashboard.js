@@ -1506,7 +1506,7 @@ const DashboardHome = ({
                                     <div className="qr-code-wrapper" style={{ background: 'white', padding: '15px', borderRadius: '16px', boxShadow: '0 10px 25px rgba(37,99,235,0.1)', display: 'inline-block' }}>
                                         <QRCodeSVG value={qrCodeValue} size={200} />
                                     </div>
-                                    <p style={{ marginTop: '15px', fontSize: '13px', color: '#64748b' }}>Scan via AcadeX App</p>
+                                    <p style={{ marginTop: '15px', fontSize: '13px', color: '#64748b' }}>Scan via trackee App</p>
                                 </>
                             ) : (
                                 <div style={{ padding: '20px' }}>
@@ -2877,7 +2877,7 @@ export default function TeacherDashboard() {
             <aside className={`sidebar ${isMobileNavOpen ? 'open' : ''}`}>
                 <div className="logo-container">
                     <img src={logo} alt="Logo" className="sidebar-logo" />
-                    <span className="logo-text">AcadeX</span>
+                    <span className="logo-text">trackee</span>
                 </div>
 
                 {teacherInfo && (
@@ -2980,7 +2980,7 @@ export default function TeacherDashboard() {
                 </div>
             </aside>
             <main className="main-content">
-                <header className="mobile-header"><button className="hamburger-btn" onClick={() => setIsMobileNavOpen(true)}><i className="fas fa-bars"></i></button><div className="mobile-brand"><img src={logo} alt="Logo" className="mobile-logo-img" /><span className="mobile-logo-text">AcadeX</span></div><div style={{ width: '40px' }}></div></header>
+                <header className="mobile-header"><button className="hamburger-btn" onClick={() => setIsMobileNavOpen(true)}><i className="fas fa-bars"></i></button><div className="mobile-brand"><img src={logo} alt="Logo" className="mobile-logo-img" /><span className="mobile-logo-text">trackee</span></div><div style={{ width: '40px' }}></div></header>
                 {renderContent()}
                 <MobileFooter
                     activePage={activePage}

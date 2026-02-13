@@ -1017,7 +1017,7 @@ export default function HODDashboard() {
             {isMobileNavOpen && <div className="nav-overlay" onClick={() => setIsMobileNavOpen(false)}></div>}
 
             <aside className={`sidebar ${isMobileNavOpen ? 'open' : ''}`}>
-                <div className="logo-container"><img src={logo} alt="Logo" className="sidebar-logo" /><span className="logo-text">Acadex</span></div>
+                <div className="logo-container"><img src={logo} alt="Logo" className="sidebar-logo" /><span className="logo-text">trackee</span></div>
                 {hodInfo && <div className="teacher-info"><h4>{hodInfo.firstName} (HOD)</h4><p>{hodInfo.department}</p></div>}
                 <ul className="menu">
                     <NavLink page="dashboard" iconClass="fa-th-large" label="Dashboard" />
@@ -1040,7 +1040,7 @@ export default function HODDashboard() {
             <main className="main-content" style={{ paddingBottom: '20px' }}>
                 <header className="mobile-header">
                     <button className="hamburger-btn" onClick={() => setIsMobileNavOpen(true)}><i className="fas fa-bars"></i></button>
-                    <div className="mobile-brand"><img src={logo} alt="Logo" className="mobile-logo-img" /><span className="mobile-logo-text">AcadeX</span></div>
+                    <div className="mobile-brand"><img src={logo} alt="Logo" className="mobile-logo-img" /><span className="mobile-logo-text">trackee</span></div>
                     <div style={{ width: '40px' }}></div>
                 </header>
 

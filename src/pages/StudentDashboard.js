@@ -1811,8 +1811,8 @@ const onScanSuccess = async (decodedText) => {
 
             <aside className={`sidebar ${isMobileNavOpen ? 'open' : ''}`}>
                 <div className="logo-container">
-                    <img src={logo} alt="AcadeX" className="sidebar-logo" />
-                    <span className="logo-text">Acadex</span>
+                    <img src={logo} alt="trackee" className="sidebar-logo" />
+                    <span className="logo-text">trackee</span>
                 </div>
                 {user && (
                     <div className="teacher-info" onClick={() => { setActivePage('profile'); setIsMobileNavOpen(false); }} style={{ cursor: 'pointer' }}>
@@ -1894,7 +1894,7 @@ const onScanSuccess = async (decodedText) => {
             <main className="main-content">
                 <header className="mobile-header">
                     <button className="hamburger-btn" onClick={() => setIsMobileNavOpen(true)}><i className="fas fa-bars"></i></button>
-                    <div className="mobile-brand"><img src={logo} alt="Logo" className="mobile-logo-img" /><span className="mobile-logo-text">AcadeX</span></div>
+                    <div className="mobile-brand"><img src={logo} alt="Logo" className="mobile-logo-img" /><span className="mobile-logo-text">trackee</span></div>
                     <div style={{ width: '40px' }}></div>
                 </header>
 

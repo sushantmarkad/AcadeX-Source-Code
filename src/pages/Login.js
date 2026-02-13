@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import "./Login.css";
-import logo from "../assets/logo.png";
+import logo from "../assets/logo2.png";
 import { 
   signInWithEmailAndPassword, 
   onAuthStateChanged, 
@@ -254,7 +254,7 @@ export default function Login() {
         <div className="login-container">
           <div className="login-header">
             <img className="login-logo" src={logo} alt="App Logo" />
-            <h1>Sign in to <span className="highlight">AcadeX</span></h1>
+            <h1>Sign in to <span className="highlight">trackee</span></h1>
           </div>
 
           {showBioLogin && (
@@ -375,7 +375,7 @@ export default function Login() {
             </motion.button>
 
             <p style={{ marginTop: '20px', textAlign: 'center', fontSize: '14px' }}>
-              Want to use AcadeX for your institute?{" "}
+              Want to use trackee for your institute?{" "}
               <span
                 style={{ color: "#2563eb", cursor: "pointer", fontWeight: "600" }}
                 onClick={() => { playSound('tap'); navigate("/apply"); }}
