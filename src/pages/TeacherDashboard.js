@@ -1930,45 +1930,58 @@ const MobileFooter = ({ activePage, setActivePage, unreadNoticeCount }) => {
     );
 };
 
-// ✅ NEW: Native Location Helper (Handles Android Permissions & GPS)
+// ✅ UPDATED: Robust Location Helper (With Fallback)
 const getLocation = async () => {
     try {
-        // 1. 🌍 WEB SUPPORT: If on Browser, just ask for position (Browser handles the prompt)
-        if (!Capacitor.isNativePlatform()) {
-            return await Geolocation.getCurrentPosition({
-                enableHighAccuracy: true,
-                timeout: 10000,
-                maximumAge: 0
-            });
-        }
+        // 1. Check Permissions (Native Only)
+        if (Capacitor.isNativePlatform()) {
+            const permissionStatus = await Geolocation.checkPermissions();
 
-        // 2. 📱 NATIVE (Android/iOS): Explicitly check & request permissions
-        const permissionStatus = await Geolocation.checkPermissions();
+            if (permissionStatus.location === 'denied') {
+                throw new Error("Location permission denied. Enable in settings.");
+            }
 
-        if (permissionStatus.location === 'denied') {
-            throw new Error("Location permission denied. Please enable it in settings.");
-        }
-
-        if (permissionStatus.location !== 'granted') {
-            const request = await Geolocation.requestPermissions();
-            if (request.location !== 'granted') {
-                throw new Error("Location permission is required to start a session.");
+            if (permissionStatus.location !== 'granted') {
+                const request = await Geolocation.requestPermissions();
+                if (request.location !== 'granted') {
+                    throw new Error("Location permission is required.");
+                }
             }
         }
 
-        // 3. Get Position (Native)
-        return await Geolocation.getCurrentPosition({
-            enableHighAccuracy: true,
-            timeout: 10000,
-            maximumAge: 0
-        });
+        // 2. 🚀 ATTEMPT 1: High Accuracy (GPS)
+        // Increased timeout to 10s
+        try {
+            return await Geolocation.getCurrentPosition({
+                enableHighAccuracy: true,
+                timeout: 10000, 
+                maximumAge: 0
+            });
+        } catch (gpsError) {
+            console.warn("⚠️ High Accuracy failed, switching to Low Accuracy...");
+
+            // 3. 🛡️ ATTEMPT 2: Low Accuracy Fallback (Wi-Fi / Network)
+            // This works best for Laptops/Indoors
+            return await Geolocation.getCurrentPosition({
+                enableHighAccuracy: false, 
+                timeout: 10000,
+                maximumAge: 30000 // Accept cached location up to 30s old
+            });
+        }
 
     } catch (error) {
         console.error("Location Error:", error);
-        // Helper for Web: Check if it's a Secure Context issue
+        
+        // Specific Error for Web (HTTPS Requirement)
         if (!Capacitor.isNativePlatform() && window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
             throw new Error("Location requires HTTPS or Localhost.");
         }
+        
+        // If it's a timeout error specifically
+        if (error.code === 3 || error.message.includes("time")) {
+            throw new Error("Location timed out. Please refresh or move to a better signal area.");
+        }
+
         throw error;
     }
 };

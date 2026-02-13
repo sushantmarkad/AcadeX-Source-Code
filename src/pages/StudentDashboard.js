@@ -82,72 +82,97 @@ const getUniqueDeviceId = async () => {
     }
 };
 
-// ✅ HELPER: Force GPS On (Android Only)
 const enableAndroidLocation = async () => {
     return new Promise((resolve, reject) => {
-        // 1. If not Android, skip (Web/iOS don't support this plugin)
         if (Capacitor.getPlatform() !== 'android') {
             resolve(true);
             return;
         }
 
-        // 2. Check if Cordova plugin is loaded
-        if (window.cordova && window.cordova.plugins && window.cordova.plugins.locationAccuracy) {
-            const mode = window.cordova.plugins.locationAccuracy.REQUEST_PRIORITY_HIGH_ACCURACY;
-            
-            window.cordova.plugins.locationAccuracy.request(
-                () => resolve(true), // ✅ Success: User clicked "OK"
-                (error) => reject(error), // ❌ Failed: User clicked "No" or Error
-                mode
-            );
-        } else {
-            // Plugin failed to load (Rare), just continue
+        // Check if the Cordova plugin is actually available
+        const locationAccuracy = window.cordova?.plugins?.locationAccuracy;
+
+        if (!locationAccuracy) {
+            console.warn("⚠️ Cordova Location Accuracy plugin not found. Skipping auto-enable.");
+            // We resolve true here to let the app try fetching location anyway, 
+            // but we will catch the error in the main function if it fails.
             resolve(true); 
+            return;
         }
+
+        const mode = locationAccuracy.REQUEST_PRIORITY_HIGH_ACCURACY;
+
+        locationAccuracy.request(
+            () => {
+                console.log("✅ GPS Enabled by User");
+                resolve(true);
+            },
+            (error) => {
+                console.error("❌ User rejected GPS request", error);
+                // Rejecting here allows us to show an immediate error
+                reject(new Error("GPS must be enabled to mark attendance."));
+            },
+            mode
+        );
     });
 };
 
-// ✅ UPDATED: The "Master" Location Function (Web + Android + iOS)
+// ✅ UPDATED: Robust Location Strategy (High Accuracy -> Fallback to Low Accuracy)
 const getLocation = async () => {
     try {
-        // STEP 1: If Android, try to Force GPS On
+        // STEP 1: Force GPS On (Android Only)
         if (Capacitor.getPlatform() === 'android') {
-            try {
-                await enableAndroidLocation(); 
-            } catch (err) {
-                // User clicked "No" on the popup
-                throw new Error("You must enable Location to mark attendance.");
-            }
+            await enableAndroidLocation();
         }
 
-        // STEP 2: Check Permissions (Works on Web & App)
-        const permissionStatus = await Geolocation.checkPermissions();
+        // STEP 2: Check Permissions
+        let permissionStatus = await Geolocation.checkPermissions();
+        
         if (permissionStatus.location === 'denied') {
-            throw new Error("Location permission denied. Enable it in settings.");
+            throw new Error("Location permission denied. Please allow it in settings.");
         }
         
-        // Request if needed (Web trigger)
         if (permissionStatus.location !== 'granted') {
             const request = await Geolocation.requestPermissions();
             if (request.location !== 'granted') {
-                throw new Error("Permission is required.");
+                throw new Error("Location permission is required to mark attendance.");
             }
         }
 
-        // STEP 3: Get the Actual Position
-        // On Web: This uses navigator.geolocation
-        // On App: This uses the Native GPS Chip
-        const position = await Geolocation.getCurrentPosition({
-            enableHighAccuracy: true, // Critical for "Real Time" check
-            timeout: 10000,           // 10 second limit
-            maximumAge: 0             // Do not use cached location
-        });
-
-        return position;
+        // STEP 3: Try High Accuracy (GPS) - Increased Timeout to 10s
+        try {
+            const position = await Geolocation.getCurrentPosition({
+                enableHighAccuracy: true,
+                timeout: 10000, // ⚡ Increased to 10 seconds
+                maximumAge: 0   
+            });
+            return position;
+        } catch (highAccuracyError) {
+            console.warn("⚠️ High Accuracy GPS failed, switching to Low Accuracy...", highAccuracyError);
+            
+            // STEP 4: Fallback to Low Accuracy (Network/WiFi Location)
+            // This is much faster and works indoors
+            const lowAccuracyPosition = await Geolocation.getCurrentPosition({
+                enableHighAccuracy: false, 
+                timeout: 10000, 
+                maximumAge: 30000 // Accept locations up to 30s old
+            });
+            
+            return lowAccuracyPosition;
+        }
 
     } catch (error) {
-        console.error("Location Error:", error);
-        throw error; // Pass error to the UI to show Toast
+        console.error("Location Logic Error:", error);
+
+        // 🚨 Handle specific error codes
+        if (error.code === 2 || error.message.includes("disabled") || error.message.includes("location")) {
+            throw new Error("⚠️ GPS is OFF or Signal is Weak. Turn on Location.");
+        }
+        if (error.code === 3) {
+            throw new Error("⏳ Location Timeout. Move outdoors or try again.");
+        }
+        
+        throw error;
     }
 };
 
@@ -1524,91 +1549,71 @@ export default function StudentDashboard() {
         setIsChatOpen(true);
     };
 
-    // ✅ 5. HANDLE QR ATTENDANCE WITH DEVICE BINDING
-    const onScanSuccess = async (decodedText) => {
-        // 1. Pause Camera Immediately
-        if (scannerRef.current) {
-            scannerRef.current.pause(true);
-        }
-        setShowScanner(false);
+// ✅ 5. HANDLE QR ATTENDANCE
+const onScanSuccess = async (decodedText) => {
+    // 1. Pause Camera
+    if (scannerRef.current) {
+        scannerRef.current.pause(true);
+    }
+    setShowScanner(false);
 
-        // 2. Show Persistent Loading Toast
-        const toastId = toast.loading("Verifying Identity & Location...");
+    const toastId = toast.loading("Verifying Location...");
 
-        try {
-            // 🚀 PARALLEL EXECUTION: Start all security checks at the same time
+    try {
+        // A. Get Security Data (Parallel)
+        const deviceIdPromise = getUniqueDeviceId();
+        const tokenPromise = auth.currentUser.getIdToken();
+        const locationPromise = getLocation(); // Uses new robust function
 
-            // A. Get Device Fingerprint
-            const deviceIdPromise = getUniqueDeviceId();
+        const [currentDeviceId, token, position] = await Promise.all([
+            deviceIdPromise,
+            tokenPromise,
+            locationPromise
+        ]);
 
-            // B. Get Firebase Auth Token
-            const tokenPromise = auth.currentUser.getIdToken();
-
-            // C. Get GPS Location (Using the NEW Helper)
-            // This now waits for the user to click "Allow" if needed
-            const locationPromise = getLocation();
-
-            // ⏳ Wait for ALL security data to be ready
-            const [currentDeviceId, token, position] = await Promise.all([
-                deviceIdPromise,
-                tokenPromise,
-                locationPromise
-            ]);
-
-            // Extract coordinates from the robust position object
-            const location = {
-                latitude: position.coords.latitude,
-                longitude: position.coords.longitude
-            };
-
-            // 🚀 3. Send Everything to Backend
-            const response = await fetch(`${BACKEND_URL}/markAttendance`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
+        // B. Send to Backend
+        const response = await fetch(`${BACKEND_URL}/markAttendance`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
+            body: JSON.stringify({
+                sessionId: decodedText,
+                studentLocation: {
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude
                 },
-                body: JSON.stringify({
-                    sessionId: decodedText,
-                    studentLocation: location,
-                    deviceId: currentDeviceId,
-                    verificationMethod: 'qr'
-                })
-            });
+                deviceId: currentDeviceId,
+                verificationMethod: 'qr'
+            })
+        });
 
-            const data = await response.json();
+        const data = await response.json();
 
-            // 4. Handle Server Response
-            if (response.ok) {
-                toast.success(data.message, { id: toastId, duration: 4000 });
-            } else {
-                toast.error(data.error, { id: toastId, duration: 5000 });
-            }
-
-        } catch (error) {
-            console.error("Attendance Error:", error);
-            
-            // Code 2 is POSITION_UNAVAILABLE (Usually means GPS is OFF)
-            if (error.code === 2 || error.message.includes("location disabled")) {
-                toast.error("⚠️ GPS is OFF! Please turn on Location in Quick Settings.", { 
-                    id: toastId, 
-                    duration: 5000,
-                    icon: '📍'
-                });
-            } 
-            // Code 1 is PERMISSION_DENIED
-            else if (error.code === 1) { 
-                toast.error("🚫 Permission Denied. Allow Location in App Settings.", { id: toastId, duration: 4000 });
-            } 
-            // Code 3 is TIMEOUT
-            else if (error.code === 3) { 
-                toast.error("📡 GPS Timeout. Try moving outdoors.", { id: toastId, duration: 4000 });
-            } 
-            else {
-                toast.error("❌ Error: " + (error.message || "Verification Failed"), { id: toastId, duration: 4000 });
-            }
+        // C. Handle Response
+        if (response.ok) {
+            toast.success(data.message, { id: toastId, duration: 4000 });
+        } else {
+            // 🚨 HERE IS THE FIX: Show the exact error from backend (which contains the distance)
+            toast.error(data.error || "Attendance Failed", { id: toastId, duration: 5000 });
         }
-    };
+
+    } catch (error) {
+        console.error("Attendance Error:", error);
+
+        // Frontend-side errors (GPS, etc)
+        if (error.message.includes("GPS is OFF")) {
+            toast.error("📍 GPS is OFF! Turn it on in settings.", { id: toastId, duration: 5000 });
+        } 
+        else if (error.message.includes("Timeout")) {
+            toast.error("📡 GPS Signal Weak. Try moving near a window.", { id: toastId });
+        }
+        else {
+            toast.error("❌ " + (error.message || "Verification Failed"), { id: toastId });
+        }
+    }
+};
     // ✅ REPLACED: Updated PIN Handler (6-Digit Version)
     const handlePinSubmit = async () => {
         // ✅ CHANGED: Check for 6 digits
