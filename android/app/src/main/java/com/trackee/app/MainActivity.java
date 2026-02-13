@@ -1,4 +1,4 @@
-package com.acadex.app;
+package com.trackee.app;
 
 import android.os.Bundle; // Make sure this is imported
 import com.getcapacitor.BridgeActivity;
