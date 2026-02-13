@@ -8,6 +8,8 @@ import CustomDropdown from '../components/CustomDropdown';
 import NativeFriendlyDateInput from '../components/NativeFriendlyDateInput';
 import { Capacitor } from '@capacitor/core';
 
+
+
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
 export default function AddTasks({ teacherInfo }) {
@@ -16,18 +18,19 @@ export default function AddTasks({ teacherInfo }) {
     const [selectedTask, setSelectedTask] = useState(null);
     const [submissions, setSubmissions] = useState([]);
     const [loading, setLoading] = useState(false);
-    
+
     // --- 🗑️ Delete Modal State ---
     const [deleteModal, setDeleteModal] = useState({ open: false, taskId: null });
 
     // --- 📝 Form State ---
-    const [form, setForm] = useState({ title: '', description: '', targetYear: '', dueDate: '' });
+   const [form, setForm] = useState({ title: '', description: '', targetYear: '', dueDate: '', maxMarks: '100' });
     const [file, setFile] = useState(null);
 
     // --- 🎓 Grading State ---
     const [gradingId, setGradingId] = useState(null);
     const [marks, setMarks] = useState('');
     const [feedback, setFeedback] = useState('');
+    const [maxMarks, setMaxMarks] = useState(100);
 
     // --- ⚙️ Generate Options for Dropdown (Value = "Year|Div") ---
     const assignedTargets = teacherInfo?.assignedClasses
@@ -56,6 +59,31 @@ export default function AddTasks({ teacherInfo }) {
         return () => unsub();
     }, []);
 
+    // --- 📥 REAL-TIME SUBMISSIONS LISTENER ---
+    useEffect(() => {
+        if (!selectedTask) return;
+
+        setLoading(true); // Show loading spinner in grid (optional)
+        
+        // Listen to submissions for the selected assignment in Real-Time
+        const q = query(
+            collection(db, 'submissions'), 
+            where('assignmentId', '==', selectedTask.id)
+        );
+
+        const unsub = onSnapshot(q, (snapshot) => {
+            const subs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setSubmissions(subs);
+            setLoading(false);
+        }, (error) => {
+            console.error("Error fetching submissions:", error);
+            toast.error("Sync error");
+            setLoading(false);
+        });
+
+        return () => unsub();
+    }, [selectedTask]);
+
     // --- 🗑️ DELETE LOGIC (Modal) ---
     const promptDelete = (e, taskId) => {
         e.stopPropagation(); // Stop click from opening submissions view
@@ -64,7 +92,7 @@ export default function AddTasks({ teacherInfo }) {
 
     const confirmDelete = async () => {
         if (!deleteModal.taskId) return;
-        
+
         const toastId = toast.loading("Deleting assignment...");
         try {
             await deleteDoc(doc(db, 'assignments', deleteModal.taskId));
@@ -76,16 +104,16 @@ export default function AddTasks({ teacherInfo }) {
         }
     };
 
-    
-  // --- 🚀 SUBMIT / CREATE LOGIC (Fixed: Uses Firestore Directly) ---
+
+    // --- 🚀 SUBMIT / CREATE LOGIC (Fixed: Uses Firestore Directly) ---
     const handleCreate = async (e) => {
         e.preventDefault();
         if (!form.targetYear) return toast.error("Please select a class.");
         if (!form.dueDate) return toast.error("Please set a due date.");
-        
+
         setLoading(true);
         const toastId = toast.loading("Publishing Task...");
-        
+
         try {
             // Parse "Year|Div" into separate variables
             const rawTarget = form.targetYear.includes('|') ? form.targetYear : `${form.targetYear}|All`;
@@ -105,6 +133,7 @@ export default function AddTasks({ teacherInfo }) {
                 targetYear: targetYear,        // Clean Year (e.g. "FE")
                 division: targetDivision,      // Clean Division (e.g. "A")
                 dueDate: form.dueDate,
+                maxMarks: form.maxMarks || '100',
                 attachmentUrl,
                 teacherId: auth.currentUser.uid,
                 teacherName: `${teacherInfo.firstName} ${teacherInfo.lastName}`,
@@ -132,42 +161,45 @@ export default function AddTasks({ teacherInfo }) {
             setForm({ title: '', description: '', targetYear: '', dueDate: '' });
             setFile(null);
 
-        } catch (err) { 
+        } catch (err) {
             console.error(err);
-            toast.error(`Failed: ${err.message}`, { id: toastId }); 
-        } finally { 
-            setLoading(false); 
+            toast.error(`Failed: ${err.message}`, { id: toastId });
+        } finally {
+            setLoading(false);
         }
     };
 
-    // --- 📊 GRADING LOGIC ---
-    const viewSubmissions = async (task) => {
+   // --- 📊 GRADING LOGIC (Updated) ---
+    // 1. Just set the task (The useEffect below handles the fetching)
+    const viewSubmissions = (task) => {
+        setSubmissions([]); // Clear previous data instantly to prevent "ghost" data
         setSelectedTask(task);
-        const toastId = toast.loading("Fetching Submissions...");
-        try {
-            const res = await fetch(`${BACKEND_URL}/getSubmissions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ assignmentId: task.id })
-            });
-            const data = await res.json();
-            setSubmissions(data.submissions);
-            toast.dismiss(toastId);
-        } catch (err) { toast.error("Error fetching.", { id: toastId }); }
     };
 
     const submitGrade = async (submissionId) => {
-        if (!marks || marks > 100 || marks < 0) return toast.error("Invalid marks (0-100)");
+        if (!marks || marks < 0) return toast.error("Invalid marks");
+        if (!maxMarks || maxMarks <= 0) return toast.error("Invalid total marks");
+        
         try {
             await fetch(`${BACKEND_URL}/gradeSubmission`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ submissionId, marks, feedback })
+                // ✅ Sending maxMarks to backend
+                body: JSON.stringify({ submissionId, marks, maxMarks, feedback }) 
             });
             toast.success("Graded!");
-            setGradingId(null); setMarks(''); setFeedback('');
-            setSubmissions(prev => prev.map(s => s.id === submissionId ? { ...s, status: 'Graded', marks, feedback } : s));
-        } catch (e) { toast.error("Failed"); }
+            setGradingId(null); 
+            setMarks(''); 
+            setMaxMarks(100); 
+            setFeedback('');
+            
+            // ✅ Update local state instantly so you see changes immediately
+            setSubmissions(prev => prev.map(s => 
+                s.id === submissionId 
+                ? { ...s, status: 'Graded', marks, maxMarks, feedback } 
+                : s
+            ));
+        } catch (e) { toast.error("Failed to grade"); }
     };
 
     return (
@@ -217,22 +249,33 @@ export default function AddTasks({ teacherInfo }) {
                                         setForm({ ...form, targetYear: val });
                                     }}
                                     placeholder="Select Class"
-                                    options={assignedTargets} 
+                                    options={assignedTargets}
+                                />
+                            </div>
+                            {/* ✅ NEW: Total Marks Input */}
+                            <div className="input-group">
+                                <label>Total Marks (Out of)</label>
+                                <input 
+                                    type="number" 
+                                    value={form.maxMarks} 
+                                    onChange={(e) => setForm({ ...form, maxMarks: e.target.value })}
+                                    placeholder="e.g. 20"
+                                    style={{ fontWeight: 'bold', color: '#3b82f6' }}
                                 />
                             </div>
 
-                           {/* --- DATE PICKER (FIXED) --- */}
+                            {/* --- DATE PICKER (FIXED) --- */}
                             <div className="input-group">
                                 <label>Deadline</label>
                                 <NativeFriendlyDateInput
                                     required
                                     value={form.dueDate}
                                     onChange={(val) => setForm({ ...form, dueDate: val })}
-                                    style={{ 
-                                        background: '#f8fafc', 
-                                        border: '2px solid #f1f5f9', 
-                                        borderRadius: '10px' 
-                                    }} 
+                                    style={{
+                                        background: '#f8fafc',
+                                        border: '2px solid #f1f5f9',
+                                        borderRadius: '10px'
+                                    }}
                                 />
                             </div>
 
@@ -240,7 +283,16 @@ export default function AddTasks({ teacherInfo }) {
                                 <input type="file" id="file-upload" onChange={e => setFile(e.target.files[0])} hidden />
                                 <label htmlFor="file-upload">
                                     <i className={`fas ${file ? 'fa-check-circle' : 'fa-cloud-upload-alt'}`}></i>
-                                    <span>{file ? file.name : "Attach PDF / IMG"}</span>
+                                    {/* ✅ FIX: Added Text Truncation Styles */}
+                                    <span style={{ 
+                                        maxWidth: '220px', 
+                                        whiteSpace: 'nowrap', 
+                                        overflow: 'hidden', 
+                                        textOverflow: 'ellipsis',
+                                        display: 'block' 
+                                    }}>
+                                        {file ? file.name : "Attach PDF / IMG"}
+                                    </span>
                                 </label>
                             </div>
                             <button className="submit-btn" disabled={loading}>{loading ? 'Publishing...' : 'Publish Task'}</button>
@@ -257,10 +309,10 @@ export default function AddTasks({ teacherInfo }) {
                             <div className="card-top">
                                 <span className={`badge ${task.targetYear === 'All' ? 'badge-all' : 'badge-year'}`}>
                                     {/* Badge Logic for Div vs All */}
-                                    {task.targetYear === 'All' 
-                                        ? 'All Classes' 
-                                        : task.division && task.division !== 'All' 
-                                            ? `${task.targetYear} - Div ${task.division}` 
+                                    {task.targetYear === 'All'
+                                        ? 'All Classes'
+                                        : task.division && task.division !== 'All'
+                                            ? `${task.targetYear} - Div ${task.division}`
                                             : `${task.targetYear} Year`
                                     }
                                 </span>
@@ -282,79 +334,464 @@ export default function AddTasks({ teacherInfo }) {
                 </div>
             )}
 
-            {/* --- GRADING TABLE --- */}
+            {/* --- 🚀 NEW EVALUATION WORKSPACE (Mobile Optimized) --- */}
             {activeTab === 'evaluate' && selectedTask && (
-                <div className="grading-container">
-                    <div className="grading-header">
-                        <button onClick={() => setSelectedTask(null)} className="back-btn"><i className="fas fa-chevron-left"></i> Back</button>
-                        <h3>{selectedTask.title} <span style={{ fontWeight: '400', fontSize: '14px', opacity: 0.7 }}>| Submissions</span></h3>
+                <div className="eval-workspace">
+
+                    {/* Header */}
+                    <div className="eval-header-modern">
+                        <button onClick={() => setSelectedTask(null)} className="eval-back-btn">
+                            <i className="fas fa-arrow-left"></i>
+                        </button>
+                        <div className="eval-title-group">
+                            <h3>{selectedTask.title}</h3>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                <span className="eval-subtitle">{submissions.length} Submissions</span>
+                                
+                                {/* ✅ NEW: Teacher can view their own uploaded file */}
+                                {selectedTask.attachmentUrl && (
+                                    <a 
+                                        href={selectedTask.attachmentUrl} 
+                                        target="_blank" 
+                                        rel="noreferrer"
+                                        style={{ 
+                                            fontSize: '12px', 
+                                            color: '#3b82f6', 
+                                            textDecoration: 'none', 
+                                            fontWeight: '600',
+                                            background: '#eff6ff',
+                                            padding: '4px 10px',
+                                            borderRadius: '20px'
+                                        }}
+                                    >
+                                        <i className="fas fa-paperclip"></i> View My Assignment
+                                    </a>
+                                )}
+                            </div>
+                        </div>
                     </div>
-                    <div className="table-responsive">
-                        <table className="modern-table">
-                            <thead><tr><th>Student</th><th>Roll No</th><th>Work</th><th>Score</th><th>Action</th></tr></thead>
-                            <tbody>
-                                {submissions.map(sub => (
-                                    <tr key={sub.id}>
-                                        <td className="fw-bold">{sub.studentName}</td>
-                                        <td><span className="roll-tag">{sub.rollNo}</span></td>
-                                        <td><a href={sub.documentUrl} target="_blank" rel="noreferrer" className="view-doc-btn"><i className="fas fa-eye"></i> View</a></td>
-                                        <td>
-                                            {sub.status === 'Graded' ? <span className={`score ${sub.marks >= 40 ? 'pass' : 'fail'}`}>{sub.marks}/100</span> : 
-                                            gradingId === sub.id ? (
-                                                <div className="grading-inputs">
-                                                    <input type="number" placeholder="00" value={marks} onChange={e => setMarks(e.target.value)} autoFocus />
-                                                    <input type="text" placeholder="Note..." value={feedback} onChange={e => setFeedback(e.target.value)} />
+                    {/* Responsive Grid */}
+                    <div className="eval-grid">
+                        {submissions.map(sub => (
+                            <div key={sub.id} className={`eval-card ${sub.status === 'Graded' ? 'is-graded' : ''}`}>
+                                
+                                {/* Top: Student Info */}
+                                <div className="eval-card-top">
+                                    <div className="eval-avatar">
+                                        {sub.studentName.charAt(0)}
+                                    </div>
+                                    <div>
+                                        <h4 className="eval-student-name">{sub.studentName}</h4>
+                                        <span className="eval-roll-badge">Roll No. {sub.rollNo}</span>
+                                    </div>
+                                    {/* Status Badge */}
+                                    <div style={{ marginLeft: 'auto' }}>
+                                        {sub.status === 'Graded' ? (
+                                            <span style={{ fontSize: '10px', background: '#dcfce7', color: '#166534', padding: '3px 8px', borderRadius: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                                                Graded
+                                            </span>
+                                        ) : (
+                                            <span style={{ fontSize: '10px', background: '#f1f5f9', color: '#64748b', padding: '3px 8px', borderRadius: '10px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                                                Pending
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Middle: Document Link */}
+                                <div className="eval-content-box">
+                                    <a href={sub.documentUrl} target="_blank" rel="noreferrer" className="eval-view-link">
+                                        <i className="fas fa-file-pdf"></i> View Submitted Work
+                                    </a>
+                                </div>
+
+                                {/* ✅ FEEDBACK SECTION (Visible when Graded) */}
+                                {sub.status === 'Graded' && sub.feedback && (
+                                    <div style={{ 
+                                        marginTop: '5px',
+                                        padding: '10px 12px', 
+                                        background: '#f0fdf4', 
+                                        borderLeft: '3px solid #16a34a', 
+                                        borderRadius: '6px', 
+                                        fontSize: '12px', 
+                                        color: '#15803d',
+                                        lineHeight: '1.4'
+                                    }}>
+                                        <div style={{ fontWeight: 'bold', marginBottom: '2px', fontSize: '10px', textTransform: 'uppercase', opacity: 0.8 }}>
+                                            <i className="fas fa-comment-dots"></i> Feedback:
+                                        </div>
+                                        <span style={{ fontStyle: 'italic' }}>"{sub.feedback}"</span>
+                                    </div>
+                                )}
+
+                                {/* Bottom: Grading Action */}
+                                <div className="eval-action-area">
+                                    {sub.status === 'Graded' ? (
+                                        <div className="eval-score-display" style={{ width: '100%', justifyContent: 'space-between', padding: '5px 0' }}>
+                                            <span className="eval-score-label">Final Score</span>
+                                            <span className={`eval-score-value ${sub.marks >= (sub.maxMarks * 0.4) ? 'score-pass' : 'score-fail'}`} style={{ fontSize: '20px' }}>
+                                                {sub.marks} <span className="eval-total" style={{ fontSize: '14px' }}>/ {sub.maxMarks || 100}</span>
+                                            </span>
+                                            
+                                            {/* Re-Grade Button (Small) */}
+                                            <button 
+                                                onClick={() => { setGradingId(sub.id); setMarks(sub.marks); setMaxMarks(sub.maxMarks || 100); setFeedback(sub.feedback); }}
+                                                style={{ border: 'none', background: 'transparent', color: '#94a3b8', cursor: 'pointer', fontSize: '12px', marginLeft: '10px' }}
+                                                title="Edit Grade"
+                                            >
+                                                <i className="fas fa-pen"></i>
+                                            </button>
+                                        </div>
+                                    ) : gradingId === sub.id ? (
+                                        <div className="eval-grading-form" style={{ width: '100%', flexDirection: 'column', gap: '10px' }}>
+                                            {/* Marks Inputs */}
+                                            <div style={{ display: 'flex', gap: '10px', width: '100%' }}>
+                                                <div style={{ flex: 1 }}>
+                                                    <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', textTransform: 'uppercase' }}>Marks</label>
+                                                    <input 
+                                                        type="number" 
+                                                        value={marks} 
+                                                        onChange={e => setMarks(e.target.value)} 
+                                                        autoFocus 
+                                                        className="eval-input-marks"
+                                                        style={{ width: '100%', padding: '8px', border: '2px solid #3b82f6', borderRadius: '8px', fontWeight: 'bold' }}
+                                                    />
                                                 </div>
-                                            ) : <span className="status-pending">Pending</span>}
-                                        </td>
-                                        <td>
-                                            {sub.status !== 'Graded' && (gradingId === sub.id ? (
-                                                <div className="action-row">
-                                                    <button onClick={() => submitGrade(sub.id)} className="btn-save"><i className="fas fa-check"></i></button>
-                                                    <button onClick={() => setGradingId(null)} className="btn-cancel"><i className="fas fa-times"></i></button>
+                                                <div style={{ flex: 1 }}>
+                                                    <label style={{ fontSize: '10px', fontWeight: 'bold', color: '#64748b', textTransform: 'uppercase' }}>Total</label>
+                                                    <input 
+                                                        type="number" 
+                                                        value={maxMarks} 
+                                                        onChange={e => setMaxMarks(e.target.value)} 
+                                                        className="eval-input-marks"
+                                                        style={{ width: '100%', padding: '8px', border: '1px solid #cbd5e1', borderRadius: '8px', fontWeight: 'bold', background: '#f8fafc' }}
+                                                    />
                                                 </div>
-                                            ) : <button onClick={() => { setGradingId(sub.id); setMarks(''); setFeedback(''); }} className="btn-grade">Grade</button>)}
-                                            {sub.status === 'Graded' && <i className="fas fa-check-circle text-success"></i>}
-                                        </td>
-                                    </tr>
-                                ))}
-                                {submissions.length === 0 && <tr><td colSpan="5" className="text-center">No submissions yet.</td></tr>}
-                            </tbody>
-                        </table>
+                                            </div>
+                                            
+                                            {/* Feedback Input */}
+                                            <div style={{ width: '100%' }}>
+                                                <input 
+                                                    type="text" 
+                                                    placeholder="Feedback (Optional)" 
+                                                    value={feedback} 
+                                                    onChange={e => setFeedback(e.target.value)} 
+                                                    className="eval-input-feedback"
+                                                    style={{ width: '100%', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px', fontSize: '12px' }}
+                                                />
+                                            </div>
+
+                                            {/* Action Buttons */}
+                                            <div className="eval-form-actions" style={{ flexDirection: 'row', gap: '10px', width: '100%' }}>
+                                                <button onClick={() => submitGrade(sub.id)} className="eval-btn-save" style={{ flex: 1, borderRadius: '8px', height: '36px' }}>
+                                                    <i className="fas fa-check"></i> Save
+                                                </button>
+                                                <button onClick={() => setGradingId(null)} className="eval-btn-cancel" style={{ flex: 1, borderRadius: '8px', height: '36px', background: '#f1f5f9', color: '#64748b' }}>
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <button 
+                                            onClick={() => { 
+                                                setGradingId(sub.id); 
+                                                setMarks(''); 
+                                                // ✅ USE ASSIGNMENT DEFAULT OR 100
+                                                setMaxMarks(selectedTask.maxMarks || 100); 
+                                                setFeedback(''); 
+                                            }} 
+                                            className="eval-btn-grade"
+                                        >
+                                            Grade Work
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                        
+                        {submissions.length === 0 && (
+                            <div className="eval-empty-state">
+                                <i className="fas fa-inbox"></i>
+                                <p>No submissions received yet.</p>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
 
             {/* ✅ DELETE MODAL - NOW USING PORTAL TO COVER SIDEBAR */}
-{deleteModal.open && ReactDOM.createPortal(
-    <div className="delete-modal-overlay">
-        <div className="delete-modal-content">
-            <div className="delete-icon-wrapper">
-                <i className="fas fa-exclamation-triangle"></i>
-            </div>
-            <h3>Delete Assignment?</h3>
-            <p>This action cannot be undone. All student submissions for this task will also be deleted.</p>
-            <div className="delete-modal-actions">
-                <button 
-                    className="btn-modal-cancel" 
-                    onClick={() => setDeleteModal({ open: false, taskId: null })}
-                >
-                    Cancel
-                </button>
-                <button 
-                    className="btn-modal-confirm" 
-                    onClick={confirmDelete}
-                >
-                    Yes, Delete
-                </button>
-            </div>
-        </div>
-    </div>,
-    document.body // 👈 This renders it directly on top of the entire page
-)}
+            {deleteModal.open && ReactDOM.createPortal(
+                <div className="delete-modal-overlay">
+                    <div className="delete-modal-content">
+                        <div className="delete-icon-wrapper">
+                            <i className="fas fa-exclamation-triangle"></i>
+                        </div>
+                        <h3>Delete Assignment?</h3>
+                        <p>This action cannot be undone. All student submissions for this task will also be deleted.</p>
+                        <div className="delete-modal-actions">
+                            <button
+                                className="btn-modal-cancel"
+                                onClick={() => setDeleteModal({ open: false, taskId: null })}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                className="btn-modal-confirm"
+                                onClick={confirmDelete}
+                            >
+                                Yes, Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>,
+                document.body // 👈 This renders it directly on top of the entire page
+            )}
 
             {/* --- CSS STYLES --- */}
             <style>{`
+            /* --- 🚀 NEW EVAL STYLES (Mobile First) --- */
+
+/* Workspace Container */
+.eval-workspace {
+    background: #f8fafc;
+    border-radius: 20px;
+    min-height: 500px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+}
+
+/* Header */
+.eval-header-modern {
+    background: white;
+    padding: 20px;
+    border-bottom: 1px solid #f1f5f9;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.eval-back-btn {
+    background: #f1f5f9;
+    border: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.eval-back-btn:hover { background: #e2e8f0; color: #334155; }
+
+.eval-title-group h3 {
+    margin: 0;
+    font-size: 18px;
+    color: #1e293b;
+    font-weight: 700;
+}
+.eval-subtitle {
+    font-size: 12px;
+    color: #94a3b8;
+    font-weight: 600;
+}
+
+/* Grid Layout */
+.eval-grid {
+    padding: 20px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+    overflow-y: auto;
+    height: 100%;
+}
+
+/* Card Style */
+.eval-card {
+    background: white;
+    border-radius: 16px;
+    padding: 20px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    border: 1px solid #f1f5f9;
+    transition: transform 0.2s;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+.eval-card.is-graded { border-color: #dcfce7; background: #f0fdf4; }
+
+/* Student Info */
+.eval-card-top {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.eval-avatar {
+    width: 40px;
+    height: 40px;
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 16px;
+}
+.eval-student-name {
+    margin: 0;
+    font-size: 15px;
+    color: #334155;
+    font-weight: 700;
+}
+.eval-roll-badge {
+    font-size: 11px;
+    background: #f1f5f9;
+    padding: 2px 8px;
+    border-radius: 6px;
+    color: #64748b;
+    font-weight: 600;
+}
+.eval-success-icon {
+    margin-left: auto;
+    color: #16a34a;
+    font-size: 18px;
+}
+
+/* Document Link */
+.eval-content-box {
+    background: #f8fafc;
+    padding: 10px;
+    border-radius: 10px;
+    border: 1px dashed #cbd5e1;
+    text-align: center;
+}
+.eval-view-link {
+    text-decoration: none;
+    color: #2563eb;
+    font-size: 13px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+/* Grading Area */
+.eval-action-area {
+    margin-top: auto;
+    padding-top: 15px;
+    border-top: 1px solid #f1f5f9;
+}
+
+/* Button to Grade */
+.eval-btn-grade {
+    width: 100%;
+    padding: 10px;
+    background: #3b82f6;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 10px rgba(59, 130, 246, 0.3);
+}
+
+/* Grading Form */
+.eval-grading-form {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+.eval-inputs {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.eval-input-marks {
+    padding: 8px;
+    border: 1px solid #3b82f6;
+    border-radius: 8px;
+    outline: none;
+    width: 100%;
+    font-weight: bold;
+}
+.eval-input-feedback {
+    padding: 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    outline: none;
+    width: 100%;
+    font-size: 12px;
+}
+.eval-form-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+.eval-btn-save {
+    width: 32px;
+    height: 32px;
+    background: #16a34a;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+.eval-btn-cancel {
+    width: 32px;
+    height: 32px;
+    background: #ef4444;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+/* Score Display */
+.eval-score-display {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: white;
+}
+.eval-score-label {
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+.eval-score-value {
+    font-size: 18px;
+    font-weight: 800;
+}
+.score-pass { color: #16a34a; }
+.score-fail { color: #dc2626; }
+.eval-total { font-size: 12px; color: #94a3b8; font-weight: 500; }
+
+.eval-empty-state {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 60px;
+    color: #cbd5e1;
+}
+.eval-empty-state i { font-size: 40px; margin-bottom: 10px; }
+
+/* Mobile Adjustments */
+@media (max-width: 480px) {
+    .eval-grid {
+        grid-template-columns: 1fr;
+        padding: 15px;
+    }
+    .eval-workspace {
+        border-radius: 0;
+        border: none;
+    }
+}
                 .task-page-container { max-width: 1200px; margin: 0 auto; padding-bottom: 50px; }
                 .gradient-text { background: linear-gradient(135deg, #7c3aed 0%, #db2777 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 24px; font-weight: 700; margin: 0; }
                 .subtitle { color: #64748b; font-size: 14px; margin-top: 5px; }

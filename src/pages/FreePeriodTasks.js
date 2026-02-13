@@ -2,9 +2,12 @@ import React, { useState, useEffect } from 'react';
 import ReactDOM from 'react-dom';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
-import { db, auth } from '../firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc, increment } from 'firebase/firestore';
+import { db, auth, storage } from '../firebase';
+import { collection, query, where, onSnapshot, doc, updateDoc, increment, addDoc } from 'firebase/firestore';
 import './Dashboard.css';
+
+
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 // Import Modals
 import ResumeBuilderModal from '../components/ResumeBuilderModal';
@@ -60,62 +63,49 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
         show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 200, damping: 20 } }
     };
 
-    // --- FETCH DATA (Instant Cache) ---
+   // --- 📥 REAL-TIME ASSIGNMENTS LISTENER ---
     useEffect(() => {
-        const fetchAssignments = async () => {
-            if (!user) return;
+        if (!user || !user.instituteId) return;
 
-            // ✅ 1. Get User Division (Handle both 'div' and 'division' fields)
-            const userDiv = user.division || user.div || 'All';
+        setLoading(true);
 
-            // ✅ 2. Update Cache Key to include Division (So Div A doesn't see Div B's cache)
-            const cacheKey = `assignments_${user.department || 'gen'}_${user.year || 'all'}_${userDiv}`;
-            const cachedData = localStorage.getItem(cacheKey);
+        // Listen to ALL assignments for this institute (Real-time)
+        const q = query(
+            collection(db, 'assignments'), 
+            where('instituteId', '==', user.instituteId)
+        );
 
-            if (cachedData) {
-                setAssignments(JSON.parse(cachedData));
-                setLoading(false);
-            } else {
-                setLoading(true);
-            }
+        const unsub = onSnapshot(q, (snapshot) => {
+            const allTasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-            try {
-                const res = await fetch(`${BACKEND_URL}/getAssignments`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        department: user.department,
-                        year: user.year || 'All',
-                        division: userDiv // ✅ 3. Send Division to Backend
-                    })
-                });
+            // ✅ CLIENT-SIDE FILTERING (Matches StudentDashboard logic)
+            const filteredTasks = allTasks.filter(task => {
+                const userDiv = user.division || user.div || 'All';
+                
+                // 1. Department Check
+                if (task.department && task.department !== user.department) return false;
+                
+                // 2. Year Check
+                if (task.targetYear !== 'All' && task.targetYear !== user.year) return false;
+                
+                // 3. Division Check
+                if (task.division && task.division !== 'All' && task.division !== userDiv) return false;
 
-                if (res.ok) {
-                    const data = await res.json();
+                return true;
+            });
 
-                    // ✅ 4. CLIENT-SIDE FILTERING (Double Safety)
-                    // Ensures that even if the backend returns mixed data, we filter it here.
-                    const filteredTasks = (data.tasks || []).filter(task => {
-                        // If task has no division or is 'All', everyone sees it
-                        if (!task.division || task.division === 'All') return true;
+            // Sort Newest First
+            filteredTasks.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+            
+            setAssignments(filteredTasks);
+            setLoading(false);
+        }, (error) => {
+            console.error("Real-time sync error:", error);
+            setLoading(false);
+        });
 
-                        // If specific division, it must match the user's division
-                        return task.division === userDiv;
-                    });
-
-                    if (JSON.stringify(filteredTasks) !== cachedData) {
-                        setAssignments(filteredTasks);
-                        localStorage.setItem(cacheKey, JSON.stringify(filteredTasks));
-                    }
-                }
-            } catch (err) {
-                console.error("Background sync failed:", err);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchAssignments();
-    }, [user?.department, user?.year, user?.division, user?.div]); // ✅ Added Division dependencies
+        return () => unsub();
+    }, [user]);
 
     useEffect(() => {
         if (!auth.currentUser) return;
@@ -156,31 +146,45 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
         setShowCodingModal(false); setShowTypingModal(false); setShowFlashCardModal(false);
     };
 
+   // --- REPLACE THE ENTIRE handleSubmitFile FUNCTION ---
     const handleSubmitFile = async () => {
         if (!file || !submitModal.taskId) return toast.error("Please select a file.");
         setUploading(true);
-        const toastId = 'upload-toast';
-        toast.loading("Uploading...", { id: toastId });
+        const toastId = toast.loading("Uploading to secure storage...");
 
         try {
-            const formData = new FormData();
-            formData.append('document', file);
-            formData.append('assignmentId', submitModal.taskId);
-            formData.append('studentId', user.uid);
-            formData.append('studentName', `${user.firstName} ${user.lastName}`);
-            formData.append('rollNo', user.rollNo || 'N/A');
+            // 1. ✅ Upload File to Firebase Storage
+            // Path: submissions/USER_ID/TIMESTAMP_FILENAME
+            const fileRef = ref(storage, `submissions/${user.uid}/${Date.now()}_${file.name}`);
+            await uploadBytes(fileRef, file);
+            const documentUrl = await getDownloadURL(fileRef);
 
-            const res = await fetch(`${BACKEND_URL}/submitAssignment`, { method: 'POST', body: formData });
-            if (!res.ok) throw new Error("Submission failed");
+            // 2. ✅ Save Submission Data to Firestore
+            await addDoc(collection(db, 'submissions'), {
+                assignmentId: submitModal.taskId,
+                studentId: user.uid,
+                studentName: `${user.firstName} ${user.lastName}`,
+                rollNo: user.rollNo || 'N/A',
+                documentUrl: documentUrl, // Firebase URL
+                status: 'Pending',
+                submittedAt: new Date().toISOString(),
+                department: user.department || '',
+                year: user.year || '',
+                division: user.division || user.div || 'All'
+            });
 
-            toast.success("Submitted!", { id: toastId });
-            setSubmissions(prev => ({
-                ...prev,
-                [submitModal.taskId]: { status: 'Pending', submittedAt: new Date(), documentUrl: URL.createObjectURL(file) }
-            }));
-            setSubmitModal({ open: false, taskId: null }); setFile(null);
-        } catch (error) { toast.error("Error submitting", { id: toastId }); }
-        finally { setUploading(false); }
+            toast.success("Assignment Submitted!", { id: toastId });
+            
+            // Close modal and reset
+            setSubmitModal({ open: false, taskId: null }); 
+            setFile(null);
+
+        } catch (error) { 
+            console.error("Submission Error:", error);
+            toast.error("Failed to upload. Try again.", { id: toastId }); 
+        } finally { 
+            setUploading(false); 
+        }
     };
 
     return (
@@ -228,7 +232,7 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
                             const sub = submissions[task.id];
                             /* ✅ REPLACE THE RETURN STATEMENT INSIDE assignments.map(...) */
                             /* ✅ REPLACE THE RETURN STATEMENT INSIDE assignments.map(...) */
-                            return (
+                           return (
                                 <div key={task.id} className="fp-card">
                                     <div className="fp-card-top">
                                         <div className="fp-icon-square"><i className="fas fa-book"></i></div>
@@ -247,51 +251,71 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
                                     <div className="fp-date"><i className="far fa-calendar"></i> {new Date(task.dueDate).toLocaleDateString()}</div>
                                     <p className="fp-desc">{task.description}</p>
 
-                                    {/* 🔥 FIX: MOBILE RESPONSIVE ACTION ROW */}
+                                    {/* ✅ FEEDBACK SECTION (Moved Up & Left) */}
+                                    {sub && sub.feedback && (
+                                        <div style={{ 
+                                            marginTop: '12px', 
+                                            marginBottom: '5px',
+                                            padding: '10px 14px', 
+                                            background: '#f0fdf4', 
+                                            borderLeft: '4px solid #16a34a', 
+                                            borderRadius: '6px', 
+                                            fontSize: '13px', 
+                                            color: '#15803d',
+                                            textAlign: 'left',
+                                            width: 'fit-content',
+                                            maxWidth: '100%'
+                                        }}>
+                                            <i className="fas fa-comment-dots" style={{ marginRight: '8px', opacity: 0.7 }}></i>
+                                            <span style={{ fontStyle: 'italic', fontWeight: '500' }}>"{sub.feedback}"</span>
+                                        </div>
+                                    )}
+
+                                    {/* 🔥 MOBILE RESPONSIVE ACTION ROW */}
                                     <div className="fp-action-row"
                                         style={{
                                             display: 'flex',
                                             justifyContent: 'space-between',
                                             alignItems: 'center',
-                                            marginTop: '20px',
+                                            marginTop: '15px',
                                             borderTop: '1px solid #f1f5f9',
                                             paddingTop: '15px',
-                                            flexWrap: 'wrap',  /* ✅ Allows wrapping on small screens */
-                                            gap: '10px'        /* ✅ Adds spacing when wrapped */
+                                            flexWrap: 'wrap',
+                                            gap: '10px'
                                         }}>
 
-                                        {/* Left Side: Attachment (UPDATED FOR DOWNLOAD) */}
-                                            {task.attachmentUrl ? (
-                                                <button 
-                                                    onClick={(e) => {
-                                                        e.stopPropagation(); // Stop card click
-                                                        downloadFile(task.attachmentUrl, `Task_${task.title}.pdf`);
-                                                    }}
-                                                    style={{
-                                                        border: 'none', cursor: 'pointer',
-                                                        color: '#334155', fontSize: '13px',
-                                                        fontWeight: '600', display: 'flex', alignItems: 'center',
-                                                        gap: '8px', padding: '8px 14px', background: '#f8fafc',
-                                                        borderRadius: '8px', border: '1px solid #e2e8f0', transition: '0.2s',
-                                                        flex: '1 1 auto', minWidth: '120px', justifyContent: 'center'
-                                                    }}>
-                                                    <i className="fas fa-file-download" style={{ color: '#6366f1' }}></i> Download File
-                                                </button>
-                                            ) : <div style={{ flex: '1 1 auto' }}></div> /* Spacer */}
+                                        {/* Left Side: Attachment */}
+                                        {task.attachmentUrl ? (
+                                            <button 
+                                                onClick={(e) => {
+                                                    e.stopPropagation(); 
+                                                    window.open(task.attachmentUrl, '_blank');
+                                                }}
+                                                style={{
+                                                    border: 'none', cursor: 'pointer',
+                                                    color: '#334155', fontSize: '13px',
+                                                    fontWeight: '600', display: 'flex', alignItems: 'center',
+                                                    gap: '8px', padding: '8px 14px', background: '#f8fafc',
+                                                    borderRadius: '8px', border: '1px solid #e2e8f0', transition: '0.2s',
+                                                    flex: '1 1 auto', minWidth: '120px', justifyContent: 'center'
+                                                }}>
+                                                <i className="fas fa-external-link-alt" style={{ color: '#6366f1' }}></i> View File
+                                            </button>
+                                        ) : <div style={{ flex: '1 1 auto' }}></div>}
 
-                                        {/* Right Side: Action Button */}
+                                        {/* Right Side: Action Button or Grade */}
                                         {sub ? (
                                             <div className={`fp-result-box ${sub.status === 'Graded' ? 'graded' : 'submitted'}`}
                                                 style={{ flex: '1 1 auto', minWidth: '120px', textAlign: 'center', justifyContent: 'center', display: 'flex' }}>
                                                 {sub.status === 'Graded' ?
-                                                    <><i className="fas fa-star"></i> {sub.marks}/100</> :
+                                                    <><i className="fas fa-star"></i> {sub.marks} / {sub.maxMarks || 100}</> :
                                                     <><i className="fas fa-check-circle"></i> Submitted</>
                                                 }
                                             </div>
                                         ) : (
                                             <button className="fp-btn-primary"
                                                 onClick={() => setSubmitModal({ open: true, taskId: task.id })}
-                                                style={{ flex: '1 1 auto', minWidth: '120px' }}> {/* ✅ Buttons expand on mobile */}
+                                                style={{ flex: '1 1 auto', minWidth: '120px' }}>
                                                 Upload Work
                                             </button>
                                         )}
@@ -347,7 +371,18 @@ export default function FreePeriodTasks({ user, isFreePeriod }) {
                         <div className="fp-upload-box">
                             <input type="file" onChange={(e) => setFile(e.target.files[0])} />
                             <i className="fas fa-cloud-upload-alt"></i>
-                            <p>{file ? file.name : "Tap to select file"}</p>
+                            
+                            {/* ✅ FIX: Added Truncation to File Name */}
+                            <p style={{ 
+                                maxWidth: '250px', 
+                                whiteSpace: 'nowrap', 
+                                overflow: 'hidden', 
+                                textOverflow: 'ellipsis',
+                                margin: '10px auto 0' 
+                            }}>
+                                {file ? file.name : "Tap to select file"}
+                            </p>
+
                         </div>
                         <div className="fp-modal-btns">
                             <button onClick={() => setSubmitModal({ open: false })} className="fp-btn-ghost">Cancel</button>
