@@ -96,7 +96,7 @@ const enableAndroidLocation = async () => {
             console.warn("⚠️ Cordova Location Accuracy plugin not found. Skipping auto-enable.");
             // We resolve true here to let the app try fetching location anyway, 
             // but we will catch the error in the main function if it fails.
-            resolve(true); 
+            resolve(true);
             return;
         }
 
@@ -127,11 +127,11 @@ const getLocation = async () => {
 
         // STEP 2: Check Permissions
         let permissionStatus = await Geolocation.checkPermissions();
-        
+
         if (permissionStatus.location === 'denied') {
             throw new Error("Location permission denied. Please allow it in settings.");
         }
-        
+
         if (permissionStatus.location !== 'granted') {
             const request = await Geolocation.requestPermissions();
             if (request.location !== 'granted') {
@@ -144,20 +144,20 @@ const getLocation = async () => {
             const position = await Geolocation.getCurrentPosition({
                 enableHighAccuracy: true,
                 timeout: 10000, // ⚡ Increased to 10 seconds
-                maximumAge: 0   
+                maximumAge: 0
             });
             return position;
         } catch (highAccuracyError) {
             console.warn("⚠️ High Accuracy GPS failed, switching to Low Accuracy...", highAccuracyError);
-            
+
             // STEP 4: Fallback to Low Accuracy (Network/WiFi Location)
             // This is much faster and works indoors
             const lowAccuracyPosition = await Geolocation.getCurrentPosition({
-                enableHighAccuracy: false, 
-                timeout: 10000, 
+                enableHighAccuracy: false,
+                timeout: 10000,
                 maximumAge: 30000 // Accept locations up to 30s old
             });
-            
+
             return lowAccuracyPosition;
         }
 
@@ -171,7 +171,7 @@ const getLocation = async () => {
         if (error.code === 3) {
             throw new Error("⏳ Location Timeout. Move outdoors or try again.");
         }
-        
+
         throw error;
     }
 };
@@ -635,13 +635,13 @@ const StudentTestResults = ({ user }) => {
         return () => unsub();
     }, [user]);
 
-    if (loading) return <div className="card" style={{padding:'20px', textAlign:'center', color:'#94a3b8'}}>Loading results...</div>;
+    if (loading) return <div className="card" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Loading results...</div>;
 
     return (
         <div className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
                 <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Recent Test Results</h3>
-                <span style={{ fontSize: '12px', background: '#eff6ff', padding: '4px 10px', borderRadius: '20px', color: '#2563eb', fontWeight:'600' }}>
+                <span style={{ fontSize: '12px', background: '#eff6ff', padding: '4px 10px', borderRadius: '20px', color: '#2563eb', fontWeight: '600' }}>
                     {results.length} Tests
                 </span>
             </div>
@@ -649,7 +649,7 @@ const StudentTestResults = ({ user }) => {
             {results.length > 0 ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     {results.map(res => (
-                        <div key={res.id} style={{ 
+                        <div key={res.id} style={{
                             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                             padding: '12px', background: '#f8fafc', borderRadius: '12px',
                             borderLeft: res.status === 'Pass' ? '4px solid #10b981' : '4px solid #ef4444'
@@ -662,9 +662,9 @@ const StudentTestResults = ({ user }) => {
                             </div>
                             <div style={{ textAlign: 'right' }}>
                                 <span style={{ display: 'block', fontSize: '16px', fontWeight: 'bold', color: '#1e293b' }}>
-                                    {res.obtained} <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight:'normal' }}>/ {res.maxMarks}</span>
+                                    {res.obtained} <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 'normal' }}>/ {res.maxMarks}</span>
                                 </span>
-                                <span style={{ 
+                                <span style={{
                                     fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase',
                                     color: res.status === 'Pass' ? '#16a34a' : '#dc2626'
                                 }}>
@@ -1549,71 +1549,71 @@ export default function StudentDashboard() {
         setIsChatOpen(true);
     };
 
-// ✅ 5. HANDLE QR ATTENDANCE
-const onScanSuccess = async (decodedText) => {
-    // 1. Pause Camera
-    if (scannerRef.current) {
-        scannerRef.current.pause(true);
-    }
-    setShowScanner(false);
+    // ✅ 5. HANDLE QR ATTENDANCE
+    const onScanSuccess = async (decodedText) => {
+        // 1. Pause Camera
+        if (scannerRef.current) {
+            scannerRef.current.pause(true);
+        }
+        setShowScanner(false);
 
-    const toastId = toast.loading("Verifying Location...");
+        const toastId = toast.loading("Verifying Location...");
 
-    try {
-        // A. Get Security Data (Parallel)
-        const deviceIdPromise = getUniqueDeviceId();
-        const tokenPromise = auth.currentUser.getIdToken();
-        const locationPromise = getLocation(); // Uses new robust function
+        try {
+            // A. Get Security Data (Parallel)
+            const deviceIdPromise = getUniqueDeviceId();
+            const tokenPromise = auth.currentUser.getIdToken();
+            const locationPromise = getLocation(); // Uses new robust function
 
-        const [currentDeviceId, token, position] = await Promise.all([
-            deviceIdPromise,
-            tokenPromise,
-            locationPromise
-        ]);
+            const [currentDeviceId, token, position] = await Promise.all([
+                deviceIdPromise,
+                tokenPromise,
+                locationPromise
+            ]);
 
-        // B. Send to Backend
-        const response = await fetch(`${BACKEND_URL}/markAttendance`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-                sessionId: decodedText,
-                studentLocation: {
-                    latitude: position.coords.latitude,
-                    longitude: position.coords.longitude
+            // B. Send to Backend
+            const response = await fetch(`${BACKEND_URL}/markAttendance`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
                 },
-                deviceId: currentDeviceId,
-                verificationMethod: 'qr'
-            })
-        });
+                body: JSON.stringify({
+                    sessionId: decodedText,
+                    studentLocation: {
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude
+                    },
+                    deviceId: currentDeviceId,
+                    verificationMethod: 'qr'
+                })
+            });
 
-        const data = await response.json();
+            const data = await response.json();
 
-        // C. Handle Response
-        if (response.ok) {
-            toast.success(data.message, { id: toastId, duration: 4000 });
-        } else {
-            // 🚨 HERE IS THE FIX: Show the exact error from backend (which contains the distance)
-            toast.error(data.error || "Attendance Failed", { id: toastId, duration: 5000 });
+            // C. Handle Response
+            if (response.ok) {
+                toast.success(data.message, { id: toastId, duration: 4000 });
+            } else {
+                // 🚨 HERE IS THE FIX: Show the exact error from backend (which contains the distance)
+                toast.error(data.error || "Attendance Failed", { id: toastId, duration: 5000 });
+            }
+
+        } catch (error) {
+            console.error("Attendance Error:", error);
+
+            // Frontend-side errors (GPS, etc)
+            if (error.message.includes("GPS is OFF")) {
+                toast.error("📍 GPS is OFF! Turn it on in settings.", { id: toastId, duration: 5000 });
+            }
+            else if (error.message.includes("Timeout")) {
+                toast.error("📡 GPS Signal Weak. Try moving near a window.", { id: toastId });
+            }
+            else {
+                toast.error("❌ " + (error.message || "Verification Failed"), { id: toastId });
+            }
         }
-
-    } catch (error) {
-        console.error("Attendance Error:", error);
-
-        // Frontend-side errors (GPS, etc)
-        if (error.message.includes("GPS is OFF")) {
-            toast.error("📍 GPS is OFF! Turn it on in settings.", { id: toastId, duration: 5000 });
-        } 
-        else if (error.message.includes("Timeout")) {
-            toast.error("📡 GPS Signal Weak. Try moving near a window.", { id: toastId });
-        }
-        else {
-            toast.error("❌ " + (error.message || "Verification Failed"), { id: toastId });
-        }
-    }
-};
+    };
     // ✅ REPLACED: Updated PIN Handler (6-Digit Version)
     const handlePinSubmit = async () => {
         // ✅ CHANGED: Check for 6 digits
@@ -1888,7 +1888,16 @@ const onScanSuccess = async (decodedText) => {
                         </div>
                     </li>
                 </ul>
-                <div className="sidebar-footer"><button onClick={handleLogout} className="logout-btn"><i className="fas fa-sign-out-alt"></i> <span>Logout</span></button></div>
+                <div className="sidebar-footer"><button onClick={handleLogout} className="logout-btn"><i className="fas fa-sign-out-alt"></i> <span>Logout</span></button>{/* ✅ ADD THIS CREDIT */}
+                    <div style={{
+                        marginTop: '15px',
+                        fontSize: '10px',
+                        color: 'rgba(0, 0, 0, 0.4)',
+                        textAlign: 'center',
+                        letterSpacing: '0.5px'
+                    }}>
+                        Built with ❤️ by Sushant
+                    </div></div>
             </aside>
 
             <main className="main-content">

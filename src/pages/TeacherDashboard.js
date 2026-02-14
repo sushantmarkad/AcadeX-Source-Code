@@ -36,7 +36,7 @@ const getGreeting = () => {
 
 
 // ------------------------------------
-//  COMPONENT: ANNOUNCEMENTS (Styled like Add Tasks)
+//  COMPONENT: ANNOUNCEMENTS (Fixed Curves)
 // ------------------------------------
 const TeacherAnnouncements = ({ teacherInfo }) => {
     const [form, setForm] = useState({ title: '', message: '', targetYear: '' });
@@ -44,13 +44,14 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
     const [announcements, setAnnouncements] = useState([]);
     const [loading, setLoading] = useState(false);
     const [activeTab, setActiveTab] = useState('create');
-    const [selectedDiv, setSelectedDiv] = useState('');
+    const [deleteId, setDeleteId] = useState(null); 
+    
     const { downloadFile } = useFileDownloader();
+    const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com"; // Keep your backend URL
 
     const assignedYears = teacherInfo?.assignedClasses
         ? [...new Set(teacherInfo.assignedClasses.flatMap(c => {
             if (c.year === 'FE' && c.divisions) {
-                // Split FE into divisions
                 return c.divisions.split(',').map(div => ({
                     label: `FE - Div ${div.trim()}`,
                     value: `FE|${div.trim()}`
@@ -84,8 +85,6 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
         const toastId = toast.loading("Uploading & Posting...");
 
         try {
-            // ✅ Parse "Year|Div" into separate variables
-            // Fallback: If value has no pipe (e.g. legacy data), treat as "Year|All"
             const rawTarget = form.targetYear.includes('|') ? form.targetYear : `${form.targetYear}|All`;
             const [targetYear, targetDivision] = rawTarget.split('|');
 
@@ -96,12 +95,11 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                 attachmentUrl = await getDownloadURL(fileRef);
             }
 
-            // 1. Save to Firestore (Now saving 'division')
             await addDoc(collection(db, 'announcements'), {
                 title: form.title,
                 message: form.message,
-                targetYear: targetYear,        // ✅ Save Clean Year
-                division: targetDivision,      // ✅ Save Clean Division
+                targetYear: targetYear,
+                division: targetDivision,
                 attachmentUrl,
                 teacherId: auth.currentUser.uid,
                 teacherName: `${teacherInfo.firstName} ${teacherInfo.lastName}`,
@@ -111,15 +109,15 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                 createdAt: serverTimestamp()
             });
 
-            // 2. Trigger Notification (Send Division too)
+            // Notification Trigger
             fetch(`${BACKEND_URL}/sendAnnouncementNotification`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     title: `📢 New Notice: ${form.title}`,
                     message: form.message,
-                    targetYear: targetYear,    // ✅ Use cleaned year
-                    division: targetDivision,  // ✅ Use cleaned division
+                    targetYear: targetYear,
+                    division: targetDivision,
                     instituteId: teacherInfo.instituteId,
                     department: teacherInfo.department,
                     senderName: `${teacherInfo.firstName} ${teacherInfo.lastName}`
@@ -137,17 +135,109 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
         }
     };
 
-    const handleDelete = async (id) => {
-        if (window.confirm("Delete this announcement?")) {
-            await deleteDoc(doc(db, 'announcements', id));
-            toast.success("Deleted.");
+    const handleDeleteClick = (id) => {
+        setDeleteId(id);
+    };
+
+    const confirmDelete = async () => {
+        if (!deleteId) return;
+        const toastId = toast.loading("Deleting...");
+        try {
+            await deleteDoc(doc(db, 'announcements', deleteId));
+            toast.success("Deleted Successfully", { id: toastId });
+            setDeleteId(null);
+        } catch (err) {
+            toast.error("Delete Failed", { id: toastId });
         }
+    };
+
+    // --- 🟢 FIXED MODAL COMPONENT (Perfect Curves) ---
+    const DeleteConfirmModal = () => {
+        return ReactDOM.createPortal(
+            <div style={{
+                position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                background: 'rgba(15, 23, 42, 0.65)',
+                backdropFilter: 'blur(8px)',
+                zIndex: 9999999,
+                display: 'flex', justifyContent: 'center', alignItems: 'center',
+                animation: 'fadeIn 0.2s ease-out',
+                padding: '20px'
+            }}>
+                <style>{`
+                    @keyframes popInModal {
+                        0% { opacity: 0; transform: scale(0.95) translateY(10px); }
+                        100% { opacity: 1; transform: scale(1) translateY(0); }
+                    }
+                `}</style>
+
+                <div className="card" style={{
+                    width: '100%', maxWidth: '380px',
+                    display: 'flex', flexDirection: 'column', padding: '0',
+                    borderRadius: '24px', // 🚀 Parent Radius
+                    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+                    background: 'white',
+                    animation: 'popInModal 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards',
+                    // Note: We don't rely on overflow:hidden here because global CSS might override it.
+                    // Instead, we curve the children explicitly below.
+                }}>
+                    {/* Header */}
+                    <div style={{ 
+                        padding: '30px 25px 15px 25px', 
+                        textAlign: 'center',
+                        borderRadius: '24px 24px 0 0' // 🚀 Curve Top Corners (Safe measure)
+                    }}>
+                        <div style={{ 
+                            width: '64px', height: '64px', background: '#fee2e2', color: '#ef4444', 
+                            borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: '26px', margin: '0 auto 15px auto'
+                        }}>
+                            <i className="fas fa-trash-alt"></i>
+                        </div>
+                        <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: '800', color: '#1e293b' }}>Delete Notice?</h3>
+                        <p style={{ margin: 0, fontSize: '14px', color: '#64748b', lineHeight: '1.5' }}>
+                            Are you sure you want to remove this announcement?
+                        </p>
+                    </div>
+
+                    {/* Footer Buttons */}
+                    <div style={{ 
+                        padding: '20px 25px', 
+                        display: 'flex', gap: '12px',
+                        background: '#f8fafc',
+                        borderTop: '1px solid #e2e8f0',
+                        borderRadius: '0 0 24px 24px' // 🚀 THIS IS THE FIX (Curves Bottom Corners)
+                    }}>
+                        <button 
+                            onClick={() => setDeleteId(null)}
+                            style={{
+                                flex: 1, padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1',
+                                background: 'white', color: '#64748b', fontWeight: '700', cursor: 'pointer',
+                                fontSize: '14px', transition: 'all 0.2s'
+                            }}
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            onClick={confirmDelete}
+                            style={{
+                                flex: 1, padding: '12px', borderRadius: '12px', border: 'none',
+                                background: '#ef4444', color: 'white', fontWeight: '700', cursor: 'pointer',
+                                fontSize: '14px', boxShadow: '0 4px 12px rgba(239, 68, 68, 0.25)', transition: 'all 0.2s'
+                            }}
+                        >
+                            Delete
+                        </button>
+                    </div>
+                </div>
+            </div>,
+            document.body
+        );
     };
 
     return (
         <div className="task-page-container">
 
-            {/* --- HEADER (Matches Add Tasks) --- */}
+            {/* --- HEADER --- */}
             <div className="task-header">
                 <div>
                     <h2 className="gradient-text">Class Announcements</h2>
@@ -176,7 +266,6 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                     </div>
 
                     <form onSubmit={handlePost} className="create-form">
-                        {/* Main Inputs */}
                         <div className="form-main">
                             <div className="input-group">
                                 <label>Title</label>
@@ -188,13 +277,11 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                             </div>
                         </div>
 
-                        {/* Sidebar Inputs */}
                         <div className="form-sidebar">
                             <div className="input-group">
                                 <label>Target Class</label>
                                 <CustomDropdown
                                     value={form.targetYear}
-                                    /* ✅ SAFE FIX: Checks if 'e' is an event object or direct value */
                                     onChange={(e) => {
                                         const val = (e && e.target) ? e.target.value : e;
                                         setForm({ ...form, targetYear: val });
@@ -202,21 +289,15 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                                     placeholder="Select Class"
                                     options={[
                                         { value: 'All|All', label: 'All My Classes' },
-                                        ...assignedYears // This now contains objects { value: 'FE|A', label: 'FE - Div A' }
+                                        ...assignedYears 
                                     ]}
                                 />
                             </div>
 
-                            {/* File Upload */}
                             <div className="input-group">
                                 <label>Attachment (Optional)</label>
                                 <div className="file-upload-wrapper">
-                                    <input
-                                        type="file"
-                                        id="anno-file"
-                                        onChange={e => setFile(e.target.files[0])}
-                                        style={{ display: 'none' }}
-                                    />
+                                    <input type="file" id="anno-file" onChange={e => setFile(e.target.files[0])} style={{ display: 'none' }} />
                                     <label htmlFor="anno-file" className="custom-file-upload">
                                         <i className={`fas ${file ? 'fa-check-circle' : 'fa-cloud-upload-alt'}`}></i>
                                         <span>{file ? file.name : "Click to Attach PDF / Image"}</span>
@@ -232,7 +313,7 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                 </div>
             )}
 
-            {/* --- HISTORY MODE (Styled like Task Cards) --- */}
+            {/* --- HISTORY MODE --- */}
             {activeTab === 'history' && (
                 <div className="tasks-grid">
                     {announcements.length > 0 ? (
@@ -260,7 +341,7 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
 
                                 <div className="card-footer">
                                     <span><i className="far fa-clock"></i> {ann.createdAt?.toDate().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
-                                    <button onClick={() => handleDelete(ann.id)} className="delete-icon-btn">
+                                    <button onClick={() => handleDeleteClick(ann.id)} className="delete-icon-btn">
                                         <i className="fas fa-trash-alt"></i>
                                     </button>
                                 </div>
@@ -275,12 +356,13 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                 </div>
             )}
 
-            {/* --- SHARED CSS (Copied & Adapted from AddTasks.js) --- */}
+            {/* ✅ RENDER MODAL */}
+            {deleteId && <DeleteConfirmModal />}
+
+            {/* --- SHARED CSS --- */}
             <style>{`
-                /* Container & Header */
                 .task-page-container { max-width: 1200px; margin: 0 auto; padding-bottom: 120px; }
                 .task-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
-                
                 .gradient-text { 
                     background: linear-gradient(135deg, #7c3aed 0%, #db2777 100%);
                     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
@@ -288,88 +370,28 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                 }
                 .subtitle { color: #64748b; font-size: 14px; margin-top: 5px; }
 
-                /* Toggles */
                 .toggle-container { background: white; padding: 4px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); display: flex; gap: 5px; }
                 .toggle-btn { padding: 8px 16px; border: none; background: transparent; color: #64748b; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.3s; font-size: 13px; }
                 .active-create { background: #f3e8ff; color: #7c3aed; }
-                .active-eval { background: #fce7f3; color: #db2777; } /* Using pink/violet theme */
+                .active-eval { background: #fce7f3; color: #db2777; }
 
-               .create-card { 
-    background: white; 
-    border-radius: 20px; 
-    box-shadow: 0 10px 30px rgba(0,0,0,0.08); 
-    overflow: visible !important; /* Key fix */
-    border: 1px solid #f1f5f9; 
-}
-
-/* Header - Explicitly Rounded Top Corners */
-.create-card-header { 
-    background: linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%); 
-    padding: 15px 25px; 
-    color: white; 
-    border-top-left-radius: 20px;  /* ✅ FIX: Curves top left */
-    border-top-right-radius: 20px; /* ✅ FIX: Curves top right */
-}
+                .create-card { background: white; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); overflow: visible !important; border: 1px solid #f1f5f9; }
+                .create-card-header { background: linear-gradient(135deg, #8b5cf6 0%, #d946ef 100%); padding: 15px 25px; color: white; border-top-left-radius: 20px; border-top-right-radius: 20px; }
                 .create-card-header h3 { margin: 0; font-size: 16px; font-weight: 600; }
 
                 .create-form { padding: 25px; display: grid; grid-template-columns: 2fr 1fr; gap: 30px; }
-
-                /* Inputs */
                 .input-group label { display: block; font-size: 12px; font-weight: 700; color: #64748b; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
                 .input-group input, .input-group textarea, .input-group select { width: 100%; padding: 12px; border: 2px solid #f1f5f9; border-radius: 10px; font-size: 14px; transition: border 0.2s; background: #f8fafc; color: #334155; }
                 .input-group input:focus, .input-group textarea:focus, .input-group select:focus { border-color: #d946ef; outline: none; background: white; }
 
-                /* --- FIXED FILE UPLOAD CSS --- */
-./* --- PERFECTLY CENTERED UPLOAD BOX --- */
-.file-upload-wrapper {
-    width: 100%;
-    display: block;
-}
+                .file-upload-wrapper { width: 100%; display: block; }
+                .custom-file-upload { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; width: 100%; box-sizing: border-box; padding: 30px 20px; border: 2px dashed #cbd5e1; border-radius: 12px; background: #f8fafc; cursor: pointer; transition: all 0.2s ease; }
+                .custom-file-upload:hover { border-color: #d946ef; background: #fdf4ff; }
+                .custom-file-upload i { font-size: 32px; color: #d946ef; display: block; margin: 0 auto 10px auto; }
+                .custom-file-upload span { font-size: 13px; font-weight: 600; color: #64748b; display: block; }
 
-.custom-file-upload {
-    /* Flexbox Magic for Centering */
-    display: flex;
-    flex-direction: column;
-    align-items: center;      /* Horizontal Center */
-    justify-content: center;  /* Vertical Center */
-    text-align: center;       /* Text Center fallback */
-    
-    width: 100%;
-    box-sizing: border-box;
-    padding: 30px 20px;
-    
-    border: 2px dashed #cbd5e1;
-    border-radius: 12px;
-    background: #f8fafc;
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.custom-file-upload:hover {
-    border-color: #d946ef;
-    background: #fdf4ff;
-}
-
-.custom-file-upload i {
-    font-size: 32px;
-    color: #d946ef;
-    
-    /* ✅ FORCE ICON TO MIDDLE */
-    display: block;
-    margin: 0 auto 10px auto; /* Top: 0, Side: Auto (Center), Bottom: 10px */
-}
-
-.custom-file-upload span {
-    font-size: 13px;
-    font-weight: 600;
-    color: #64748b;
-    display: block; /* Ensures text takes its own line */
-}
-
-                /* Submit Button */
                 .submit-btn { width: 100%; padding: 14px; background: linear-gradient(90deg, #7c3aed, #db2777); color: white; border: none; border-radius: 10px; font-weight: 600; margin-top: 15px; cursor: pointer; box-shadow: 0 4px 15px rgba(219, 39, 119, 0.3); display: flex; justify-content: center; align-items: center; gap: 8px; }
 
-                /* Cards Grid */
                 .tasks-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
                 .task-card-modern { background: white; border-radius: 16px; padding: 20px; border: 1px solid #f1f5f9; box-shadow: 0 4px 6px rgba(0,0,0,0.02); cursor: default; display: flex; flexDirection: column; transition: transform 0.2s; min-height: 200px; }
                 .task-card-modern:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.08); border-color: #e2e8f0; }
@@ -392,21 +414,14 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                 .empty-state { grid-column: 1 / -1; text-align: center; padding: 60px; color: #cbd5e1; background: white; border-radius: 16px; border: 2px dashed #e2e8f0; }
                 .empty-state i { font-size: 40px; margin-bottom: 15px; }
 
-                /* --- MOBILE RESPONSIVE --- */
                 @media (max-width: 768px) {
                     .task-header { flex-direction: column; align-items: flex-start; gap: 15px; }
                     .toggle-container { width: 100%; justify-content: space-between; }
                     .toggle-btn { flex: 1; text-align: center; }
-                    
-                    /* Stack form vertically */
                     .create-form { grid-template-columns: 1fr; gap: 20px; padding: 20px; }
-                    
-                    /* Adjust cards for mobile */
                     .tasks-grid { grid-template-columns: 1fr; }
                 }
-                    .card, .task-card-modern, .create-card {
-    overflow: visible !important;
-}
+                .card, .task-card-modern, .create-card { overflow: visible !important; }
             `}</style>
         </div>
     );

@@ -394,6 +394,15 @@ export default function Login() {
               </span>
             </p>
           </form>
+          {/* ✅ ADD THIS FOOTER SECTION */}
+          <div style={{ marginTop: '40px', textAlign: 'center', fontSize: '12px', color: '#94a3b8', lineHeight: '1.6' }}>
+              <p style={{ margin: 0 }}>
+                  &copy; {new Date().getFullYear()} trackee. All rights reserved.
+              </p>
+              <p style={{ margin: 0 }}>
+                  Designed & Developed by <span style={{ color: '#2563eb', fontWeight: '600' }}>Sushant Markad</span>
+              </p>
+          </div>
         </div>
       </div>
     </IOSPage>
