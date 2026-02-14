@@ -6,7 +6,7 @@ import './Onboarding.css';
 const slides = [
   {
     id: 1,
-    title: "Welcome to AcadeX",
+    title: "Welcome to trackee",
     desc: "Your smart campus companion. Manage attendance, track progress, and stay updated effortlessly.",
     image: "https://cdn-icons-png.flaticon.com/512/3063/3063823.png" 
   },
@@ -48,7 +48,7 @@ export default function Onboarding() {
 
       {/* Header */}
       <div className="onboarding-header">
-        <span className="brand-pill">AcadeX</span>
+        <span className="brand-pill">trackee</span>
         <div className="skip-btn" onClick={finishOnboarding}>Skip</div>
       </div>
 
