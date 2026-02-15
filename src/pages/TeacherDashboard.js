@@ -436,17 +436,19 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv }) => {
     const [timeRange, setTimeRange] = useState('week');
     const [classStrength, setClassStrength] = useState(0);
 
-    useEffect(() => {
+   useEffect(() => {
         const fetchAnalytics = async () => {
             if (!teacherInfo || !selectedYear) return;
             setLoading(true);
 
+            // Determine Subject
             let currentSubject = teacherInfo.subject;
             if (teacherInfo.assignedClasses) {
                 const classData = teacherInfo.assignedClasses.find(c => c.year === selectedYear);
                 if (classData) currentSubject = classData.subject;
             }
 
+            // Determine Date Range
             const endDate = new Date();
             const startDate = new Date();
             if (timeRange === 'week') {
@@ -457,25 +459,56 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv }) => {
             startDate.setHours(0, 0, 0, 0);
 
             try {
-                // 1. Get Class Strength (Filtered by Division)
-                const qStudents = query(
-                    collection(db, 'users'),
-                    where('instituteId', '==', teacherInfo.instituteId),
-                    where('role', '==', 'student'),
-                    where('year', '==', selectedYear),
-                    where('department', '==', teacherInfo.department)
-                );
-                const studentsSnap = await getDocs(qStudents);
+                // ---------------------------------------------------------
+                // 1. GET CLASS STRENGTH (WITH LOCAL STORAGE CACHING) 🚀
+                // ---------------------------------------------------------
+                const cacheKey = `students_${teacherInfo.instituteId}_${teacherInfo.department}_${selectedYear}`;
+                const cachedData = localStorage.getItem(cacheKey);
+                const cacheTime = localStorage.getItem(cacheKey + '_time');
 
-                // ✅ FIX: Filter Students by Division
-                let validStudents = studentsSnap.docs;
-                if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
-                    validStudents = validStudents.filter(doc => doc.data().division === selectedDiv);
+                let rawStudents = [];
+
+                // Check if cache exists and is valid (< 24 hours old)
+                const isCacheValid = cacheTime && (Date.now() - parseInt(cacheTime) < 24 * 60 * 60 * 1000);
+
+                if (cachedData && isCacheValid) {
+                    // ✅ USE CACHE (0 Reads)
+                    console.log("Using cached student list for Analytics");
+                    rawStudents = JSON.parse(cachedData);
+                } else {
+                    // 📡 FETCH FROM FIREBASE (Costly - Only happens once per day)
+                    const qStudents = query(
+                        collection(db, 'users'),
+                        where('instituteId', '==', teacherInfo.instituteId),
+                        where('role', '==', 'student'),
+                        where('year', '==', selectedYear),
+                        where('department', '==', teacherInfo.department)
+                    );
+                    const studentsSnap = await getDocs(qStudents);
+                    
+                    // Normalize data immediately for consistent usage
+                    rawStudents = studentsSnap.docs.map(doc => ({ 
+                        id: doc.id, 
+                        ...doc.data() 
+                    }));
+
+                    // Save to Local Storage
+                    localStorage.setItem(cacheKey, JSON.stringify(rawStudents));
+                    localStorage.setItem(cacheKey + '_time', Date.now().toString());
                 }
+
+                // 🛡️ FILTER BY DIVISION (Works on both Cached & Fresh data)
+                let validStudents = rawStudents;
+                if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
+                    validStudents = validStudents.filter(s => s.division === selectedDiv);
+                }
+                
                 const totalStudents = validStudents.length || 1;
                 setClassStrength(totalStudents);
 
-                // 2. Get Attendance Logs
+                // ---------------------------------------------------------
+                // 2. GET ATTENDANCE LOGS (Standard Query)
+                // ---------------------------------------------------------
                 const q = query(
                     collection(db, 'attendance'),
                     where('instituteId', '==', teacherInfo.instituteId),
@@ -552,7 +585,7 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv }) => {
             finally { setLoading(false); }
         };
         fetchAnalytics();
-    }, [teacherInfo, selectedYear, graphType, timeRange, selectedDiv]); // ✅ Add selectedDiv dependency
+    }, [teacherInfo, selectedYear, graphType, timeRange, selectedDiv]);
 
     const CustomTooltip = ({ active, payload, label }) => {
         if (active && payload && payload.length) {
@@ -1011,52 +1044,53 @@ const DashboardHome = ({
             toast.error("Connection error.", { id: toastId });
         }
     };
-    // ✅ HANDLE SAVE FROM EDIT MODAL
-    const handleAttendanceUpdate = async (session, changes) => {
-        const toastId = toast.loading("Updating Attendance...");
-        try {
-            const promises = changes.map(async (student) => {
-                if (student.status === 'Present') {
-                    // Mark Present
-                    await addDoc(collection(db, 'attendance'), {
-                        rollNo: student.rollNo.toString(),
-                        studentId: student.id,
-                        name: student.name,
-                        teacherId: auth.currentUser.uid,
-                        subject: getSubjectForHistory(),
-                        department: teacherInfo.department,
-                        year: selectedYear,
-                        division: session.division || null,
-                        instituteId: teacherInfo.instituteId,
-                        sessionId: session.sessionId,
-                        timestamp: serverTimestamp(),
-                        markedBy: 'teacher_edit',
-                        status: 'Present'
-                    });
-                } else {
-                    // Mark Absent
-                    // ✅ CRITICAL CHECK: Ensure attendanceId exists before deleting
-                    if (student.attendanceId) {
-                        await deleteDoc(doc(db, 'attendance', student.attendanceId));
-                    } else {
-                        console.warn(`Cannot mark absent: Missing attendanceId for ${student.name}`);
-                    }
+    // ✅ NEW WAY (Sends 1 request for everyone)
+const handleAttendanceUpdate = async (session, changes) => {
+    const toastId = toast.loading("Updating Attendance...");
+    try {
+        // 1. Create a Batch
+        const batch = writeBatch(db); 
+
+        changes.forEach((student) => {
+            if (student.status === 'Present') {
+                // Mark Present: Create a new document reference
+                const newDocRef = doc(collection(db, 'attendance')); 
+                batch.set(newDocRef, {
+                    rollNo: student.rollNo.toString(),
+                    studentId: student.id,
+                    name: student.name,
+                    teacherId: auth.currentUser.uid,
+                    subject: getSubjectForHistory(),
+                    department: teacherInfo.department,
+                    year: selectedYear,
+                    division: session.division || null,
+                    instituteId: teacherInfo.instituteId,
+                    sessionId: session.sessionId,
+                    timestamp: serverTimestamp(),
+                    markedBy: 'teacher_edit',
+                    status: 'Present'
+                });
+            } else {
+                // Mark Absent: Delete the existing document
+                if (student.attendanceId) {
+                    const docRef = doc(db, 'attendance', student.attendanceId);
+                    batch.delete(docRef);
                 }
-            });
+            }
+        });
 
-            await Promise.all(promises);
-            toast.success("Attendance Updated!", { id: toastId });
-            setEditingSession(null);
+        // 2. Commit the Batch (Sends everything to Firebase at once)
+        await batch.commit(); 
 
-            setTimeout(() => {
-                setRefreshTrigger(prev => prev + 1);
-            }, 500);
+        toast.success("Attendance Updated!", { id: toastId });
+        setEditingSession(null);
+        setRefreshTrigger(prev => prev + 1);
 
-        } catch (err) {
-            console.error(err);
-            toast.error("Update Failed: " + err.message, { id: toastId });
-        }
-    };
+    } catch (err) {
+        console.error(err);
+        toast.error("Update Failed: " + err.message, { id: toastId });
+    }
+};
 
     const handleManualMarkPresent = async () => {
         if (!manualRoll) return toast.error("Enter a Roll Number");
