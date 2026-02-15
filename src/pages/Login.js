@@ -18,6 +18,7 @@ import IOSPage from "../components/IOSPage";
 import useIOSSound from "../hooks/useIOSSound";
 import { motion } from "framer-motion";
 import { buttonTap } from "../animations/interactionVariants";
+import { Helmet } from 'react-helmet-async';
 
 // ✅ Import the New Modal
 import TwoFactorVerifyModal from "../components/TwoFactorVerifyModal";
@@ -241,6 +242,10 @@ export default function Login() {
 
   return (
     <IOSPage>
+      <Helmet>
+        <title>Login | Trackee - Smart Attendance</title>
+        <meta name="description" content="Secure login for Trackee. Access your smart attendance dashboard." />
+      </Helmet>
       {/* ✅ RENDER 2FA MODAL WITH BIOMETRIC OPTION */}
       <TwoFactorVerifyModal 
           isOpen={show2FAModal} 
