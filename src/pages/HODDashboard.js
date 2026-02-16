@@ -92,7 +92,7 @@ export default function HODDashboard() {
     const [totalClasses, setTotalClasses] = useState(0);
     const [searchQuery, setSearchQuery] = useState("");
     const [analyticsFilter, setAnalyticsFilter] = useState('Overall');
-   // --- ✅ FIXED: SPLIT STATE FOR RELIABLE UPDATES ---
+    // --- ✅ FIXED: SPLIT STATE FOR RELIABLE UPDATES ---
     const [sessionStats, setSessionStats] = useState({ counts: {}, meta: {} }); // counts = total lectures, meta = type/div info
     const [studentAttendanceMap, setStudentAttendanceMap] = useState({}); // { uid: { theory: 5, practical: 2 } }
     const [annoTab, setAnnoTab] = useState('create');
@@ -210,34 +210,34 @@ export default function HODDashboard() {
         }
     }, [hodInfo]);
 
-// --- 1. FETCH SESSIONS (Total Classes Held) ---
+    // --- 1. FETCH SESSIONS (Total Classes Held) ---
     useEffect(() => {
         if (!hodInfo) return;
 
-        const qSessions = query(collection(db, 'live_sessions'), 
+        const qSessions = query(collection(db, 'live_sessions'),
             where('instituteId', '==', hodInfo.instituteId),
             where('department', '==', hodInfo.department)
         );
 
         const unsub = onSnapshot(qSessions, (snap) => {
-            const counts = {}; 
-            const meta = {}; 
+            const counts = {};
+            const meta = {};
 
             snap.docs.forEach(doc => {
                 const d = doc.data();
                 const type = d.type || 'theory';
                 const year = d.targetYear;
-                const div = d.division || 'A'; 
+                const div = d.division || 'A';
 
                 // 1. Store Metadata for Attendance Matching
                 meta[doc.id] = { type, year, div };
 
                 // 2. Increment Denominators (Total Classes)
                 // Key Format: "Year-Div-Type" (e.g. "SE-A-Theory")
-                const keys = div === 'All' 
-                    ? DIVISIONS.map(dv => `${year}-${dv}-${type}`) 
+                const keys = div === 'All'
+                    ? DIVISIONS.map(dv => `${year}-${dv}-${type}`)
                     : [`${year}-${div}-${type}`];
-                
+
                 keys.forEach(k => counts[k] = (counts[k] || 0) + 1);
             });
 
@@ -253,7 +253,7 @@ export default function HODDashboard() {
 
         // ✅ QUERY UPDATE: Removed 'department' filter to prevent empty results if fields are missing in docs.
         // We filter in-memory using the session IDs we fetched above (which are already Dept filtered).
-        const qAttendance = query(collection(db, 'attendance'), 
+        const qAttendance = query(collection(db, 'attendance'),
             where('instituteId', '==', hodInfo.instituteId)
         );
 
@@ -262,14 +262,14 @@ export default function HODDashboard() {
 
             snap.docs.forEach(doc => {
                 const att = doc.data();
-                
+
                 // ✅ CRITICAL CHECK: Only count if this attendance belongs to a session from this Dept
                 const sessionInfo = sessionStats.meta[att.sessionId];
-                
+
                 if (sessionInfo) {
                     const uid = att.studentId;
                     if (!tempMap[uid]) tempMap[uid] = { theory: 0, practical: 0 };
-                    
+
                     if (sessionInfo.type === 'practical') tempMap[uid].practical++;
                     else tempMap[uid].theory++;
                 }
@@ -501,7 +501,7 @@ export default function HODDashboard() {
         fetchSessionCounts();
     }, [hodInfo, isFE]);
 
-// ✅ NEW CALCULATION ENGINE
+    // ✅ NEW CALCULATION ENGINE
     const getCalculatedAnalytics = () => {
         // 1. Filter Students
         let targetStudents = deptUsers.filter(u => u.role === 'student' && u.year === analyticsYear);
@@ -514,7 +514,7 @@ export default function HODDashboard() {
         // 2. Calculate Percentage
         const processed = targetStudents.map(s => {
             const sId = s.id || s.uid;
-            
+
             // ✅ Use new state map
             const myStats = studentAttendanceMap[sId] || { theory: 0, practical: 0 };
             const userDiv = s.division || 'A';
@@ -545,7 +545,7 @@ export default function HODDashboard() {
         });
 
         // 3. Search Filter
-        const searchFiltered = processed.filter(s => 
+        const searchFiltered = processed.filter(s =>
             (s.firstName && s.firstName.toLowerCase().includes(searchQuery.toLowerCase())) ||
             (s.rollNo && s.rollNo.toString().includes(searchQuery))
         );
@@ -1220,7 +1220,7 @@ export default function HODDashboard() {
                     </div>
                 )}
 
-               {/* ✅ UPDATED ANALYTICS TAB */}
+                {/* ✅ UPDATED ANALYTICS TAB */}
                 {activeTab === 'analytics' && (
                     <div className="content-section">
                         {/* Header: Title & Year/Division Selector */}
@@ -1416,9 +1416,9 @@ export default function HODDashboard() {
                                     </span>
                                 </div>
 
-                                <div className="table-wrapper custom-scroll" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', border: 'none', padding: '0' }}>
+                                <div className="table-wrapper custom-scroll" style={{ flex: 1, overflowY: 'auto', overflowX: 'auto', border: 'none', padding: '0' }}>
                                     {analyticsData.defaulters.length > 0 ? (
-                                        <table className="attendance-table" style={{ width: '100%', minWidth: 'auto' }}>
+                                        <table className="attendance-table" style={{ width: '100%', minWidth: '340px' }}>
                                             <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
                                                 <tr>
                                                     <th style={{ background: 'white', fontSize: '11px', color: '#64748b', paddingLeft: '20px' }}>Student</th>

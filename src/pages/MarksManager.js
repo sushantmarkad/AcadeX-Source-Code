@@ -488,7 +488,7 @@ const MarksManager = ({ teacherInfo, selectedYear, selectedDiv }) => {
                 .mm-status.- { background: #f1f5f9; color: #cbd5e1; }
 
                 /* Form */
-                .mm-form-box { background: white; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; max-width: 500px; margin: 0 auto; }
+                .mm-form-box { background: white; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; max-width: 500px; margin: 0; }
                 .mm-form-box h3 { margin: 0 0 15px 0; color: #1e293b; }
                 .mm-form { display: flex; flex-direction: column; gap: 15px; }
                 .mm-row { display: flex; gap: 15px; }
@@ -499,10 +499,14 @@ const MarksManager = ({ teacherInfo, selectedYear, selectedDiv }) => {
                 .mm-actions button { flex: 1; }
 
                 @media (max-width: 600px) {
-                    .mm-grading-header { flex-direction: column; gap: 15px; align-items: flex-start; }
-                    .mm-gh-right { width: 100%; justify-content: space-between; }
-                    .mm-gh-right button { flex: 1; justify-content: center; }
-                }
+    .mm-grading-header { flex-direction: column; gap: 15px; align-items: flex-start; }
+    .mm-gh-right { width: 100%; justify-content: space-between; }
+    .mm-gh-right button { flex: 1; justify-content: center; }
+    
+    /* ✅ FIX: Mobile alignment for Create Test form */
+    .mm-row { flex-wrap: wrap; }
+    .mm-row .mm-input-group:first-child { flex: 0 0 100%; } /* Makes 'Date' full width */
+}
             `}</style>
     </div>
   );

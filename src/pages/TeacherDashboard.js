@@ -44,8 +44,8 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
     const [announcements, setAnnouncements] = useState([]);
     const [loading, setLoading] = useState(false);
     const [activeTab, setActiveTab] = useState('create');
-    const [deleteId, setDeleteId] = useState(null); 
-    
+    const [deleteId, setDeleteId] = useState(null);
+
     const { downloadFile } = useFileDownloader();
     const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com"; // Keep your backend URL
 
@@ -181,13 +181,13 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                     // Instead, we curve the children explicitly below.
                 }}>
                     {/* Header */}
-                    <div style={{ 
-                        padding: '30px 25px 15px 25px', 
+                    <div style={{
+                        padding: '30px 25px 15px 25px',
                         textAlign: 'center',
                         borderRadius: '24px 24px 0 0' // 🚀 Curve Top Corners (Safe measure)
                     }}>
-                        <div style={{ 
-                            width: '64px', height: '64px', background: '#fee2e2', color: '#ef4444', 
+                        <div style={{
+                            width: '64px', height: '64px', background: '#fee2e2', color: '#ef4444',
                             borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
                             fontSize: '26px', margin: '0 auto 15px auto'
                         }}>
@@ -200,14 +200,14 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                     </div>
 
                     {/* Footer Buttons */}
-                    <div style={{ 
-                        padding: '20px 25px', 
+                    <div style={{
+                        padding: '20px 25px',
                         display: 'flex', gap: '12px',
                         background: '#f8fafc',
                         borderTop: '1px solid #e2e8f0',
                         borderRadius: '0 0 24px 24px' // 🚀 THIS IS THE FIX (Curves Bottom Corners)
                     }}>
-                        <button 
+                        <button
                             onClick={() => setDeleteId(null)}
                             style={{
                                 flex: 1, padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1',
@@ -217,7 +217,7 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                         >
                             Cancel
                         </button>
-                        <button 
+                        <button
                             onClick={confirmDelete}
                             style={{
                                 flex: 1, padding: '12px', borderRadius: '12px', border: 'none',
@@ -289,7 +289,7 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                                     placeholder="Select Class"
                                     options={[
                                         { value: 'All|All', label: 'All My Classes' },
-                                        ...assignedYears 
+                                        ...assignedYears
                                     ]}
                                 />
                             </div>
@@ -436,7 +436,7 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv }) => {
     const [timeRange, setTimeRange] = useState('week');
     const [classStrength, setClassStrength] = useState(0);
 
-   useEffect(() => {
+    useEffect(() => {
         const fetchAnalytics = async () => {
             if (!teacherInfo || !selectedYear) return;
             setLoading(true);
@@ -485,11 +485,11 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv }) => {
                         where('department', '==', teacherInfo.department)
                     );
                     const studentsSnap = await getDocs(qStudents);
-                    
+
                     // Normalize data immediately for consistent usage
-                    rawStudents = studentsSnap.docs.map(doc => ({ 
-                        id: doc.id, 
-                        ...doc.data() 
+                    rawStudents = studentsSnap.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data()
                     }));
 
                     // Save to Local Storage
@@ -502,7 +502,7 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv }) => {
                 if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
                     validStudents = validStudents.filter(s => s.division === selectedDiv);
                 }
-                
+
                 const totalStudents = validStudents.length || 1;
                 setClassStrength(totalStudents);
 
@@ -876,8 +876,13 @@ const DashboardHome = ({
     const [attendanceMode, setAttendanceMode] = useState('qr'); // 'qr' or 'pin'
     const [currentPin, setCurrentPin] = useState('------');
     const [editingSession, setEditingSession] = useState(null);
+    const [sessionToDelete, setSessionToDelete] = useState(null);
     const [allStudentsReport, setAllStudentsReport] = useState([]);
     const [reportFilter, setReportFilter] = useState('All');
+    const [pastDate, setPastDate] = useState(new Date().toISOString().split('T')[0]);
+    const [pastType, setPastType] = useState('theory');
+    const [pastAbsent, setPastAbsent] = useState("");
+    const [pastLoading, setPastLoading] = useState(false);
 
 
     // Fetch Class Strength for Percentage (Fixed for Division)
@@ -928,26 +933,21 @@ const DashboardHome = ({
 
     // --- 🔄 AUTO-UPDATE BATCH DEFAULT (C -> C1, SE -> S1) ---
     useEffect(() => {
-        if (sessionType === 'practical') {
+        // ✅ CHANGED: Now triggers for BOTH Live and Past practical sessions
+        if (sessionType === 'practical' || pastType === 'practical') {
             let prefix = 'A'; // Fallback
 
             if (selectedYear === 'FE') {
-                // If FE, use the selected Division (e.g., 'C')
                 prefix = (selectedDiv && selectedDiv !== 'All') ? selectedDiv : 'A';
-            } else if (selectedYear === 'SE') {
-                prefix = 'S';
-            } else if (selectedYear === 'TE') {
-                prefix = 'T';
-            } else if (selectedYear === 'BE') {
-                prefix = 'B';
-            }
+            } else if (selectedYear === 'SE') prefix = 'S';
+            else if (selectedYear === 'TE') prefix = 'T';
+            else if (selectedYear === 'BE') prefix = 'B';
 
-            // Always set default to "Prefix + 1" (e.g. C1, S1)
             setSelectedBatch(`${prefix}1`);
         }
-    }, [selectedYear, selectedDiv, sessionType]);
+    }, [selectedYear, selectedDiv, sessionType, pastType]);
 
-    // 2. Save settings to Database (Triggered on Blur)
+
     const saveBatchRange = async () => {
         if (!teacherInfo || !auth.currentUser) return;
 
@@ -1045,66 +1045,96 @@ const DashboardHome = ({
         }
     };
     // ✅ NEW WAY (Sends 1 request for everyone)
-const handleAttendanceUpdate = async (session, changes) => {
-    const toastId = toast.loading("Updating Attendance...");
-    try {
-        // 1. Create a Batch
-        const batch = writeBatch(db); 
+    const handleAttendanceUpdate = async (session, changes) => {
+        const toastId = toast.loading("Updating Attendance...");
+        try {
+            // 1. Create a Batch
+            const batch = writeBatch(db);
 
-        changes.forEach((student) => {
-            if (student.status === 'Present') {
-                // Mark Present: Create a new document reference
-                const newDocRef = doc(collection(db, 'attendance')); 
-                batch.set(newDocRef, {
-                    rollNo: student.rollNo.toString(),
-                    studentId: student.id,
-                    name: student.name,
-                    teacherId: auth.currentUser.uid,
-                    subject: getSubjectForHistory(),
-                    department: teacherInfo.department,
-                    year: selectedYear,
-                    division: session.division || null,
-                    instituteId: teacherInfo.instituteId,
-                    sessionId: session.sessionId,
-                    timestamp: serverTimestamp(),
-                    markedBy: 'teacher_edit',
-                    status: 'Present'
-                });
-            } else {
-                // Mark Absent: Delete the existing document
-                if (student.attendanceId) {
-                    const docRef = doc(db, 'attendance', student.attendanceId);
-                    batch.delete(docRef);
+            changes.forEach((student) => {
+                if (student.status === 'Present') {
+                    // Mark Present: Create a new document reference
+                    const newDocRef = doc(collection(db, 'attendance'));
+                    batch.set(newDocRef, {
+                        rollNo: student.rollNo.toString(),
+                        studentId: student.id,
+                        name: student.name,
+                        teacherId: auth.currentUser.uid,
+                        subject: getSubjectForHistory(),
+                        department: teacherInfo.department,
+                        year: selectedYear,
+                        division: session.division || null,
+                        instituteId: teacherInfo.instituteId,
+                        sessionId: session.sessionId,
+                        timestamp: serverTimestamp(),
+                        markedBy: 'teacher_edit',
+                        status: 'Present'
+                    });
+                } else {
+                    // Mark Absent: Delete the existing document
+                    if (student.attendanceId) {
+                        const docRef = doc(db, 'attendance', student.attendanceId);
+                        batch.delete(docRef);
+                    }
                 }
-            }
-        });
+            });
 
-        // 2. Commit the Batch (Sends everything to Firebase at once)
-        await batch.commit(); 
+            // 2. Commit the Batch (Sends everything to Firebase at once)
+            await batch.commit();
 
-        toast.success("Attendance Updated!", { id: toastId });
-        setEditingSession(null);
-        setRefreshTrigger(prev => prev + 1);
+            toast.success("Attendance Updated!", { id: toastId });
+            setEditingSession(null);
+            setRefreshTrigger(prev => prev + 1);
 
-    } catch (err) {
-        console.error(err);
-        toast.error("Update Failed: " + err.message, { id: toastId });
-    }
-};
+        } catch (err) {
+            console.error(err);
+            toast.error("Update Failed: " + err.message, { id: toastId });
+        }
+    };
 
     const handleManualMarkPresent = async () => {
-        if (!manualRoll) return toast.error("Enter a Roll Number");
-        const toastId = toast.loading(`Marking Roll ${manualRoll}...`);
+        if (!manualRoll) return toast.error("Enter at least one Roll Number");
+
+        // Convert "1, 2, 5" into ["1", "2", "5"]
+        let rollNosArray = manualRoll.split(',').map(r => r.trim()).filter(r => r !== "");
+
+        if (rollNosArray.length === 0) return toast.error("Please enter valid Roll Numbers");
+
+        // ✅ NEW STRICT RANGE GUARD: Prevent marking outside Practical Batch bounds
+        if (activeSession?.type === 'practical' && activeSession.rollRange) {
+            const { start, end } = activeSession.rollRange;
+            const validRolls = [];
+            const invalidRolls = [];
+
+            rollNosArray.forEach(roll => {
+                const r = parseInt(roll);
+                if (r >= start && r <= end) validRolls.push(roll);
+                else invalidRolls.push(roll);
+            });
+
+            if (invalidRolls.length > 0) {
+                toast.error(`Blocked: Roll(s) ${invalidRolls.join(', ')} are outside batch limits (${start}-${end})`);
+            }
+
+            // If none of the entered rolls were valid, stop here
+            if (validRolls.length === 0) {
+                setManualRoll("");
+                return;
+            }
+
+            rollNosArray = validRolls; // Proceed only with valid roll numbers
+        }
+
+        const toastId = toast.loading(`Marking ${rollNosArray.length} student(s)...`);
 
         try {
             const response = await fetch(`${BACKEND_URL}/markManualAttendance`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    rollNo: manualRoll.toString().trim(),
+                    rollNos: rollNosArray,
                     department: teacherInfo.department,
                     year: selectedYear,
-                    // ✅ UPDATED: Send division if year is FE
                     division: selectedYear === 'FE' ? selectedDiv : null,
                     instituteId: teacherInfo.instituteId,
                     sessionId: activeSession.sessionId,
@@ -1124,6 +1154,150 @@ const handleAttendanceUpdate = async (session, changes) => {
 
         } catch (err) {
             toast.error("Error: " + err.message, { id: toastId });
+        }
+    };
+    const handlePastAttendance = async () => {
+        if (!pastDate) return toast.error("Select a date!");
+
+        const absentees = pastAbsent.split(',').map(s => s.trim()).filter(s => s !== "");
+        const toastId = toast.loading("Saving past attendance...");
+        setPastLoading(true);
+
+        try {
+            const response = await fetch(`${BACKEND_URL}/markPastAttendance`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    teacherId: auth.currentUser.uid,
+                    teacherName: teacherInfo.firstName,
+                    subject: currentSubject,
+                    department: teacherInfo.department,
+                    year: selectedYear,
+                    division: selectedYear === 'FE' ? selectedDiv : null,
+                    instituteId: teacherInfo.instituteId,
+                    date: pastDate,
+                    type: pastType,
+                    // ✅ FIX: Use selectedBatch, rollStart, and rollEnd
+                    batchName: pastType === 'practical' ? selectedBatch : 'All',
+                    absentRolls: absentees,
+                    rollRange: pastType === 'practical' ? { start: parseInt(rollStart), end: parseInt(rollEnd) } : null
+                })
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                toast.success(data.message, { id: toastId });
+                setPastAbsent(""); // Clear absentees on success
+                setRefreshTrigger(prev => prev + 1); // Auto-refresh reports
+                setViewMode('history'); // Take them directly to the reports tab!
+            } else {
+                toast.error(data.error || "Failed to add record", { id: toastId });
+            }
+        } catch (err) {
+            toast.error("Connection Error: " + err.message, { id: toastId });
+        } finally {
+            setPastLoading(false);
+        }
+    };
+
+    const DeleteSessionModal = ({ session, onClose, onConfirm }) => {
+        const [loading, setLoading] = useState(false);
+
+        return ReactDOM.createPortal(
+            <div style={{
+                position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(8px)',
+                zIndex: 9999999, display: 'flex', justifyContent: 'center', alignItems: 'center',
+                animation: 'fadeIn 0.2s ease-out', padding: '20px'
+            }}>
+                <style>{`
+                    @keyframes popInModal {
+                        0% { opacity: 0; transform: scale(0.95) translateY(10px); }
+                        100% { opacity: 1; transform: scale(1) translateY(0); }
+                    }
+                `}</style>
+
+                <div className="card" style={{
+                    width: '100%', maxWidth: '380px', display: 'flex', flexDirection: 'column', padding: '0',
+                    borderRadius: '24px', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+                    background: 'white', animation: 'popInModal 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards'
+                }}>
+                    {/* Header */}
+                    <div style={{ padding: '30px 25px 15px 25px', textAlign: 'center', borderRadius: '24px 24px 0 0' }}>
+                        <div style={{
+                            width: '64px', height: '64px', background: '#fee2e2', color: '#ef4444',
+                            borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: '26px', margin: '0 auto 15px auto'
+                        }}>
+                            <i className="fas fa-exclamation-triangle"></i>
+                        </div>
+                        <h3 style={{ margin: '0 0 8px 0', fontSize: '20px', fontWeight: '800', color: '#1e293b' }}>Delete Session?</h3>
+                        <p style={{ margin: 0, fontSize: '14px', color: '#64748b', lineHeight: '1.5' }}>
+                            This will permanently delete the session and <b>all {session.presentCount} attendance records</b> associated with it. This action cannot be undone.
+                        </p>
+                    </div>
+
+                    {/* Footer Buttons */}
+                    <div style={{
+                        padding: '20px 25px', display: 'flex', gap: '12px',
+                        background: '#f8fafc', borderTop: '1px solid #e2e8f0', borderRadius: '0 0 24px 24px'
+                    }}>
+                        <button onClick={onClose} disabled={loading} style={{
+                            flex: 1, padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1',
+                            background: 'white', color: '#64748b', fontWeight: '700', cursor: 'pointer', fontSize: '14px', transition: 'all 0.2s'
+                        }}>
+                            Cancel
+                        </button>
+                        <button onClick={async () => { setLoading(true); await onConfirm(); }} disabled={loading} style={{
+                            flex: 1, padding: '12px', borderRadius: '12px', border: 'none',
+                            background: '#ef4444', color: 'white', fontWeight: '700', cursor: 'pointer',
+                            fontSize: '14px', boxShadow: '0 4px 12px rgba(239, 68, 68, 0.25)', transition: 'all 0.2s',
+                            display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px'
+                        }}>
+                            {loading ? <i className="fas fa-spinner fa-spin"></i> : 'Delete'}
+                        </button>
+                    </div>
+                </div>
+            </div>,
+            document.body
+        );
+    };
+
+    // ✅ UPDATED: Closes modal instantly before showing the toast!
+    const confirmDeleteSession = async () => {
+        if (!sessionToDelete) return;
+
+        // 1. Capture the session ID before we clear the state
+        const targetSessionId = sessionToDelete.sessionId;
+
+        // 2. Close the modal IMMEDIATELY
+        setSessionToDelete(null);
+
+        // 3. Now show the toast (with the modal gone, it will be perfectly visible)
+        const toastId = toast.loading("Deleting Session & Records...");
+
+        try {
+            const response = await fetch(`${BACKEND_URL}/deleteSession`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sessionId: targetSessionId,
+                    teacherId: auth.currentUser.uid
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                toast.success("Session Permanently Deleted", { id: toastId });
+                setRefreshTrigger(prev => prev + 1); // Refresh History List
+            } else {
+                toast.error("Failed to delete: " + data.error, { id: toastId });
+            }
+
+        } catch (error) {
+            console.error("Delete Error:", error);
+            toast.error("Network error: " + error.message, { id: toastId });
         }
     };
 
@@ -1308,6 +1482,8 @@ const handleAttendanceUpdate = async (session, changes) => {
         );
     };
 
+
+
     // ✅ HANDLE QR ROTATION & DYNAMIC PIN UPDATES (Synced Master Clock)
     useEffect(() => {
         let interval;
@@ -1405,9 +1581,10 @@ const handleAttendanceUpdate = async (session, changes) => {
                         </span>
                     </div>
                 </div>
-                <div style={{ display: 'flex', gap: '5px', background: '#fff', padding: '5px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 2px 5px rgba(0,0,0,0.02)' }}>
-                    <button onClick={() => setViewMode('live')} style={{ padding: '8px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '600', fontSize: '13px', background: viewMode === 'live' ? '#eff6ff' : 'transparent', color: viewMode === 'live' ? '#2563eb' : '#64748b' }}>Live Class</button>
-                    <button onClick={() => setViewMode('history')} style={{ padding: '8px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '600', fontSize: '13px', background: viewMode === 'history' ? '#eff6ff' : 'transparent', color: viewMode === 'history' ? '#2563eb' : '#64748b' }}>Reports</button>
+                <div style={{ display: 'flex', gap: '5px', background: '#fff', padding: '5px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 2px 5px rgba(0,0,0,0.02)', flexWrap: 'wrap' }}>
+                    <button onClick={() => setViewMode('live')} style={{ flex: 1, padding: '8px 15px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '600', fontSize: '13px', background: viewMode === 'live' ? '#eff6ff' : 'transparent', color: viewMode === 'live' ? '#2563eb' : '#64748b' }}>Live Class</button>
+                    <button onClick={() => setViewMode('past')} style={{ flex: 1, padding: '8px 15px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '600', fontSize: '13px', background: viewMode === 'past' ? '#fffbeb' : 'transparent', color: viewMode === 'past' ? '#d97706' : '#64748b' }}>Past Entry</button>
+                    <button onClick={() => setViewMode('history')} style={{ flex: 1, padding: '8px 15px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '600', fontSize: '13px', background: viewMode === 'history' ? '#eff6ff' : 'transparent', color: viewMode === 'history' ? '#2563eb' : '#64748b' }}>Reports</button>
                 </div>
             </div>
 
@@ -1593,9 +1770,21 @@ const handleAttendanceUpdate = async (session, changes) => {
                                 <h3 style={{ fontSize: '14px', color: '#1e3a8a', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', fontWeight: '700' }}>
                                     <i className="fas fa-user-check" style={{ color: '#2563eb' }}></i> Manual Present
                                 </h3>
-                                <input type="number" placeholder="Single Roll No." value={manualRoll} onChange={(e) => setManualRoll(e.target.value)} className="modern-input" style={{ width: '100%', padding: '10px', fontSize: '13px', border: '1px solid #bfdbfe', borderRadius: '6px', background: 'white' }} />
-                                <button className="btn-modern-primary" onClick={handleManualMarkPresent} style={{ background: '#5091e6', color: '#2563eb', border: '1px solid #bfdbfe', marginTop: '10px', width: '100%', fontSize: '12px', padding: '8px', fontWeight: 'bold', cursor: 'pointer', borderRadius: '6px' }}>
-                                    Add Student
+                                {/* ✅ Changed type to 'text' and updated placeholder */}
+                                <input
+                                    type="text"
+                                    placeholder="Roll Nos (e.g. 1, 5, 12)"
+                                    value={manualRoll}
+                                    onChange={(e) => setManualRoll(e.target.value)}
+                                    className="modern-input"
+                                    style={{ width: '100%', padding: '10px', fontSize: '13px', border: '1px solid #bfdbfe', borderRadius: '6px', background: 'white' }}
+                                />
+                                <button
+                                    className="btn-modern-primary"
+                                    onClick={handleManualMarkPresent}
+                                    style={{ background: '#5091e6', color: '#2563eb', border: '1px solid #bfdbfe', marginTop: '10px', width: '100%', fontSize: '12px', padding: '8px', fontWeight: 'bold', cursor: 'pointer', borderRadius: '6px' }}
+                                >
+                                    Add Student(s)
                                 </button>
                             </div>
                         </div>
@@ -1639,6 +1828,77 @@ const handleAttendanceUpdate = async (session, changes) => {
                             </div>
                         </div>
                     )}
+                </div>
+            )}
+
+            {/* --- PAST ENTRY MODE --- */}
+            {viewMode === 'past' && (
+                <div className="cards-grid fade-in-up">
+                    <div className="card" style={{ borderTop: '4px solid #f59e0b', background: 'white' }}>
+                        <h3 style={{ margin: '0 0 5px 0', color: '#b45309', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '18px' }}>
+                            <i className="fas fa-history"></i> Add Past Attendance
+                        </h3>
+                        <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '20px' }}>
+                            Mark attendance for {selectedYear} {selectedYear === 'FE' && selectedDiv ? `(Div ${selectedDiv})` : ''} on a previous date.
+                        </p>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                            {/* Date Picker */}
+                            <CustomDatePicker label="Session Date" value={pastDate} onChange={setPastDate} />
+
+                            {/* Type Toggle */}
+                            <div>
+                                <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>Session Type</label>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <button onClick={() => setPastType('theory')} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: pastType === 'theory' ? '#2563eb' : 'white', color: pastType === 'theory' ? 'white' : '#64748b', fontWeight: 'bold', cursor: 'pointer', transition: 'all 0.2s' }}>Theory</button>
+                                    <button onClick={() => setPastType('practical')} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: pastType === 'practical' ? '#2563eb' : 'white', color: pastType === 'practical' ? 'white' : '#64748b', fontWeight: 'bold', cursor: 'pointer', transition: 'all 0.2s' }}>Practical</button>
+                                </div>
+                            </div>
+
+                            {/* Practical Config (Synced with Live Class) */}
+                            {pastType === 'practical' && (
+                                <div style={{ background: '#f8fafc', padding: '15px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                                    <div style={{ marginBottom: '12px' }}>
+                                        <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>Batch</label>
+                                        <CustomDropdown value={selectedBatch} onChange={setSelectedBatch} options={getBatchOptions()} placeholder="Select Batch" />
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '10px' }}>
+                                        <div style={{ flex: 1 }}>
+                                            <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>Start Roll</label>
+                                            <input type="number" value={rollStart} onChange={e => setRollStart(e.target.value)} onBlur={saveBatchRange} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', outline: 'none', background: 'white' }} />
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                            <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', display: 'block', marginBottom: '6px' }}>End Roll</label>
+                                            <input type="number" value={rollEnd} onChange={e => setRollEnd(e.target.value)} onBlur={saveBatchRange} style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', outline: 'none', background: 'white' }} />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Absent Rolls Input */}
+                            <div>
+                                <label style={{ fontSize: '11px', fontWeight: '800', color: '#ef4444', display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>
+                                    Absent Roll Numbers
+                                </label>
+                                <textarea
+                                    rows="3"
+                                    placeholder="Enter comma-separated rolls (e.g., 5, 12, 18). Leave blank if 100% present."
+                                    value={pastAbsent}
+                                    onChange={(e) => setPastAbsent(e.target.value)}
+                                    style={{ width: '100%', padding: '12px', fontSize: '14px', border: '2px solid #fecaca', borderRadius: '12px', outline: 'none', resize: 'vertical', background: '#fef2f2' }}
+                                />
+                            </div>
+
+                            <button
+                                onClick={handlePastAttendance}
+                                disabled={pastLoading}
+                                className="btn-modern-primary"
+                                style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', color: 'white', border: 'none', padding: '14px', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', boxShadow: '0 4px 12px rgba(245, 158, 11, 0.25)' }}
+                            >
+                                {pastLoading ? <i className="fas fa-spinner fa-spin"></i> : <><i className="fas fa-save"></i> Submit Record</>}
+                            </button>
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -1803,6 +2063,9 @@ const handleAttendanceUpdate = async (session, changes) => {
                                                 <button onClick={() => setEditingSession(session)} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#4f46e5', fontSize: '13px', fontWeight: '600', background: '#eef2ff', border: 'none', cursor: 'pointer', padding: '8px 12px', borderRadius: '8px' }}>
                                                     <i className="fas fa-edit"></i> Edit
                                                 </button>
+                                                <button onClick={() => setSessionToDelete(session)} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#ef4444', fontSize: '13px', fontWeight: '600', background: '#fef2f2', border: 'none', cursor: 'pointer', padding: '8px 12px', borderRadius: '8px' }}>
+                                                    <i className="fas fa-trash-alt"></i> Delete
+                                                </button>
                                             </div>
                                         </div>
 
@@ -1934,6 +2197,13 @@ const handleAttendanceUpdate = async (session, changes) => {
                     onUpdate={handleAttendanceUpdate}
                 />
             )}
+            {sessionToDelete && (
+                <DeleteSessionModal
+                    session={sessionToDelete}
+                    onClose={() => setSessionToDelete(null)}
+                    onConfirm={confirmDeleteSession}
+                />
+            )}
         </div>
     );
 };
@@ -2003,7 +2273,7 @@ const getLocation = async () => {
         try {
             return await Geolocation.getCurrentPosition({
                 enableHighAccuracy: true,
-                timeout: 10000, 
+                timeout: 10000,
                 maximumAge: 0
             });
         } catch (gpsError) {
@@ -2012,7 +2282,7 @@ const getLocation = async () => {
             // 3. 🛡️ ATTEMPT 2: Low Accuracy Fallback (Wi-Fi / Network)
             // This works best for Laptops/Indoors
             return await Geolocation.getCurrentPosition({
-                enableHighAccuracy: false, 
+                enableHighAccuracy: false,
                 timeout: 10000,
                 maximumAge: 30000 // Accept cached location up to 30s old
             });
@@ -2020,12 +2290,12 @@ const getLocation = async () => {
 
     } catch (error) {
         console.error("Location Error:", error);
-        
+
         // Specific Error for Web (HTTPS Requirement)
         if (!Capacitor.isNativePlatform() && window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
             throw new Error("Location requires HTTPS or Localhost.");
         }
-        
+
         // If it's a timeout error specifically
         if (error.code === 3 || error.message.includes("time")) {
             throw new Error("Location timed out. Please refresh or move to a better signal area.");
@@ -2167,33 +2437,38 @@ export default function TeacherDashboard() {
 
     useEffect(() => {
         if (!auth.currentUser) return;
-        const unsub = onSnapshot(doc(db, "users", auth.currentUser.uid), (doc) => {
-            if (doc.exists()) {
-                const data = doc.data();
+
+        const unsub = onSnapshot(doc(db, "users", auth.currentUser.uid), (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
                 setTeacherInfo(data);
 
-                // 1. Auto-Select Year if teacher has only one class
-                if (data.assignedClasses && data.assignedClasses.length === 1) {
-                    setSelectedYear(data.assignedClasses[0].year);
-                } else if (data.assignedYears && data.assignedYears.length === 1 && !data.assignedClasses) {
-                    setSelectedYear(data.assignedYears[0]);
-                } else if ((data.assignedClasses?.length > 1 || data.assignedYears?.length > 1) && !selectedYear) {
-                    setShowYearModal(true);
-                } else if (!selectedYear) {
-                    setSelectedYear('All');
-                }
+                // ✅ FIX: Only run auto-selection logic IF the app just loaded (selectedYear is null)
+                if (!selectedYear) {
 
-                // ✅ NEW: Auto-select default Division if FE is active
-                if (selectedYear === 'FE' && data.assignedClasses) {
-                    const feClass = data.assignedClasses.find(c => c.year === 'FE');
-                    // If teacher has "A, B" assigned, auto-select "A"
-                    if (feClass && feClass.divisions) {
-                        const firstDiv = feClass.divisions.split(',')[0].trim();
-                        setSelectedDiv(firstDiv);
+                    if (data.assignedClasses && data.assignedClasses.length === 1) {
+                        // Teacher only has 1 class, auto-select it!
+                        const singleClass = data.assignedClasses[0];
+                        setSelectedYear(singleClass.year);
+
+                        // Auto-select division if FE
+                        if (singleClass.year === 'FE' && singleClass.divisions) {
+                            setSelectedDiv(singleClass.divisions.split(',')[0].trim());
+                        }
+                    } else if (data.assignedYears && data.assignedYears.length === 1 && !data.assignedClasses) {
+                        setSelectedYear(data.assignedYears[0]);
+                    } else if ((data.assignedClasses?.length > 1 || data.assignedYears?.length > 1)) {
+                        // Teacher has multiple classes -> Show the Modal to let THEM choose
+                        setShowYearModal(true);
+                    } else {
+                        setSelectedYear('All');
                     }
+
                 }
+                // Notice: We completely removed the block that was forcing "Div A" on every re-render!
             }
         });
+
         return () => unsub();
     }, [auth.currentUser, selectedYear]);
 
@@ -2553,6 +2828,8 @@ export default function TeacherDashboard() {
             }
         }
     };
+
+
 
 
 
@@ -2966,6 +3243,7 @@ export default function TeacherDashboard() {
                                     }
 
                                     setShowYearModal(true);
+                                    setIsMobileNavOpen(false);
                                 }}
                                 className="edit-profile-pill"
                                 style={{

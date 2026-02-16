@@ -125,17 +125,19 @@ const getLocation = async () => {
             await enableAndroidLocation();
         }
 
-        // STEP 2: Check Permissions
-        let permissionStatus = await Geolocation.checkPermissions();
+        // STEP 2: Check Permissions (✅ FIX: Run on Native Devices Only)
+        if (Capacitor.isNativePlatform()) {
+            let permissionStatus = await Geolocation.checkPermissions();
 
-        if (permissionStatus.location === 'denied') {
-            throw new Error("Location permission denied. Please allow it in settings.");
-        }
+            if (permissionStatus.location === 'denied') {
+                throw new Error("Location permission denied. Please allow it in settings.");
+            }
 
-        if (permissionStatus.location !== 'granted') {
-            const request = await Geolocation.requestPermissions();
-            if (request.location !== 'granted') {
-                throw new Error("Location permission is required to mark attendance.");
+            if (permissionStatus.location !== 'granted') {
+                const request = await Geolocation.requestPermissions();
+                if (request.location !== 'granted') {
+                    throw new Error("Location permission is required to mark attendance.");
+                }
             }
         }
 
@@ -168,8 +170,13 @@ const getLocation = async () => {
         if (error.code === 2 || error.message.includes("disabled") || error.message.includes("location")) {
             throw new Error("⚠️ GPS is OFF or Signal is Weak. Turn on Location.");
         }
-        if (error.code === 3) {
+        if (error.code === 3 || error.message.includes("time")) {
             throw new Error("⏳ Location Timeout. Move outdoors or try again.");
+        }
+
+        // Custom error for web without HTTPS
+        if (!Capacitor.isNativePlatform() && window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+            throw new Error("Location requires HTTPS or Localhost.");
         }
 
         throw error;
@@ -500,7 +507,9 @@ const AttendanceOverview = ({ user }) => {
                     const data = doc.data();
 
                     // Filter 1: Must match Year
-                    if (data.targetYear !== 'All' && data.targetYear !== user.year) return;
+                    // Filter 1: Must match Year (Fallback for both targetYear and year fields)
+                    const sessionYear = data.year || data.targetYear;
+                    if (sessionYear !== 'All' && sessionYear !== user.year) return;
 
                     // Filter 2: Must match Division (if applicable)
                     const studentDiv = user.division || user.div;
@@ -1255,7 +1264,8 @@ export default function StudentDashboard() {
                     const data = doc.data();
 
                     // 1. Check Year Match
-                    const isYearMatch = data.targetYear === 'All' || data.targetYear === user.year;
+                    const sessionYear = data.year || data.targetYear;
+                    const isYearMatch = sessionYear === 'All' || sessionYear === user.year;
                     if (!isYearMatch) return false;
 
                     // ✅ 2. NEW: Check Division Match
