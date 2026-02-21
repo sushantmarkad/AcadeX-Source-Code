@@ -58,7 +58,7 @@ export default function AiChatbot({ user, isOpenProp, onClose }) {
             if (!showHistory) {
                 setMessages([{ 
                     sender: 'bot', 
-                    text: `Hey ${userName}! 👋\nI'm your AcadeX Coach.\n\nType a topic (e.g. "Photosynthesis") to start!` 
+                    text: `Hey ${userName}! 👋\nI'm your trackee Coach.\n\nType a topic (e.g. "Photosynthesis") to start!` 
                 }]);
             }
             return;
@@ -244,7 +244,7 @@ export default function AiChatbot({ user, isOpenProp, onClose }) {
                         <div className="header-info" onClick={() => setShowHistory(!showHistory)} style={{cursor:'pointer'}}>
                             <div className="bot-avatar"><i className="fas fa-brain"></i></div>
                             <div className="bot-details">
-                                <h3>AcadeX AI {showHistory && "(History)"}</h3>
+                                <h3>Trackee AI {showHistory && "(History)"}</h3>
                                 <span className="bot-status">{activeTopic || "Online"}</span>
                             </div>
                         </div>

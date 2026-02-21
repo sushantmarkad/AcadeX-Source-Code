@@ -361,7 +361,7 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
 
             {/* --- SHARED CSS --- */}
             <style>{`
-                .task-page-container { max-width: 1200px; margin: 0 auto; padding-bottom: 120px; }
+                .task-page-container { max-width: 1200px; margin: 0 auto; padding-bottom: 85px; }
                 .task-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
                 .gradient-text { 
                     background: linear-gradient(135deg, #7c3aed 0%, #db2777 100%);

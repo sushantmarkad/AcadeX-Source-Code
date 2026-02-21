@@ -59,27 +59,42 @@ const getRelativeTime = (timestamp) => {
     return date.toLocaleDateString();
 };
 
-// --- ✅ HELPER: ROBUST DEVICE ID (Anti-Proxy) ---
+// --- ✅ HELPER: BULLETPROOF DEVICE ID (Anti-Proxy Fix) ---
 const getUniqueDeviceId = async () => {
+    // 1. Check if we already created a permanent ID for this exact device installation
+    const storedId = localStorage.getItem('trackee_secure_device_id');
+    if (storedId) return storedId;
+
+    let baseId = '';
+
     try {
         // A. Try getting the NATIVE DEVICE UUID (For Mobile App)
         const info = await Device.getId();
         if (info && info.uuid) {
-            return `app-${info.uuid}`;
+            baseId = `app-${info.uuid}`;
         }
     } catch (err) {
-        // Not running as an app, continue to web method...
+        console.warn("Native ID failed, falling back to Web");
     }
 
-    // B. Browser Fingerprinting (For Website)
-    try {
-        const fp = await FingerprintJS.load();
-        const result = await fp.get();
-        return `web-${result.visitorId}`;
-    } catch (err) {
-        // Fallback (Rare)
-        return 'unknown-device-' + Math.random();
+    // B. Browser Fingerprinting Fallback
+    if (!baseId) {
+        try {
+            const fp = await FingerprintJS.load();
+            const result = await fp.get();
+            baseId = `web-${result.visitorId}`;
+        } catch (err) {
+            baseId = 'unknown';
+        }
     }
+
+    // 2. Add a random salt to guarantee uniqueness even if two phones are identical models!
+    const finalDeviceId = `${baseId}-${Math.random().toString(36).substring(2, 10)}`;
+
+    // 3. Save it permanently to the device's local storage
+    localStorage.setItem('trackee_secure_device_id', finalDeviceId);
+
+    return finalDeviceId;
 };
 
 const enableAndroidLocation = async () => {
@@ -395,13 +410,10 @@ const handleAttendance = async (sessionIdFromQR) => {
     const toastId = toast.loading("Verifying security...");
 
     try {
-        // 1. Generate the Unique Device Hardware ID
-        const fp = await FingerprintJS.load();
-        const result = await fp.get();
-        const hardwareId = result.visitorId;
+        // ✅ FIX: Use the bulletproof helper function we just created!
+        const hardwareId = await getUniqueDeviceId();
 
         // 2. ✅ UPDATED: Get Location using the new Native Plugin
-        // (This line now waits for the user to turn on GPS if needed)
         const position = await getLocation();
 
         const token = await auth.currentUser.getIdToken();

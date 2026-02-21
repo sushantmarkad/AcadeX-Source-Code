@@ -792,7 +792,7 @@ export default function AddTasks({ teacherInfo }) {
         border: none;
     }
 }
-                .task-page-container { max-width: 1200px; margin: 0 auto; padding-bottom: 50px; }
+                .task-page-container { max-width: 1200px; margin: 0 auto; padding-bottom: 85px; }
                 .gradient-text { background: linear-gradient(135deg, #7c3aed 0%, #db2777 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 24px; font-weight: 700; margin: 0; }
                 .subtitle { color: #64748b; font-size: 14px; margin-top: 5px; }
                 .task-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
