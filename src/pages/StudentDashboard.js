@@ -659,8 +659,8 @@ const StudentTestResults = ({ user }) => {
     if (loading) return <div className="card" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Loading results...</div>;
 
     return (
-        <div className="card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+        <div className="card" style={{ maxHeight: '350px', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', flexShrink: 0 }}>
                 <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Recent Test Results</h3>
                 <span style={{ fontSize: '12px', background: '#eff6ff', padding: '4px 10px', borderRadius: '20px', color: '#2563eb', fontWeight: '600' }}>
                     {results.length} Tests
@@ -668,7 +668,8 @@ const StudentTestResults = ({ user }) => {
             </div>
 
             {results.length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                // ✅ ADDED: overflowY and paddingRight for the scrollbar
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto', paddingRight: '5px', flex: 1 }}>
                     {results.map(res => (
                         <div key={res.id} style={{
                             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -704,27 +705,111 @@ const StudentTestResults = ({ user }) => {
     );
 };
 
-// --- DASHBOARD HOME (Updated with Biometrics) ---
+// --- COMPONENT: Student Assignment Marks (New Card) ---
+const StudentAssignmentResults = ({ user }) => {
+    const [results, setResults] = useState([]);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        if (!user?.uid) return;
+
+        const q = query(
+            collection(db, 'assignment_marks'),
+            where('year', '==', user.year),
+            where('department', '==', user.department),
+            orderBy('date', 'desc'),
+            limit(5)
+        );
+
+        const unsub = onSnapshot(q, (snapshot) => {
+            const myResults = [];
+            snapshot.docs.forEach(doc => {
+                const data = doc.data();
+                const studentScore = data.scores ? data.scores[user.uid] : null;
+
+                if (studentScore) {
+                    myResults.push({
+                        id: doc.id,
+                        testName: data.testName, 
+                        subject: data.subject,
+                        date: data.date,
+                        maxMarks: data.maxMarks,
+                        obtained: studentScore.marks,
+                        status: studentScore.status
+                    });
+                }
+            });
+            setResults(myResults);
+            setLoading(false);
+        });
+
+        return () => unsub();
+    }, [user]);
+
+    if (loading) return <div className="card" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Loading assignments...</div>;
+
+    return (
+        <div className="card" style={{ maxHeight: '350px', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', flexShrink: 0 }}>
+                <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>Recent Assignment Marks</h3>
+                <span style={{ fontSize: '12px', background: '#fef3c7', padding: '4px 10px', borderRadius: '20px', color: '#d97706', fontWeight: '600' }}>
+                    {results.length} Assignments
+                </span>
+            </div>
+
+            {results.length > 0 ? (
+                // ✅ ADDED: overflowY and paddingRight for the scrollbar
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto', paddingRight: '5px', flex: 1 }}>
+                    {results.map(res => (
+                        <div key={res.id} style={{
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            padding: '12px', background: '#f8fafc', borderRadius: '12px',
+                            borderLeft: res.status === 'Pass' ? '4px solid #10b981' : '4px solid #ef4444'
+                        }}>
+                            <div>
+                                <h4 style={{ margin: '0 0 4px 0', fontSize: '14px', color: '#334155' }}>{res.testName}</h4>
+                                <p style={{ margin: 0, fontSize: '11px', color: '#64748b' }}>
+                                    {res.subject} • {new Date(res.date).toLocaleDateString()}
+                                </p>
+                            </div>
+                            <div style={{ textAlign: 'right' }}>
+                                <span style={{ display: 'block', fontSize: '16px', fontWeight: 'bold', color: '#1e293b' }}>
+                                    {res.obtained} <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 'normal' }}>/ {res.maxMarks}</span>
+                                </span>
+                                <span style={{
+                                    fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase',
+                                    color: res.status === 'Pass' ? '#16a34a' : '#dc2626'
+                                }}>
+                                    {res.status}
+                                </span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8', fontSize: '14px' }}>
+                    No assignment marks released yet.
+                </div>
+            )}
+        </div>
+    );
+};
+
+// --- DASHBOARD HOME (Updated with Biometrics & Reordered Cards) ---
 const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession, recentAttendance, setShowScanner, currentSlot, onBiometricAttendance, bioLoading, openNativeCameraForQR, setShowPinModal }) => {
 
-    // ✅ NEW: Logic to extract "Sushant" from "Sushant Sukhadev"
-    // If lastName exists, take the first word. Otherwise fallback to firstName.
     const displayName = user?.lastName ? user.lastName.split(' ')[0] : user?.firstName;
 
-    // ✅ FETCH TODAY'S ATTENDANCE (Full Day History)
     useEffect(() => {
         if (!auth.currentUser) return;
-
-        // 1. Get Start of Today (Midnight)
         const startOfDay = new Date();
         startOfDay.setHours(0, 0, 0, 0);
 
-        // 2. Query: Filter by User + Time >= Midnight (Today)
         const q = query(
             collection(db, "attendance"),
             where("studentId", "==", auth.currentUser.uid),
-            where("timestamp", ">=", startOfDay), // ✅ Shows ALL scans from today
-            orderBy("timestamp", "desc") // Newest first
+            where("timestamp", ">=", startOfDay), 
+            orderBy("timestamp", "desc") 
         );
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -733,9 +818,7 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                 return {
                     id: doc.id,
                     ...data,
-                    // ✅ Create a nice time string (e.g., "10:30 AM")
                     timeDisplay: data.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    // ✅ Keep the date for reference if needed
                     dateDisplay: data.timestamp?.toDate().toLocaleDateString()
                 };
             }));
@@ -746,26 +829,20 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
 
     return (
         <div className="content-section">
-            {/* ✅ UPDATED: Uses the formatted name */}
             <h2 className="content-title">Welcome, {displayName}!</h2>
+            
             <div className="cards-grid">
+                
+                {/* 1. Smart Schedule Card */}
                 <SmartScheduleCard user={user} currentSlot={currentSlot} loading={!currentSlot} />
 
-                <AttendanceOverview user={user} />
-                <StudentTestResults user={user} />
-                {/* ✅ MODERN LIVE ATTENDANCE CARD */}
-                {/* ✨ ULTRA-MODERN ATTENDANCE CARD ✨ */}
+                {/* 2. ✨ ULTRA-MODERN LIVE ATTENDANCE CARD ✨ */}
                 <div className="card" style={{
-                    background: 'linear-gradient(120deg, #4f46e5 0%, #0ea5e9 100%)', // Indigo to Sky Blue
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '24px',
-                    boxShadow: '0 20px 40px -10px rgba(79, 70, 229, 0.5)', // Matching colored glow
-                    position: 'relative',
-                    overflow: 'hidden',
-                    padding: '28px'
+                    background: 'linear-gradient(120deg, #4f46e5 0%, #0ea5e9 100%)', 
+                    color: 'white', border: 'none', borderRadius: '24px',
+                    boxShadow: '0 20px 40px -10px rgba(79, 70, 229, 0.5)', 
+                    position: 'relative', overflow: 'hidden', padding: '28px'
                 }}>
-                    {/* 🎨 Abstract Background Shapes */}
                     <div style={{
                         position: 'absolute', top: '-60px', right: '-60px',
                         width: '220px', height: '220px',
@@ -780,7 +857,6 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                     }}></div>
 
                     <div style={{ position: 'relative', zIndex: 10 }}>
-                        {/* Header: Label & Status */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                 <div style={{
@@ -797,9 +873,7 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                             {liveSession && (
                                 <div className="pulsate" style={{
                                     background: 'rgba(255,255,255,0.25)', border: '1px solid rgba(255,255,255,0.4)',
-                                    padding: '6px 14px', borderRadius: '30px',
-                                    display: 'flex', alignItems: 'center', gap: '8px',
-                                    backdropFilter: 'blur(4px)'
+                                    padding: '6px 14px', borderRadius: '30px', display: 'flex', alignItems: 'center', gap: '8px', backdropFilter: 'blur(4px)'
                                 }}>
                                     <div style={{ width: '8px', height: '8px', background: '#bef264', borderRadius: '50%', boxShadow: '0 0 8px #bef264' }}></div>
                                     <span style={{ fontSize: '11px', fontWeight: '800', letterSpacing: '0.5px' }}>LIVE</span>
@@ -807,14 +881,10 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                             )}
                         </div>
 
-                        {/* Content Body */}
                         {liveSession ? (
                             <div>
                                 <div style={{ marginBottom: '28px' }}>
-                                    <h1 style={{
-                                        fontSize: '34px', fontWeight: '800', margin: '0',
-                                        lineHeight: '1.1', textShadow: '0 4px 15px rgba(0,0,0,0.2)'
-                                    }}>
+                                    <h1 style={{ fontSize: '34px', fontWeight: '800', margin: '0', lineHeight: '1.1', textShadow: '0 4px 15px rgba(0,0,0,0.2)' }}>
                                         {liveSession.subject}
                                     </h1>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', opacity: 0.85 }}>
@@ -825,25 +895,16 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                                     </div>
                                 </div>
 
-                                {/* 🚀 SMART SCAN BUTTON */}
                                 <button
                                     onClick={() => {
                                         if (Capacitor.isNativePlatform()) openNativeCameraForQR();
                                         else setShowScanner(true);
                                     }}
                                     style={{
-                                        background: 'white',
-                                        color: '#4f46e5', // Matches the Indigo gradient
-                                        border: 'none',
-                                        width: '100%',
-                                        padding: '18px',
-                                        borderRadius: '18px',
-                                        fontSize: '16px',
-                                        fontWeight: '800',
-                                        cursor: 'pointer',
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px',
-                                        boxShadow: '0 8px 25px rgba(0,0,0,0.2)',
-                                        transition: 'transform 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
+                                        background: 'white', color: '#4f46e5', border: 'none', width: '100%',
+                                        padding: '18px', borderRadius: '18px', fontSize: '16px', fontWeight: '800',
+                                        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px',
+                                        boxShadow: '0 8px 25px rgba(0,0,0,0.2)', transition: 'transform 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
                                         position: 'relative', overflow: 'hidden'
                                     }}
                                     onMouseDown={e => e.currentTarget.style.transform = 'scale(0.96)'}
@@ -853,25 +914,15 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                                     <i className="fas fa-expand" style={{ fontSize: '18px' }}></i>
                                     {Capacitor.isNativePlatform() ? "Scan Now" : "Open Scanner"}
                                 </button>
-                                {/* ✅ STYLED DYNAMIC PIN BUTTON */}
+                                
                                 <div style={{ textAlign: 'center', marginTop: '20px' }}>
                                     <button
                                         onClick={() => setShowPinModal(true)}
                                         style={{
-                                            background: 'rgba(255, 255, 255, 0.15)', // Glass effect
-                                            border: '1px solid rgba(255, 255, 255, 0.3)',
-                                            borderRadius: '30px',
-                                            padding: '10px 20px',
-                                            color: 'white',
-                                            fontSize: '13px',
-                                            fontWeight: '600',
-                                            cursor: 'pointer',
-                                            display: 'inline-flex',
-                                            alignItems: 'center',
-                                            gap: '8px',
-                                            backdropFilter: 'blur(5px)',
-                                            transition: 'all 0.2s ease',
-                                            boxShadow: '0 4px 15px rgba(0, 0, 0, 0.1)'
+                                            background: 'rgba(255, 255, 255, 0.15)', border: '1px solid rgba(255, 255, 255, 0.3)',
+                                            borderRadius: '30px', padding: '10px 20px', color: 'white', fontSize: '13px',
+                                            fontWeight: '600', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px',
+                                            backdropFilter: 'blur(5px)', transition: 'all 0.2s ease', boxShadow: '0 4px 15px rgba(0, 0, 0, 0.1)'
                                         }}
                                         onMouseEnter={e => {
                                             e.currentTarget.style.background = 'rgba(255, 255, 255, 0.25)';
@@ -882,7 +933,7 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                                             e.currentTarget.style.transform = 'translateY(0)';
                                         }}
                                     >
-                                        <i className="fas fa-keyboard"></i> {/* Added Icon */}
+                                        <i className="fas fa-keyboard"></i>
                                         Enter Dynamic PIN
                                     </button>
                                 </div>
@@ -893,9 +944,7 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                                 textAlign: 'center', border: '1px dashed rgba(253, 253, 253, 0.3)',
                                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px'
                             }}>
-                                {/* ✅ FIX: Explicitly added color: 'white' */}
                                 <i className="fas fa-coffee" style={{ fontSize: '28px', opacity: 0.8, color: 'white' }}></i>
-
                                 <p style={{ fontSize: '14px', fontWeight: '500', margin: 0, opacity: 0.9, color: 'white' }}>
                                     No active class. Enjoy your break!
                                 </p>
@@ -904,7 +953,7 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                     </div>
                 </div>
 
-                {/* ✅ TODAY'S HISTORY CARD (Scrollable) */}
+                {/* 3. TODAY'S HISTORY CARD */}
                 <div className="card" style={{ maxHeight: '400px', display: 'flex', flexDirection: 'column' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
                         <h3 style={{ margin: 0 }}>Today's History</h3>
@@ -940,6 +989,16 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                         )}
                     </div>
                 </div>
+
+                {/* 4. Attendance Overview (Theory/Practical Circles) */}
+                <AttendanceOverview user={user} />
+
+                {/* 5. Test Results (Now at the bottom) */}
+                <StudentTestResults user={user} />
+
+                {/* 6. Assignment Marks (Now at the bottom) */}
+                <StudentAssignmentResults user={user} />
+
             </div>
         </div>
     );

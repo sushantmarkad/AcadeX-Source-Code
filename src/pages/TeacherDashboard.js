@@ -19,6 +19,7 @@ import ReactDOM from 'react-dom';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import MarksManager from './MarksManager';
+import AssignmentMarksManager from './AssignmentMarksManager';
 
 
 // Component Imports
@@ -697,7 +698,6 @@ const prepareReportData = (sessions, allStudents) => {
 
     // 2. Define Columns (Date headers with Batch Info)
     const dateColumns = sortedSessions.map((s) => ({
-        // ✅ NEW: If practical, add Batch Name to the header (e.g., "10:30 (Pr-A1)")
         header: `${s.startTime.split(',')[0].slice(0, 5)}\n${s.type === 'practical' ? `(Pr-${s.batch})` : '(Th)'}`,
         dataKey: s.sessionId
     }));
@@ -724,7 +724,8 @@ const prepareReportData = (sessions, allStudents) => {
     const tableRows = targetStudents.map(student => {
         const row = {
             rollNo: student.rollNo,
-            name: `${student.firstName} ${student.lastName}`,
+            // 👇 UPDATED: Added .toUpperCase() here to format names in both PDF and Excel
+            name: `${student.firstName} ${student.lastName}`.toUpperCase(),
             totalHeld: 0,
             totalAttended: 0
         };
@@ -834,11 +835,12 @@ const generatePDFReport = (teacherInfo, selectedYear, selectedDiv, subject, star
         head: [tableColumns.map(c => c.header)],
         body: rows.map(r => tableColumns.map(c => r[c.dataKey])),
         theme: 'grid',
-        styles: { fontSize: 8, cellPadding: 2, halign: 'center', valign: 'middle' },
+        styles: { fontSize: 7.5, cellPadding: 1.5, halign: 'center', valign: 'middle' },
         headStyles: { fillColor: [59, 130, 246], textColor: 255, fontStyle: 'bold' },
         columnStyles: {
             0: { cellWidth: 12, fontStyle: 'bold' },
-            1: { cellWidth: 40, halign: 'left' },
+            // 👇 FIX: Changed from 60 to 'auto'. This makes it perfectly wrap the longest name without wasting space!
+            1: { cellWidth: 'auto', halign: 'left' }, 
         },
         didParseCell: function (data) {
             if (data.section === 'body') {
@@ -883,6 +885,7 @@ const DashboardHome = ({
     const [pastType, setPastType] = useState('theory');
     const [pastAbsent, setPastAbsent] = useState("");
     const [pastLoading, setPastLoading] = useState(false);
+    const [reportBatchFilter, setReportBatchFilter] = useState('All');
 
 
     // Fetch Class Strength for Percentage (Fixed for Division)
@@ -967,10 +970,42 @@ const DashboardHome = ({
         }
     };
 
+   // 👇 REPLACE YOUR EXISTING filteredHistorySessions WITH THIS 👇
     const filteredHistorySessions = historySessions.filter(session => {
-        if (reportFilter === 'All') return true;
-        return session.type === reportFilter.toLowerCase();
+        if (reportFilter !== 'All' && session.type !== reportFilter.toLowerCase()) return false;
+        if (reportFilter === 'Practical' && reportBatchFilter !== 'All') {
+            if (session.batch !== reportBatchFilter) return false;
+        }
+        return true;
     });
+
+    // ✅ NEW: Filter Students specifically for the Batch Report
+    let studentsForReport = allStudentsReport;
+    if (reportFilter === 'Practical' && reportBatchFilter !== 'All') {
+        const batchKey = `${selectedYear}_${reportBatchFilter}`;
+        const bSettings = teacherInfo?.batchSettings?.[batchKey];
+        
+        if (bSettings) {
+            const s = parseInt(bSettings.start);
+            const e = parseInt(bSettings.end);
+            studentsForReport = allStudentsReport.filter(st => {
+                const r = parseInt(st.rollNo);
+                return r >= s && r <= e;
+            });
+        } else {
+            // Fallback: Infer from sessions
+            const ranges = filteredHistorySessions.map(s => s.rollRange).filter(Boolean);
+            if (ranges.length > 0) {
+                const min = Math.min(...ranges.map(r => r.start));
+                const max = Math.max(...ranges.map(r => r.end));
+                studentsForReport = allStudentsReport.filter(st => {
+                    const r = parseInt(st.rollNo);
+                    return r >= min && r <= max;
+                });
+            }
+        }
+    }
+   
 
     // --- 🟢 NEW: Batch Option Generator ---
     const getBatchOptions = () => {
@@ -1926,6 +1961,7 @@ const DashboardHome = ({
                             />
                         </div>
 
+                        {/* 👇 REPLACE FROM "Report Type Toggle" DOWN TO "export-actions" WITH THIS 👇 */}
                         {/* Report Type Toggle */}
                         <div style={{ flex: 1.5, minWidth: '200px' }}>
                             <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>Report Type</label>
@@ -1933,7 +1969,11 @@ const DashboardHome = ({
                                 {['All', 'Theory', 'Practical'].map(type => (
                                     <button
                                         key={type}
-                                        onClick={() => setReportFilter(type)}
+                                        onClick={() => {
+                                            setReportFilter(type);
+                                            // ✅ Reset batch filter if switching away from practical
+                                            if (type !== 'Practical') setReportBatchFilter('All');
+                                        }}
                                         style={{
                                             flex: 1, padding: '8px', border: 'none',
                                             background: reportFilter === type ? '#eff6ff' : 'transparent',
@@ -1948,39 +1988,47 @@ const DashboardHome = ({
                             </div>
                         </div>
 
+                        {/* ✅ NEW: Batch Filter for Practical Reports */}
+                        {reportFilter === 'Practical' && (
+                            <div style={{ flex: 1, minWidth: '120px' }}>
+                                <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>Batch</label>
+                                <CustomDropdown
+                                    value={reportBatchFilter}
+                                    onChange={(val) => setReportBatchFilter(val)}
+                                    options={[
+                                        { value: 'All', label: 'All Batches' },
+                                        ...getBatchOptions()
+                                    ]}
+                                    placeholder="Select Batch"
+                                />
+                            </div>
+                        )}
+
                         {/* Dates */}
                         <div style={{ flex: 2, minWidth: '220px', display: 'flex', gap: '10px' }}>
                             <div style={{ flex: 1 }}>
                                 <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>From</label>
                                 <div style={{ position: 'relative', width: '100%' }}>
-                                    <input
-                                        type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
-                                        onClick={(e) => e.target.showPicker && e.target.showPicker()}
-                                        style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '14px', fontWeight: '600', color: '#334155', outline: 'none', background: 'white', cursor: 'pointer' }}
-                                    />
+                                    <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} onClick={(e) => e.target.showPicker && e.target.showPicker()} style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '14px', fontWeight: '600', color: '#334155', outline: 'none', background: 'white', cursor: 'pointer' }} />
                                 </div>
                             </div>
                             <div style={{ flex: 1 }}>
                                 <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>To</label>
                                 <div style={{ position: 'relative', width: '100%' }}>
-                                    <input
-                                        type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
-                                        onClick={(e) => e.target.showPicker && e.target.showPicker()}
-                                        style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '14px', fontWeight: '600', color: '#334155', outline: 'none', background: 'white', cursor: 'pointer' }}
-                                    />
+                                    <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} onClick={(e) => e.target.showPicker && e.target.showPicker()} style={{ width: '100%', padding: '12px', borderRadius: '12px', border: '1px solid #cbd5e1', fontSize: '14px', fontWeight: '600', color: '#334155', outline: 'none', background: 'white', cursor: 'pointer' }} />
                                 </div>
                             </div>
                         </div>
 
-                        {/* ✅ MODERN EXPORT BUTTONS */}
+                        {/* ✅ MODERN EXPORT BUTTONS (Now using studentsForReport) */}
                         <div className="export-actions">
                             <button
                                 onClick={() => {
                                     if (filteredHistorySessions.length === 0) return toast.error("No data matches current filter");
                                     generatePDFReport(
                                         teacherInfo, selectedYear, selectedDiv,
-                                        `${getSubjectForHistory()} (${reportFilter})`,
-                                        startDate, endDate, filteredHistorySessions, allStudentsReport
+                                        `${getSubjectForHistory()} (${reportFilter}${reportFilter === 'Practical' && reportBatchFilter !== 'All' ? ` - Batch ${reportBatchFilter}` : ''})`,
+                                        startDate, endDate, filteredHistorySessions, studentsForReport
                                     );
                                 }}
                                 className={`btn-export btn-pdf ${filteredHistorySessions.length === 0 ? 'btn-disabled' : ''}`}
@@ -1991,16 +2039,16 @@ const DashboardHome = ({
 
                             {filteredHistorySessions.length > 0 ? (
                                 <CSVLink
-                                    data={prepareReportData(filteredHistorySessions, allStudentsReport).rows}
+                                    data={prepareReportData(filteredHistorySessions, studentsForReport).rows}
                                     headers={[
                                         { label: "Roll No", key: "rollNo" },
                                         { label: "Name", key: "name" },
-                                        ...prepareReportData(filteredHistorySessions, allStudentsReport).columns.map(c => ({ label: c.header.replace('\n', ' '), key: c.dataKey })),
+                                        ...prepareReportData(filteredHistorySessions, studentsForReport).columns.map(c => ({ label: c.header.replace('\n', ' '), key: c.dataKey })),
                                         { label: "Total Lectures", key: "totalHeld" },
                                         { label: "Attended", key: "totalAttended" },
                                         { label: "Percentage", key: "percentage" }
                                     ]}
-                                    filename={`Attendance_${reportFilter}_${getSubjectForHistory()}.csv`}
+                                    filename={`Attendance_${reportFilter}${reportFilter === 'Practical' && reportBatchFilter !== 'All' ? `_Batch_${reportBatchFilter}` : ''}_${getSubjectForHistory()}.csv`}
                                     className="btn-export btn-excel"
                                 >
                                     <i className="fas fa-file-excel"></i> Excel
@@ -2372,6 +2420,383 @@ const CustomDatePicker = ({ label, value, onChange }) => {
                         options={years}
                     />
                 </div>
+            </div>
+        </div>
+    );
+};
+/// ------------------------------------
+//  COMPONENT: CCE MANAGER (FULLY AUTOMATED)
+// ------------------------------------
+const CCEManager = ({ teacherInfo, selectedYear, selectedDiv }) => {
+    const [students, setStudents] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [showSettings, setShowSettings] = useState(false);
+    
+    // Editable Formula Settings
+    const [formula, setFormula] = useState({
+        multiplier: 40,
+        divisor: 180,
+    });
+
+    const currentSubject = (teacherInfo?.assignedClasses?.find(c => c.year === selectedYear)?.subject || teacherInfo?.subject || '').trim();
+
+    useEffect(() => {
+        const fetchCCEData = async () => {
+            if (!teacherInfo?.instituteId || !selectedYear || !currentSubject) return;
+            setLoading(true);
+
+            try {
+                // 1. Fetch Students
+                let qStudents = query(collection(db, 'users'), 
+                    where('instituteId', '==', teacherInfo.instituteId), 
+                    where('role', '==', 'student'), 
+                    where('year', '==', selectedYear), 
+                    where('department', '==', teacherInfo.department)
+                );
+                const studentSnap = await getDocs(qStudents);
+                let studentList = studentSnap.docs.map(doc => ({ id: doc.id, ...doc.data(), rollNo: parseInt(doc.data().rollNo) }));
+                
+                if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
+                    studentList = studentList.filter(s => s.division === selectedDiv);
+                }
+                studentList.sort((a, b) => a.rollNo - b.rollNo);
+
+                // 2. Fetch Total Theory Sessions STRICTLY BY SUBJECT
+                const qSessions = query(collection(db, 'live_sessions'), 
+                    where('instituteId', '==', teacherInfo.instituteId)
+                );
+                const sessionsSnap = await getDocs(qSessions);
+                
+                let totalTheorySessions = 0;
+                const validTheorySessionIds = new Set();
+                
+                sessionsSnap.docs.forEach(doc => {
+                    const data = doc.data();
+                    const sessionSubj = (data.subject || '').trim();
+                    if (sessionSubj.toLowerCase() !== currentSubject.toLowerCase()) return;
+                    
+                    const sessionYear = data.year || data.targetYear;
+                    if (sessionYear && sessionYear !== 'All' && sessionYear !== selectedYear) return;
+                    
+                    if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
+                        if (data.division && data.division !== 'All' && data.division !== selectedDiv) return;
+                    }
+                    
+                    if (data.type !== 'practical') {
+                        totalTheorySessions++;
+                        validTheorySessionIds.add(doc.id);
+                    }
+                });
+
+                const safeTotalSessions = totalTheorySessions > 0 ? totalTheorySessions : 1;
+
+                // 3. Fetch Attendance matching ONLY our Valid Theory Sessions
+                const qAtt = query(collection(db, 'attendance'), 
+                    where('instituteId', '==', teacherInfo.instituteId)
+                );
+                const attSnap = await getDocs(qAtt);
+                
+                const studentAttendanceCount = {};
+                
+                attSnap.forEach(doc => {
+                    const data = doc.data();
+                    if (data.status === 'Present' && validTheorySessionIds.has(data.sessionId)) {
+                        if (data.studentId) {
+                            studentAttendanceCount[data.studentId] = (studentAttendanceCount[data.studentId] || 0) + 1;
+                        }
+                    }
+                });
+
+                // 4. Fetch Existing Test Marks
+                const qMarks = query(collection(db, 'exam_marks'), 
+                    where('teacherId', '==', teacherInfo.id || auth.currentUser.uid), 
+                    where('year', '==', selectedYear)
+                );
+                const marksSnap = await getDocs(qMarks);
+                let fetchedTests = marksSnap.docs.map(doc => doc.data());
+                
+                fetchedTests = fetchedTests.filter(t => {
+                    const tSubj = (t.subject || '').trim();
+                    if (tSubj.toLowerCase() !== currentSubject.toLowerCase()) return false;
+                    if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
+                        if (t.division !== selectedDiv) return false;
+                    }
+                    return true;
+                });
+                
+                fetchedTests.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                const testMarksMap = {};
+                fetchedTests.forEach((testDoc, index) => {
+                    let testSlot = `test${index + 1}`; 
+                    const tName = (testDoc.testName || '').toLowerCase();
+                    if (tName.includes('1')) testSlot = 'test1';
+                    else if (tName.includes('2')) testSlot = 'test2';
+                    else if (tName.includes('3')) testSlot = 'test3';
+                    else if (index > 2) return; 
+
+                    const scoresMap = testDoc.scores || {};
+                    Object.keys(scoresMap).forEach(studentId => {
+                        if (!testMarksMap[studentId]) testMarksMap[studentId] = { test1: 0, test2: 0, test3: 0 };
+                        testMarksMap[studentId][testSlot] = parseFloat(scoresMap[studentId].marks || 0);
+                    });
+                });
+
+                // 5. ✅ NEW: AUTO-FETCH ASSIGNMENT MARKS
+                const qAssign = query(collection(db, 'assignment_marks'), 
+                    where('teacherId', '==', teacherInfo.id || auth.currentUser.uid), 
+                    where('year', '==', selectedYear)
+                );
+                const assignSnap = await getDocs(qAssign);
+                let fetchedAssigns = assignSnap.docs.map(doc => doc.data());
+                
+                fetchedAssigns = fetchedAssigns.filter(a => {
+                    const aSubj = (a.subject || '').trim();
+                    if (aSubj.toLowerCase() !== currentSubject.toLowerCase()) return false;
+                    if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
+                        if (a.division !== selectedDiv) return false;
+                    }
+                    return true;
+                });
+                
+                fetchedAssigns.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                const assignMarksMap = {};
+                fetchedAssigns.forEach((assignDoc, index) => {
+                    let assignSlot = `assign${index + 1}`; 
+                    const aName = (assignDoc.testName || '').toLowerCase(); 
+                    if (aName.includes('1')) assignSlot = 'assign1';
+                    else if (aName.includes('2')) assignSlot = 'assign2';
+                    else if (aName.includes('3')) assignSlot = 'assign3';
+                    else if (index > 2) return; 
+
+                    const scoresMap = assignDoc.scores || {};
+                    Object.keys(scoresMap).forEach(studentId => {
+                        if (!assignMarksMap[studentId]) assignMarksMap[studentId] = { assign1: 0, assign2: 0, assign3: 0 };
+                        assignMarksMap[studentId][assignSlot] = parseFloat(scoresMap[studentId].marks || 0);
+                    });
+                });
+
+                // 6. Merge Data & Calculate Formula (Fully Automated)
+                const mergedData = studentList.map(student => {
+                    const presentCount = studentAttendanceCount[student.id] || 0;
+                    const attendancePercent = (presentCount / safeTotalSessions) * 100;
+
+                    const testData = testMarksMap[student.id] || {};
+                    const t1 = testData.test1 || 0;
+                    const t2 = testData.test2 || 0;
+                    const t3 = testData.test3 || 0;
+                    const testSum = t1 + t2 + t3;
+
+                    // Extracted directly from the Assignment Tab
+                    const assignData = assignMarksMap[student.id] || {};
+                    const a1 = assignData.assign1 || 0;
+                    const a2 = assignData.assign2 || 0;
+                    const a3 = assignData.assign3 || 0;
+                    const assignSum = a1 + a2 + a3;
+
+                    // Dynamic Formula Calculation
+                    const rawCce = formula.multiplier * (testSum + (assignSum * (attendancePercent / 100))) / formula.divisor;
+                    const cceMarks = Math.round(rawCce);
+
+                    return {
+                        ...student,
+                        attendancePercent: attendancePercent.toFixed(2),
+                        test1: t1, test2: t2, test3: t3, testSum,
+                        assign1: a1, assign2: a2, assign3: a3, assignSum,
+                        cceMarks: cceMarks
+                    };
+                });
+
+                setStudents(mergedData);
+            } catch (error) {
+                console.error("CCE Fetch Error:", error);
+                toast.error("Failed to load CCE data");
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchCCEData();
+    }, [teacherInfo, selectedYear, selectedDiv, currentSubject, formula]);
+
+    const saveCCEMarks = async () => {
+        setSaving(true);
+        const toastId = toast.loading("Saving Final Calculations...");
+        try {
+            const batch = writeBatch(db);
+            students.forEach(student => {
+                const docRef = doc(collection(db, 'cce_marks'), `${currentSubject}_${student.id}`);
+                batch.set(docRef, {
+                    studentId: student.id,
+                    instituteId: teacherInfo.instituteId,
+                    subject: currentSubject,
+                    cceTotal: student.cceMarks,
+                    lastUpdated: serverTimestamp()
+                }, { merge: true });
+            });
+            await batch.commit();
+            toast.success("Data Saved!", { id: toastId });
+        } catch (err) {
+            toast.error("Failed to save", { id: toastId });
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const exportPDF = () => {
+        const doc = new jsPDF('landscape');
+        const pageWidth = doc.internal.pageSize.width;
+        
+        doc.setFontSize(16);
+        doc.setFont('helvetica', 'bold');
+        doc.text(teacherInfo.instituteName || "College Name", pageWidth / 2, 15, { align: 'center' });
+        doc.setFontSize(12);
+        doc.text("Comprehensive Continuous Evaluation", pageWidth / 2, 22, { align: 'center' });
+        
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Sub code: ________`, 14, 32);
+        doc.text(`Sub name: ${currentSubject}`, 14, 38);
+        doc.text(`Class: ${selectedYear} ${selectedYear === 'FE' ? `Div ${selectedDiv}` : ''}`, 14, 44);
+
+        autoTable(doc, {
+            startY: 50,
+            head: [['Roll No', 'Name', 'Test 1', 'Test 2', 'Test 3', 'Test Sum', 'Assign 1', 'Assign 2', 'Assign 3', 'Assign Sum', 'Attend %', `CCE (${formula.multiplier})`]],
+            body: students.map(s => [s.rollNo, `${s.firstName} ${s.lastName}`.toUpperCase(), s.test1, s.test2, s.test3, s.testSum, s.assign1, s.assign2, s.assign3, s.assignSum, s.attendancePercent, s.cceMarks]),
+            theme: 'grid',
+            styles: { fontSize: 8, halign: 'center' },
+            columnStyles: { 1: { halign: 'left' } }
+        });
+
+        const finalY = doc.lastAutoTable.finalY + 30;
+        doc.text("Sub in charge", 20, finalY);
+        doc.text("Head, FE", pageWidth / 2 - 20, finalY);
+        doc.text("Principal", pageWidth - 40, finalY);
+
+        doc.save(`CCE_Report_${currentSubject}_${selectedDiv}.pdf`);
+    };
+
+    const exportExcel = () => {
+        const headers = ['Roll No', 'Name of Student', 'Test 1', 'Test 2', 'Test 3', 'Test Sum', 'Assign 1', 'Assign 2', 'Assign 3', 'Assign Sum', 'Theory Attend %', `CCE (${formula.multiplier})`];
+        const csvRows = [
+            `${(teacherInfo.instituteName || "College Name").toUpperCase()}`,
+            `Comprehensive Continuous Evaluation - ${currentSubject}`,
+            ``,
+            headers.join(',')
+        ];
+
+        students.forEach(s => {
+            const name = `${s.firstName} ${s.lastName}`.toUpperCase();
+            csvRows.push(`${s.rollNo},"${name}",${s.test1},${s.test2},${s.test3},${s.testSum},${s.assign1},${s.assign2},${s.assign3},${s.assignSum},${s.attendancePercent},${s.cceMarks}`);
+        });
+
+        const csvContent = csvRows.join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `CCE_Report_${currentSubject}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    return (
+        <div className="content-section">
+            <div className="trackee-cce-header-flex">
+                <div className="trackee-cce-title-area">
+                    <h2 className="gradient-text">CCE Manager</h2>
+                    <p className="content-subtitle">Fully automated from Tasks & Attendance.</p>
+                </div>
+                <div className="trackee-cce-actions">
+                    <button onClick={() => setShowSettings(!showSettings)} className="trackee-cce-btn trackee-cce-btn-formula">
+                        <i className="fas fa-cog"></i> Formula
+                    </button>
+                    <button onClick={saveCCEMarks} disabled={saving} className="trackee-cce-btn trackee-cce-btn-save">
+                        <i className="fas fa-save"></i> {saving ? "Saving..." : "Save Marks"}
+                    </button>
+                    <button onClick={exportPDF} className="trackee-cce-btn trackee-cce-btn-pdf">
+                        <i className="fas fa-file-pdf"></i> PDF
+                    </button>
+                    <button onClick={exportExcel} className="trackee-cce-btn trackee-cce-btn-excel">
+                        <i className="fas fa-file-excel"></i> Excel
+                    </button>
+                </div>
+            </div>
+
+            {showSettings && (
+                <div className="card" style={{ marginBottom: '20px', background: '#fffbeb', borderLeft: '4px solid #f59e0b', padding: '15px' }}>
+                    <h3 style={{ fontSize: '14px', color: '#b45309', marginBottom: '10px' }}>Formula Configuration</h3>
+                    <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <div>
+                            <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b' }}>Out Of (Multiplier)</label>
+                            <input 
+                                type="number" 
+                                value={formula.multiplier} 
+                                onChange={e => setFormula({...formula, multiplier: parseFloat(e.target.value) || 0})}
+                                style={{ display: 'block', padding: '6px', width: '80px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
+                            />
+                        </div>
+                        <div style={{ fontSize: '20px', color: '#64748b', marginTop: '15px' }}>×</div>
+                        <div>
+                            <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b' }}>Total Divisor</label>
+                            <input 
+                                type="number" 
+                                value={formula.divisor} 
+                                onChange={e => setFormula({...formula, divisor: parseFloat(e.target.value) || 1})}
+                                style={{ display: 'block', padding: '6px', width: '80px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
+                            />
+                        </div>
+                        <p style={{ marginLeft: 'auto', fontSize: '12px', color: '#047857', fontWeight: 'bold', marginBottom: 0, marginTop: '15px' }}>
+                            Formula Updates Instantly
+                        </p>
+                    </div>
+                </div>
+            )}
+
+            <div className="card" style={{ padding: '20px', overflowX: 'auto' }}>
+                {loading ? <p>Loading Automation Data...</p> : (
+                    <table className="attendance-table" style={{ width: '100%', minWidth: '1000px', textAlign: 'center' }}>
+                        <thead style={{ background: '#f8fafc' }}>
+                            <tr>
+                                <th>Roll No</th>
+                                <th style={{ textAlign: 'left' }}>Name</th>
+                                <th>Test 1</th><th>Test 2</th><th>Test 3</th>
+                                <th>Assign 1</th><th>Assign 2</th><th>Assign 3</th>
+                                <th>Test Sum</th><th>Assign Sum</th>
+                                <th>Theory Attend %</th>
+                                <th style={{ background: '#e0f2fe', color: '#0369a1' }}>CCE ({formula.multiplier})</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {students.map(s => (
+                                <tr key={s.id}>
+                                    <td>{s.rollNo}</td>
+                                    <td style={{ textAlign: 'left', fontWeight: 'bold' }}>
+                                        {s.firstName.toUpperCase()} {s.lastName.toUpperCase()}
+                                    </td>
+                                    
+                                    {/* Test Read-Only Data */}
+                                    <td style={{ color: '#64748b' }}>{s.test1}</td>
+                                    <td style={{ color: '#64748b' }}>{s.test2}</td>
+                                    <td style={{ color: '#64748b' }}>{s.test3}</td>
+                                    
+                                    {/* Assignment Read-Only Data */}
+                                    <td style={{ color: '#64748b' }}>{s.assign1}</td>
+                                    <td style={{ color: '#64748b' }}>{s.assign2}</td>
+                                    <td style={{ color: '#64748b' }}>{s.assign3}</td>
+                                    
+                                    {/* Auto Sums & Calcs */}
+                                    <td style={{ fontWeight: 'bold' }}>{s.testSum}</td>
+                                    <td style={{ fontWeight: 'bold' }}>{s.assignSum}</td>
+                                    <td style={{ color: '#d97706' }}>{s.attendancePercent}%</td>
+                                    <td style={{ fontWeight: 'bold', color: '#0369a1', background: '#f0f9ff' }}>{s.cceMarks}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                )}
             </div>
         </div>
     );
@@ -3024,6 +3449,10 @@ export default function TeacherDashboard() {
             case 'addTasks': return <AddTasks teacherInfo={teacherInfo} />;
             case 'marks':
                 return <MarksManager teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} />;
+            case 'cce':
+                return <CCEManager teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} />;
+            case 'assignmentMarks':
+                return <AssignmentMarksManager teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} />;
             case 'adminNotices': return (
                 <div className="content-section">
                     {/* ✅ UPDATED TITLE CLASS */}
@@ -3276,6 +3705,8 @@ export default function TeacherDashboard() {
                     <NavLink page="announcements" iconClass="fa-bullhorn" label="Announcements" />
                     <NavLink page="addTasks" iconClass="fa-tasks" label="Add Tasks" />
                     <NavLink page="marks" iconClass="fa-clipboard-check" label="Marks & Results" />
+                    <NavLink page="cce" iconClass="fa-calculator" label="CCE Manager" />
+                    <NavLink page="assignmentMarks" iconClass="fa-file-signature" label="Assignment Marks" />
 
                     {/* ✅ ADDED PROFILE TAB */}
                     <NavLink page="profile" iconClass="fa-user-circle" label="Profile" />

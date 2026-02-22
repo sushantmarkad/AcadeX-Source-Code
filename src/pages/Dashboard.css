@@ -2621,3 +2621,67 @@ textarea.modern-input:focus { border-color: var(--tech-blue); box-shadow: 0 0 0 
     0%, 100% { opacity: 0.6; transform: scale(0.98); }
     50% { opacity: 1; transform: scale(1); }
 }
+/* =========================================
+   CCE MANAGER (RESPONSIVE HEADER)
+   ========================================= */
+
+.trackee-cce-header-flex {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 15px;
+}
+
+.trackee-cce-title-area {
+    flex: 1;
+    min-width: 250px;
+}
+
+.trackee-cce-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.trackee-cce-btn {
+    color: white;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.trackee-cce-btn:hover { 
+    transform: translateY(-2px); 
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Specific Button Colors */
+.trackee-cce-btn-formula { background: #f59e0b; }
+.trackee-cce-btn-save { background: #3b82f6; }
+.trackee-cce-btn-pdf { background: #ef4444; }
+.trackee-cce-btn-excel { background: #10b981; }
+
+/* 📱 MOBILE RESPONSIVE GRID */
+@media (max-width: 600px) {
+    .trackee-cce-actions {
+        width: 100%;
+        display: grid;
+        grid-template-columns: 1fr 1fr; /* Makes a perfect 2x2 grid on mobile */
+        gap: 10px;
+    }
+    .trackee-cce-btn {
+        width: 100%;
+        padding: 12px 10px; /* Taller for easier tapping */
+    }
+}
