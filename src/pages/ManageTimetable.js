@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import './Dashboard.css';
 
@@ -205,27 +205,31 @@ const CustomTimePicker = ({ label, value, onChange }) => {
     return (
         <div style={{ marginBottom: '5px' }}>
             <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '6px', display: 'block', textTransform: 'uppercase' }}>{label}</label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
-                <CustomMobileSelect 
-                    label="Hr"
-                    value={hour.toString()} 
-                    options={Array.from({length:12}, (_, i) => ({ value: (i+1).toString(), label: (i+1).toString() }))} 
-                    onChange={(v) => handleUpdate('hour', v)} 
-                />
-                <CustomMobileSelect 
-                    label="Min"
-                    value={parseInt(m).toString()} 
-                    options={['00', '15', '30', '45', '10', '20', '50'].map(min => ({ value: parseInt(min).toString(), label: min }))} 
-                    onChange={(v) => handleUpdate('minute', v)} 
-                />
-                <div style={{ marginTop: '23px', display: 'flex', borderRadius: '12px', overflow: 'hidden', border: '2px solid #e2e8f0', height: '48px' }}>
+            {/* ✅ FIXED: Changed to flex-end alignment to prevent mobile overlap */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 80px', gap: '8px', alignItems: 'flex-end' }}>
+                <div style={{ marginBottom: 0 }}>
+                    <CustomMobileSelect 
+                        value={hour.toString()} 
+                        options={Array.from({length:12}, (_, i) => ({ value: (i+1).toString(), label: (i+1).toString() }))} 
+                        onChange={(v) => handleUpdate('hour', v)} 
+                    />
+                </div>
+                <div style={{ marginBottom: 0 }}>
+                    <CustomMobileSelect 
+                        value={parseInt(m).toString()} 
+                        options={['00', '15', '30', '45', '10', '20', '50'].map(min => ({ value: parseInt(min).toString(), label: min }))} 
+                        onChange={(v) => handleUpdate('minute', v)} 
+                    />
+                </div>
+                {/* ✅ FIXED: Removed hardcoded marginTop, added fixed height to match dropdowns */}
+                <div style={{ display: 'flex', borderRadius: '12px', overflow: 'hidden', border: '2px solid #e2e8f0', height: '46px' }}>
                     {['AM', 'PM'].map((p) => (
                         <button key={p} onClick={() => handleUpdate('ampm', p)} 
                             style={{ 
-                                flex: 1, border: 'none', 
+                                flex: 1, border: 'none', padding: '0',
                                 background: ampm === p ? '#3b82f6' : '#f8fafc', 
                                 color: ampm === p ? 'white' : '#64748b', 
-                                fontWeight: '700', fontSize: '12px' 
+                                fontWeight: '800', fontSize: '12px' 
                             }}>
                             {p}
                         </button>
@@ -264,6 +268,41 @@ export default function ManageTimetable({ hodInfo }) {
     // Data States
     const [slots, setSlots] = useState([]); // Current Day Slots (For Edit Mode)
     const [fullSchedule, setFullSchedule] = useState({}); // Entire Week Data (For Table Mode)
+    // ✅ NEW: State for fetched subjects
+    const [availableSubjects, setAvailableSubjects] = useState([]);
+
+    // ✅ NEW: Fetch subjects assigned to teachers in this department
+    useEffect(() => {
+        if (!hodInfo?.department || !hodInfo?.instituteId) return;
+        const fetchSubjects = async () => {
+            try {
+                const q = query(
+                    collection(db, 'users'),
+                    where('instituteId', '==', hodInfo.instituteId),
+                    where('department', '==', hodInfo.department),
+                    where('role', '==', 'teacher')
+                );
+                const snap = await getDocs(q);
+                const subjectsSet = new Set();
+                
+                snap.docs.forEach(doc => {
+                    const data = doc.data();
+                    if (data.assignedClasses) {
+                        data.assignedClasses.forEach(cls => {
+                            if (cls.subject) subjectsSet.add(cls.subject.trim());
+                        });
+                    }
+                });
+
+                // Convert Set to Array for Dropdown options
+                const subArray = Array.from(subjectsSet).map(sub => ({ value: sub, label: sub }));
+                setAvailableSubjects(subArray);
+            } catch (err) {
+                console.error("Failed to fetch subjects:", err);
+            }
+        };
+        fetchSubjects();
+    }, [hodInfo]);
 
     useEffect(() => {
         if(isFE && year !== 'FE') setYear('FE');
@@ -480,9 +519,27 @@ export default function ManageTimetable({ hodInfo }) {
                                             <CustomTimePicker label="End Time" value={slot.endTime} onChange={(val) => handleSlotChange(index, 'endTime', val)} />
                                         </div>
 
+                                        {/* ✅ UPDATED: Dynamic Subject Input based on Slot Type */}
                                         <div style={{ marginBottom: '15px' }}>
-                                            <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>Subject Name</label>
-                                            <input type="text" placeholder="e.g. Data Structures" value={slot.subject} onChange={(e) => handleSlotChange(index, 'subject', e.target.value)} style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '2px solid #e2e8f0', fontWeight: '600', fontSize: '14px', outline: 'none' }} />
+                                            {slot.type === 'Break' ? (
+                                                <>
+                                                    <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>Break Name</label>
+                                                    <input 
+                                                        type="text" 
+                                                        placeholder="e.g. Lunch Break, Recess" 
+                                                        value={slot.subject} 
+                                                        onChange={(e) => handleSlotChange(index, 'subject', e.target.value)} 
+                                                        style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '2px solid #e2e8f0', fontWeight: '600', fontSize: '14px', outline: 'none' }} 
+                                                    />
+                                                </>
+                                            ) : (
+                                                <CustomMobileSelect 
+                                                    label="Subject Name" 
+                                                    value={slot.subject} 
+                                                    onChange={(val) => handleSlotChange(index, 'subject', val)} 
+                                                    options={availableSubjects.length > 0 ? availableSubjects : [{ value: '', label: 'No subjects assigned to teachers yet' }]} 
+                                                />
+                                            )}
                                         </div>
 
                                         <CustomMobileSelect label="Session Type" value={slot.type} onChange={(val) => handleSlotChange(index, 'type', val)} options={[{ value: 'Lecture', label: 'Theory Lecture' }, { value: 'Practical', label: 'Practical / Lab' }, { value: 'Break', label: 'Break / Recess' }]} />

@@ -93,7 +93,7 @@ export default function HODDashboard() {
     const [searchQuery, setSearchQuery] = useState("");
     const [analyticsFilter, setAnalyticsFilter] = useState('Overall');
     // --- ✅ FIXED: SPLIT STATE FOR RELIABLE UPDATES ---
-    const [sessionStats, setSessionStats] = useState({ counts: {}, meta: {} }); // counts = total lectures, meta = type/div info
+    const [allSessions, setAllSessions] = useState([]);
     const [studentAttendanceMap, setStudentAttendanceMap] = useState({}); // { uid: { theory: 5, practical: 2 } }
     const [annoTab, setAnnoTab] = useState('create');
     const [isEditStudentModalOpen, setIsEditStudentModalOpen] = useState(false);
@@ -210,82 +210,57 @@ export default function HODDashboard() {
         }
     }, [hodInfo]);
 
-    // --- 1. FETCH SESSIONS (Total Classes Held) ---
+    // --- 1. FETCH SESSIONS (Raw Data for Accurate Math) ---
     useEffect(() => {
         if (!hodInfo) return;
-
         const qSessions = query(collection(db, 'live_sessions'),
             where('instituteId', '==', hodInfo.instituteId),
             where('department', '==', hodInfo.department)
         );
-
         const unsub = onSnapshot(qSessions, (snap) => {
-            const counts = {};
-            const meta = {};
-
-            snap.docs.forEach(doc => {
-                const d = doc.data();
-                const type = d.type || 'theory';
-                const year = d.targetYear;
-                const div = d.division || 'A';
-
-                // 1. Store Metadata for Attendance Matching
-                meta[doc.id] = { type, year, div };
-
-                // 2. Increment Denominators (Total Classes)
-                // Key Format: "Year-Div-Type" (e.g. "SE-A-Theory")
-                const keys = div === 'All'
-                    ? DIVISIONS.map(dv => `${year}-${dv}-${type}`)
-                    : [`${year}-${div}-${type}`];
-
-                keys.forEach(k => counts[k] = (counts[k] || 0) + 1);
-            });
-
-            setSessionStats({ counts, meta });
+            setAllSessions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         });
-
         return () => unsub();
     }, [hodInfo]);
 
     // --- 2. FETCH & PROCESS ATTENDANCE (Student Counts) ---
     useEffect(() => {
-        if (!hodInfo || Object.keys(sessionStats.meta).length === 0) return;
+        if (!hodInfo || allSessions.length === 0) return;
 
-        // ✅ QUERY UPDATE: Removed 'department' filter to prevent empty results if fields are missing in docs.
-        // We filter in-memory using the session IDs we fetched above (which are already Dept filtered).
+        // Create a fast lookup dictionary for sessions
+        const sessionMeta = {};
+        allSessions.forEach(s => sessionMeta[s.id] = s);
+
         const qAttendance = query(collection(db, 'attendance'),
             where('instituteId', '==', hodInfo.instituteId)
         );
 
         const unsub = onSnapshot(qAttendance, (snap) => {
-            const tempMap = {}; // { uid: { theory: 0, practical: 0 } }
-
+            const tempMap = {}; 
             snap.docs.forEach(doc => {
                 const att = doc.data();
+                const sessionInfo = sessionMeta[att.sessionId];
 
-                // ✅ CRITICAL CHECK: Only count if this attendance belongs to a session from this Dept
-                const sessionInfo = sessionStats.meta[att.sessionId];
-
+                // Only count if it matches a valid department session
                 if (sessionInfo) {
                     const uid = att.studentId;
                     if (!tempMap[uid]) tempMap[uid] = { theory: 0, practical: 0 };
-
+                    
                     if (sessionInfo.type === 'practical') tempMap[uid].practical++;
                     else tempMap[uid].theory++;
                 }
             });
-
             setStudentAttendanceMap(tempMap);
         });
-
         return () => unsub();
-    }, [hodInfo, sessionStats.meta]); // Re-run if session metadata changes
+    }, [hodInfo, allSessions]);
 
 
 
-    // --- 1. FUNCTIONAL ATTENDANCE GRAPH (UPDATED) ---
+    // --- 3. FUNCTIONAL ATTENDANCE GRAPH (100% ACCURATE MATH) ---
     useEffect(() => {
-        if (!hodInfo || deptUsers.length === 0) return;
+        if (!hodInfo || deptUsers.length === 0 || allSessions.length === 0) return;
+        
         const fetchAttendanceStats = async () => {
             const now = new Date();
             const startDate = new Date();
@@ -296,47 +271,58 @@ export default function HODDashboard() {
                 const q = query(
                     collection(db, 'attendance'),
                     where('instituteId', '==', hodInfo.instituteId),
-                    where('department', '==', hodInfo.department),
                     where('timestamp', '>=', Timestamp.fromDate(startDate))
                 );
 
                 onSnapshot(q, (snap) => {
-                    // Create Map: StudentID -> Division (for FE) OR Year (for Others)
-                    const studentMap = {};
-                    deptUsers.forEach(u => {
-                        if (u.role === 'student') {
-                            // If FE, map to Division (default 'A'), else map to Year
-                            studentMap[u.id] = isFE ? (u.division || 'A') : u.year;
-                        }
-                    });
+                    const sessionIdsInTimeframe = new Set();
+                    const groupAttended = {}; // Total Presents by group
 
-                    const groupCounts = {}; // { 'A': 10, 'B': 5 } or { 'SE': 20, 'TE': 15 }
-                    const groupSessions = {};
-
+                    // 1. Calculate Actual Attended
                     snap.docs.forEach(doc => {
                         const data = doc.data();
-                        const key = studentMap[data.studentId]; // Key is Division or Year
-
-                        if (key) {
-                            if (!groupCounts[key]) { groupCounts[key] = 0; groupSessions[key] = new Set(); }
-                            groupCounts[key]++;
-                            groupSessions[key].add(data.sessionId);
+                        sessionIdsInTimeframe.add(data.sessionId);
+                        
+                        const u = deptUsers.find(user => user.id === data.studentId);
+                        if (u && u.role === 'student') {
+                            const key = isFE ? (u.division || 'A') : u.year;
+                            groupAttended[key] = (groupAttended[key] || 0) + 1;
                         }
                     });
 
-                    // Generate Data based on HOD Type
-                    const LABELS = isFE ? DIVISIONS : ['SE', 'TE', 'BE']; // Hide FE for Dept HODs
+                    const groupExpected = {}; // Total Expected by group
 
+                    // 2. Calculate Exact Expected Attendance (Accounts for batches!)
+                    sessionIdsInTimeframe.forEach(sid => {
+                        const session = allSessions.find(s => s.id === sid);
+                        if (!session) return;
+                        
+                        const sessionYear = session.targetYear || session.year;
+                        
+                        deptUsers.forEach(u => {
+                            if (u.role !== 'student') return;
+                            if (sessionYear !== 'All' && sessionYear !== u.year) return;
+                            
+                            const groupKey = isFE ? (u.division || 'A') : u.year;
+                            
+                            if (isFE && session.division && session.division !== 'All' && session.division !== u.division) return;
+
+                            // If it's practical, verify the student's roll number is in the batch!
+                            if (session.type === 'practical' && session.rollRange) {
+                                const roll = parseInt(u.rollNo);
+                                if (roll < session.rollRange.start || roll > session.rollRange.end) return;
+                            }
+
+                            groupExpected[groupKey] = (groupExpected[groupKey] || 0) + 1;
+                        });
+                    });
+
+                    // 3. Generate Graph Data
+                    const LABELS = isFE ? DIVISIONS : ['SE', 'TE', 'BE']; 
                     const graphData = LABELS.map(label => {
-                        // Count students in this Group (Division or Year)
-                        const totalStudents = deptUsers.filter(u =>
-                            u.role === 'student' && (isFE ? u.division === label : u.year === label)
-                        ).length || 1;
-
-                        const totalSessions = groupSessions[label]?.size || 1;
-                        const totalPresent = groupCounts[label] || 0;
-                        const avgPct = Math.round((totalPresent / (totalSessions * totalStudents)) * 100) || 0;
-
+                        const attended = groupAttended[label] || 0;
+                        const expected = groupExpected[label] || 0;
+                        const avgPct = expected === 0 ? 0 : Math.round((attended / expected) * 100);
                         return { name: label, attendance: avgPct };
                     });
 
@@ -345,7 +331,7 @@ export default function HODDashboard() {
             } catch (err) { console.error(err); }
         };
         fetchAttendanceStats();
-    }, [hodInfo, deptUsers, timeRange, isFE]); // Added isFE dependency
+    }, [hodInfo, deptUsers, timeRange, isFE, allSessions]);
 
     // ✅ SAVE TEACHER UPDATES (Fixed: Sends Token)
     const handleSaveTeacherUpdates = async () => {
@@ -501,9 +487,8 @@ export default function HODDashboard() {
         fetchSessionCounts();
     }, [hodInfo, isFE]);
 
-    // ✅ NEW CALCULATION ENGINE
+    // ✅ NEW CALCULATION ENGINE (PER-STUDENT PRECISION)
     const getCalculatedAnalytics = () => {
-        // 1. Filter Students
         let targetStudents = deptUsers.filter(u => u.role === 'student' && u.year === analyticsYear);
         if (isFE && analyticsDivision !== 'All') {
             targetStudents = targetStudents.filter(u => u.division === analyticsDivision);
@@ -511,40 +496,57 @@ export default function HODDashboard() {
 
         const threshold = criteria[analyticsYear] || 75;
 
-        // 2. Calculate Percentage
         const processed = targetStudents.map(s => {
             const sId = s.id || s.uid;
-
-            // ✅ Use new state map
             const myStats = studentAttendanceMap[sId] || { theory: 0, practical: 0 };
             const userDiv = s.division || 'A';
 
-            // ✅ Use new session counts
-            const totalTheory = sessionStats.counts[`${analyticsYear}-${userDiv}-theory`] || 0;
-            const totalPractical = sessionStats.counts[`${analyticsYear}-${userDiv}-practical`] || 0;
+            let myTotalTheory = 0;
+            let myTotalPractical = 0;
+
+            // ✅ Find exactly how many sessions THIS specific student was supposed to attend
+            allSessions.forEach(session => {
+                const sessionYear = session.targetYear || session.year;
+                if (sessionYear !== 'All' && sessionYear !== s.year) return;
+                
+                if (isFE && session.division && session.division !== 'All') {
+                    if (session.division !== userDiv) return;
+                }
+
+                if (session.type === 'practical') {
+                    if (session.rollRange) {
+                        const roll = parseInt(s.rollNo);
+                        // Only count this session if their roll number is in the batch range
+                        if (roll >= session.rollRange.start && roll <= session.rollRange.end) {
+                            myTotalPractical++;
+                        }
+                    } else {
+                        myTotalPractical++; // Fallback if teacher forgot to set batch limits
+                    }
+                } else {
+                    myTotalTheory++;
+                }
+            });
 
             let attended = 0;
             let total = 0;
 
             if (analyticsFilter === 'Theory') {
                 attended = myStats.theory;
-                total = totalTheory;
+                total = myTotalTheory;
             } else if (analyticsFilter === 'Practical') {
                 attended = myStats.practical;
-                total = totalPractical;
+                total = myTotalPractical;
             } else {
-                // Overall
                 attended = myStats.theory + myStats.practical;
-                total = totalTheory + totalPractical;
+                total = myTotalTheory + myTotalPractical;
             }
 
-            // Calculate % (Avoid NaN)
             const percentage = total === 0 ? 100 : Math.round((attended / total) * 100);
 
             return { ...s, percentage, attended, total };
         });
 
-        // 3. Search Filter
         const searchFiltered = processed.filter(s =>
             (s.firstName && s.firstName.toLowerCase().includes(searchQuery.toLowerCase())) ||
             (s.rollNo && s.rollNo.toString().includes(searchQuery))
