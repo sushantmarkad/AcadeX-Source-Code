@@ -155,7 +155,7 @@ export default function HODDashboard() {
             if (userDoc.exists()) {
                 const data = userDoc.data();
                 setHodInfo(data);
-                
+
                 // Initialize Profile Form
                 setProfileForm({
                     firstName: data.firstName || '',
@@ -171,7 +171,7 @@ export default function HODDashboard() {
                 if (statsDoc.exists()) {
                     setTotalClasses(statsDoc.data().totalClasses || 0);
                     setActiveSemesters(statsDoc.data().activeSemesters || { FE: 1, SE: 3, TE: 5, BE: 7 });
-                    
+
                     // 👇 Load Active Year
                     if (statsDoc.data().currentAcademicYear) {
                         setCurrentAcademicYear(statsDoc.data().currentAcademicYear);
@@ -179,10 +179,10 @@ export default function HODDashboard() {
                 } else {
                     // 👇 Create Default if missing
                     const defaultSems = { FE: 1, SE: 3, TE: 5, BE: 7 };
-                    await setDoc(statsRef, { 
-                        activeSemesters: defaultSems, 
+                    await setDoc(statsRef, {
+                        activeSemesters: defaultSems,
                         totalClasses: 0,
-                        currentAcademicYear: '2025-2026' 
+                        currentAcademicYear: '2025-2026'
                     }, { merge: true });
                     setActiveSemesters(defaultSems);
                 }
@@ -244,7 +244,8 @@ export default function HODDashboard() {
         if (!hodInfo) return;
         const qSessions = query(collection(db, 'live_sessions'),
             where('instituteId', '==', hodInfo.instituteId),
-            where('department', '==', hodInfo.department)
+            where('department', '==', hodInfo.department),
+            where('academicYear', '==', currentAcademicYear)
         );
         const unsub = onSnapshot(qSessions, (snap) => {
             setAllSessions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -261,11 +262,12 @@ export default function HODDashboard() {
         allSessions.forEach(s => sessionMeta[s.id] = s);
 
         const qAttendance = query(collection(db, 'attendance'),
+            where('academicYear', '==', currentAcademicYear),
             where('instituteId', '==', hodInfo.instituteId)
         );
 
         const unsub = onSnapshot(qAttendance, (snap) => {
-            const tempMap = {}; 
+            const tempMap = {};
             snap.docs.forEach(doc => {
                 const att = doc.data();
                 const sessionInfo = sessionMeta[att.sessionId];
@@ -274,7 +276,7 @@ export default function HODDashboard() {
                 if (sessionInfo) {
                     const uid = att.studentId;
                     if (!tempMap[uid]) tempMap[uid] = { theory: 0, practical: 0 };
-                    
+
                     if (sessionInfo.type === 'practical') tempMap[uid].practical++;
                     else tempMap[uid].theory++;
                 }
@@ -289,7 +291,7 @@ export default function HODDashboard() {
     // --- 3. FUNCTIONAL ATTENDANCE GRAPH (100% ACCURATE MATH) ---
     useEffect(() => {
         if (!hodInfo || deptUsers.length === 0 || allSessions.length === 0) return;
-        
+
         const fetchAttendanceStats = async () => {
             const now = new Date();
             const startDate = new Date();
@@ -300,7 +302,8 @@ export default function HODDashboard() {
                 const q = query(
                     collection(db, 'attendance'),
                     where('instituteId', '==', hodInfo.instituteId),
-                    where('timestamp', '>=', Timestamp.fromDate(startDate))
+                    where('timestamp', '>=', Timestamp.fromDate(startDate)),
+                    where('academicYear', '==', currentAcademicYear)
                 );
 
                 onSnapshot(q, (snap) => {
@@ -311,7 +314,7 @@ export default function HODDashboard() {
                     snap.docs.forEach(doc => {
                         const data = doc.data();
                         sessionIdsInTimeframe.add(data.sessionId);
-                        
+
                         const u = deptUsers.find(user => user.id === data.studentId);
                         if (u && u.role === 'student') {
                             const key = isFE ? (u.division || 'A') : u.year;
@@ -325,15 +328,15 @@ export default function HODDashboard() {
                     sessionIdsInTimeframe.forEach(sid => {
                         const session = allSessions.find(s => s.id === sid);
                         if (!session) return;
-                        
+
                         const sessionYear = session.targetYear || session.year;
-                        
+
                         deptUsers.forEach(u => {
                             if (u.role !== 'student') return;
                             if (sessionYear !== 'All' && sessionYear !== u.year) return;
-                            
+
                             const groupKey = isFE ? (u.division || 'A') : u.year;
-                            
+
                             if (isFE && session.division && session.division !== 'All' && session.division !== u.division) return;
 
                             // If it's practical, verify the student's roll number is in the batch!
@@ -347,7 +350,7 @@ export default function HODDashboard() {
                     });
 
                     // 3. Generate Graph Data
-                    const LABELS = isFE ? DIVISIONS : ['SE', 'TE', 'BE']; 
+                    const LABELS = isFE ? DIVISIONS : ['SE', 'TE', 'BE'];
                     const graphData = LABELS.map(label => {
                         const attended = groupAttended[label] || 0;
                         const expected = groupExpected[label] || 0;
@@ -483,7 +486,8 @@ export default function HODDashboard() {
             // Query ALL sessions for this department
             const q = query(collection(db, 'live_sessions'),
                 where('instituteId', '==', hodInfo.instituteId),
-                where('department', '==', hodInfo.department)
+                where('department', '==', hodInfo.department),
+                where('academicYear', '==', currentAcademicYear)
             );
 
             try {
@@ -537,7 +541,7 @@ export default function HODDashboard() {
             allSessions.forEach(session => {
                 const sessionYear = session.targetYear || session.year;
                 if (sessionYear !== 'All' && sessionYear !== s.year) return;
-                
+
                 if (isFE && session.division && session.division !== 'All') {
                     if (session.division !== userDiv) return;
                 }
@@ -1111,7 +1115,7 @@ export default function HODDashboard() {
 
                             <div style={{ padding: '30px 25px' }}>
 
-                            {/* ✅ NEW: Global Academic Year Switcher */}
+                                {/* ✅ NEW: Global Academic Year Switcher */}
                                 <div style={{ marginBottom: '25px', paddingBottom: '20px', borderBottom: '1px solid #f1f5f9' }}>
                                     <CustomMobileSelect
                                         label="Current Academic Year (Global)"
@@ -1130,7 +1134,7 @@ export default function HODDashboard() {
                                         Warning: Switching this hides all attendance data from other years.
                                     </p>
                                 </div>
-                                
+
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '20px' }}>
 
                                     {/* ✅ LOGIC: Show 'FE' only if Dept is FE, otherwise show SE, TE, BE */}

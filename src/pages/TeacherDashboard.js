@@ -978,41 +978,7 @@ const DashboardHome = ({
         return true;
     });
 
-    // 🛠️ TEMPORARY FIX FUNCTION
-    const fixOldData = async () => {
-        if (!teacherInfo?.instituteId) return;
-        const toastId = toast.loading("Fixing old data...");
-
-        try {
-            // 1. Get all attendance records for this institute (regardless of year)
-            const q = query(collection(db, 'attendance'), where('instituteId', '==', teacherInfo.instituteId));
-            const snap = await getDocs(q);
-
-            const batch = writeBatch(db);
-            let count = 0;
-
-            snap.docs.forEach((doc) => {
-                const data = doc.data();
-                // If the record is missing 'academicYear', update it
-                if (!data.academicYear) {
-                    const docRef = doc.ref;
-                    batch.update(docRef, { academicYear: '2025-2026' }); // Default to current year
-                    count++;
-                }
-            });
-
-            if (count > 0) {
-                await batch.commit();
-                toast.success(`Fixed ${count} old records!`, { id: toastId });
-                setRefreshTrigger(prev => prev + 1); // Refresh the view
-            } else {
-                toast.success("All records are already up to date.", { id: toastId });
-            }
-        } catch (err) {
-            console.error(err);
-            toast.error("Fix failed: " + err.message, { id: toastId });
-        }
-    };
+    
 
     // ✅ NEW: Filter Students specifically for the Batch Report
     let studentsForReport = allStudentsReport;
@@ -2072,17 +2038,6 @@ const DashboardHome = ({
                             >
                                 <i className="fas fa-file-pdf"></i> PDF
                             </button>
-                            {/* Add this inside the "export-actions" div or near the Export buttons */}
-                            <button
-                                onClick={fixOldData}
-                                style={{
-                                    background: '#f59e0b', color: 'white', padding: '10px 15px',
-                                    borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 'bold'
-                                }}
-                            >
-                                🛠️ Fix Old Data
-                            </button>
-
                             {filteredHistorySessions.length > 0 ? (
                                 <CSVLink
                                     data={prepareReportData(filteredHistorySessions, studentsForReport).rows}
@@ -3148,7 +3103,7 @@ export default function TeacherDashboard() {
                     collection(db, 'attendance'),
                     where('instituteId', '==', teacherInfo.instituteId),
                     where('subject', '==', targetSubject),
-                    // where('academicYear', '==', currentAcademicYear),
+                    where('academicYear', '==', currentAcademicYear),
                     where('timestamp', '>=', Timestamp.fromDate(start)),
                     where('timestamp', '<=', Timestamp.fromDate(end))
                 );
