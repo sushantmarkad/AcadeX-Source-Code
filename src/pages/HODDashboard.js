@@ -107,6 +107,7 @@ export default function HODDashboard() {
 
     // Timetable States
     const [timetableYear, setTimetableYear] = useState('FE');
+    const [currentAcademicYear, setCurrentAcademicYear] = useState('2025-2026');
     const [timetableData, setTimetableData] = useState({});
     const [isSavingTimetable, setIsSavingTimetable] = useState(false);
     const [activeSemesters, setActiveSemesters] = useState({ FE: 1, SE: 3, TE: 5, BE: 7 });
@@ -154,7 +155,7 @@ export default function HODDashboard() {
             if (userDoc.exists()) {
                 const data = userDoc.data();
                 setHodInfo(data);
-
+                
                 // Initialize Profile Form
                 setProfileForm({
                     firstName: data.firstName || '',
@@ -163,17 +164,26 @@ export default function HODDashboard() {
                     phone: data.phone || ''
                 });
 
-                // ✅ UPDATED: Fetch Stats & Active Semester
+                // ✅ UPDATED: Fetch Stats AND Active Academic Year
                 const statsRef = doc(db, "department_stats", `${data.instituteId}_${data.department}`);
                 const statsDoc = await getDoc(statsRef);
 
                 if (statsDoc.exists()) {
                     setTotalClasses(statsDoc.data().totalClasses || 0);
-                    // ✅ LOAD OBJECT INSTEAD OF SINGLE INTEGER
                     setActiveSemesters(statsDoc.data().activeSemesters || { FE: 1, SE: 3, TE: 5, BE: 7 });
+                    
+                    // 👇 Load Active Year
+                    if (statsDoc.data().currentAcademicYear) {
+                        setCurrentAcademicYear(statsDoc.data().currentAcademicYear);
+                    }
                 } else {
+                    // 👇 Create Default if missing
                     const defaultSems = { FE: 1, SE: 3, TE: 5, BE: 7 };
-                    await setDoc(statsRef, { activeSemesters: defaultSems, totalClasses: 0 }, { merge: true });
+                    await setDoc(statsRef, { 
+                        activeSemesters: defaultSems, 
+                        totalClasses: 0,
+                        currentAcademicYear: '2025-2026' 
+                    }, { merge: true });
                     setActiveSemesters(defaultSems);
                 }
                 // Fetch Requests
@@ -199,6 +209,25 @@ export default function HODDashboard() {
         };
         init();
     }, []);
+
+    // ✅ NEW: Handler to Switch Academic Year
+    const handleAcademicYearChange = async (newYear) => {
+        if (!hodInfo) return;
+        const toastId = toast.loading(`Switching to ${newYear}...`);
+        try {
+            await updateDoc(doc(db, "department_stats", `${hodInfo.instituteId}_${hodInfo.department}`), {
+                currentAcademicYear: newYear
+            });
+            setCurrentAcademicYear(newYear);
+            toast.success(`Active Year: ${newYear}`, { id: toastId });
+            // Reload to refresh all data views
+            setTimeout(() => window.location.reload(), 1000);
+        } catch (error) {
+            toast.error("Failed to switch year", { id: toastId });
+        }
+    };
+
+
     useEffect(() => {
         if (hodInfo) {
             // Check if department is First Year
@@ -1081,6 +1110,27 @@ export default function HODDashboard() {
                             </div>
 
                             <div style={{ padding: '30px 25px' }}>
+
+                            {/* ✅ NEW: Global Academic Year Switcher */}
+                                <div style={{ marginBottom: '25px', paddingBottom: '20px', borderBottom: '1px solid #f1f5f9' }}>
+                                    <CustomMobileSelect
+                                        label="Current Academic Year (Global)"
+                                        icon="fa-calendar-alt"
+                                        value={currentAcademicYear}
+                                        onChange={handleAcademicYearChange}
+                                        options={[
+                                            { value: '2023-2024', label: '2023-2024 (Archived)' },
+                                            { value: '2024-2025', label: '2024-2025 (Previous)' },
+                                            { value: '2025-2026', label: '2025-2026 (Current)' },
+                                            { value: '2026-2027', label: '2026-2027 (Upcoming)' }
+                                        ]}
+                                    />
+                                    <p style={{ fontSize: '11px', color: '#f59e0b', marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '600' }}>
+                                        <i className="fas fa-exclamation-triangle"></i>
+                                        Warning: Switching this hides all attendance data from other years.
+                                    </p>
+                                </div>
+                                
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '20px' }}>
 
                                     {/* ✅ LOGIC: Show 'FE' only if Dept is FE, otherwise show SE, TE, BE */}

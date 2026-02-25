@@ -886,8 +886,6 @@ const DashboardHome = ({
     const [pastAbsent, setPastAbsent] = useState("");
     const [pastLoading, setPastLoading] = useState(false);
     const [reportBatchFilter, setReportBatchFilter] = useState('All');
-
-
     // Fetch Class Strength for Percentage (Fixed for Division)
     useEffect(() => {
         const fetchStrength = async () => {
@@ -2822,6 +2820,22 @@ export default function TeacherDashboard() {
 
     // Year & Subject Logic
     const [selectedYear, setSelectedYear] = useState(null);
+    // ✅ FIX: Add Missing State & Fetch Logic Here
+    const [currentAcademicYear, setCurrentAcademicYear] = useState('2025-2026');
+
+    useEffect(() => {
+        if (!teacherInfo?.instituteId || !teacherInfo?.department) return;
+        const fetchYear = async () => {
+            try {
+                const statsRef = doc(db, "department_stats", `${teacherInfo.instituteId}_${teacherInfo.department}`);
+                const docSnap = await getDoc(statsRef);
+                if (docSnap.exists() && docSnap.data().currentAcademicYear) {
+                    setCurrentAcademicYear(docSnap.data().currentAcademicYear);
+                }
+            } catch(e) { console.log("Year fetch error", e); }
+        };
+        fetchYear();
+    }, [teacherInfo]);
     const [showYearModal, setShowYearModal] = useState(false);
 
     // Lab / Practical State
@@ -3020,10 +3034,10 @@ export default function TeacherDashboard() {
 
     useEffect(() => {
         if (!auth.currentUser) return;
-        const q = query(collection(db, 'live_sessions'), where('teacherId', '==', auth.currentUser.uid), where('isActive', '==', true));
+        const q = query(collection(db, 'live_sessions'), where('teacherId', '==', auth.currentUser.uid),where('academicYear', '==', currentAcademicYear),where('isActive', '==', true));
         const unsub = onSnapshot(q, (snap) => setActiveSession(!snap.empty ? { sessionId: snap.docs[0].id, ...snap.docs[0].data() } : null));
         return () => unsub();
-    }, []);
+    }, [teacherInfo, currentAcademicYear]);
 
     useEffect(() => {
         let unsubscribe;
