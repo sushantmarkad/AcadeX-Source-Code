@@ -430,7 +430,7 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
 // ------------------------------------
 //  COMPONENT: TEACHER ANALYTICS (Updated for Division Support)
 // ------------------------------------
-const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv }) => {
+const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv, currentAcademicYear }) => {
     const [chartData, setChartData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [graphType, setGraphType] = useState('theory');
@@ -514,6 +514,7 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv }) => {
                     collection(db, 'attendance'),
                     where('instituteId', '==', teacherInfo.instituteId),
                     where('subject', '==', currentSubject),
+                    where('academicYear', '==', currentAcademicYear || '2025-2026'),
                     where('timestamp', '>=', Timestamp.fromDate(startDate))
                 );
                 const snap = await getDocs(q);
@@ -840,7 +841,7 @@ const generatePDFReport = (teacherInfo, selectedYear, selectedDiv, subject, star
         columnStyles: {
             0: { cellWidth: 12, fontStyle: 'bold' },
             // 👇 FIX: Changed from 60 to 'auto'. This makes it perfectly wrap the longest name without wasting space!
-            1: { cellWidth: 'auto', halign: 'left' }, 
+            1: { cellWidth: 'auto', halign: 'left' },
         },
         didParseCell: function (data) {
             if (data.section === 'body') {
@@ -868,7 +869,7 @@ const DashboardHome = ({
     sessionType, setSessionType, selectedBatch, setSelectedBatch,
     rollStart, setRollStart, rollEnd, setRollEnd,
     historySemester, setHistorySemester, getSubjectForHistory, historyLoading,
-    selectedDiv, setRefreshTrigger
+    selectedDiv, setRefreshTrigger, currentAcademicYear
 }) => {
     const [qrCodeValue, setQrCodeValue] = useState('');
     const [timer, setTimer] = useState(25);
@@ -968,7 +969,7 @@ const DashboardHome = ({
         }
     };
 
-   // 👇 REPLACE YOUR EXISTING filteredHistorySessions WITH THIS 👇
+    // 👇 REPLACE YOUR EXISTING filteredHistorySessions WITH THIS 👇
     const filteredHistorySessions = historySessions.filter(session => {
         if (reportFilter !== 'All' && session.type !== reportFilter.toLowerCase()) return false;
         if (reportFilter === 'Practical' && reportBatchFilter !== 'All') {
@@ -982,7 +983,7 @@ const DashboardHome = ({
     if (reportFilter === 'Practical' && reportBatchFilter !== 'All') {
         const batchKey = `${selectedYear}_${reportBatchFilter}`;
         const bSettings = teacherInfo?.batchSettings?.[batchKey];
-        
+
         if (bSettings) {
             const s = parseInt(bSettings.start);
             const e = parseInt(bSettings.end);
@@ -1003,7 +1004,7 @@ const DashboardHome = ({
             }
         }
     }
-   
+
 
     // --- 🟢 NEW: Batch Option Generator ---
     const getBatchOptions = () => {
@@ -1095,6 +1096,7 @@ const DashboardHome = ({
                         teacherId: auth.currentUser.uid,
                         subject: getSubjectForHistory(),
                         department: teacherInfo.department,
+                        academicYear: currentAcademicYear,
                         year: selectedYear,
                         division: session.division || null,
                         instituteId: teacherInfo.instituteId,
@@ -2430,7 +2432,7 @@ const CCEManager = ({ teacherInfo, selectedYear, selectedDiv }) => {
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
-    
+
     // Editable Formula Settings
     const [formula, setFormula] = useState({
         multiplier: 40,
@@ -2446,41 +2448,41 @@ const CCEManager = ({ teacherInfo, selectedYear, selectedDiv }) => {
 
             try {
                 // 1. Fetch Students
-                let qStudents = query(collection(db, 'users'), 
-                    where('instituteId', '==', teacherInfo.instituteId), 
-                    where('role', '==', 'student'), 
-                    where('year', '==', selectedYear), 
+                let qStudents = query(collection(db, 'users'),
+                    where('instituteId', '==', teacherInfo.instituteId),
+                    where('role', '==', 'student'),
+                    where('year', '==', selectedYear),
                     where('department', '==', teacherInfo.department)
                 );
                 const studentSnap = await getDocs(qStudents);
                 let studentList = studentSnap.docs.map(doc => ({ id: doc.id, ...doc.data(), rollNo: parseInt(doc.data().rollNo) }));
-                
+
                 if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
                     studentList = studentList.filter(s => s.division === selectedDiv);
                 }
                 studentList.sort((a, b) => a.rollNo - b.rollNo);
 
                 // 2. Fetch Total Theory Sessions STRICTLY BY SUBJECT
-                const qSessions = query(collection(db, 'live_sessions'), 
+                const qSessions = query(collection(db, 'live_sessions'),
                     where('instituteId', '==', teacherInfo.instituteId)
                 );
                 const sessionsSnap = await getDocs(qSessions);
-                
+
                 let totalTheorySessions = 0;
                 const validTheorySessionIds = new Set();
-                
+
                 sessionsSnap.docs.forEach(doc => {
                     const data = doc.data();
                     const sessionSubj = (data.subject || '').trim();
                     if (sessionSubj.toLowerCase() !== currentSubject.toLowerCase()) return;
-                    
+
                     const sessionYear = data.year || data.targetYear;
                     if (sessionYear && sessionYear !== 'All' && sessionYear !== selectedYear) return;
-                    
+
                     if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
                         if (data.division && data.division !== 'All' && data.division !== selectedDiv) return;
                     }
-                    
+
                     if (data.type !== 'practical') {
                         totalTheorySessions++;
                         validTheorySessionIds.add(doc.id);
@@ -2490,13 +2492,13 @@ const CCEManager = ({ teacherInfo, selectedYear, selectedDiv }) => {
                 const safeTotalSessions = totalTheorySessions > 0 ? totalTheorySessions : 1;
 
                 // 3. Fetch Attendance matching ONLY our Valid Theory Sessions
-                const qAtt = query(collection(db, 'attendance'), 
+                const qAtt = query(collection(db, 'attendance'),
                     where('instituteId', '==', teacherInfo.instituteId)
                 );
                 const attSnap = await getDocs(qAtt);
-                
+
                 const studentAttendanceCount = {};
-                
+
                 attSnap.forEach(doc => {
                     const data = doc.data();
                     if (data.status === 'Present' && validTheorySessionIds.has(data.sessionId)) {
@@ -2507,13 +2509,13 @@ const CCEManager = ({ teacherInfo, selectedYear, selectedDiv }) => {
                 });
 
                 // 4. Fetch Existing Test Marks
-                const qMarks = query(collection(db, 'exam_marks'), 
-                    where('teacherId', '==', teacherInfo.id || auth.currentUser.uid), 
+                const qMarks = query(collection(db, 'exam_marks'),
+                    where('teacherId', '==', teacherInfo.id || auth.currentUser.uid),
                     where('year', '==', selectedYear)
                 );
                 const marksSnap = await getDocs(qMarks);
                 let fetchedTests = marksSnap.docs.map(doc => doc.data());
-                
+
                 fetchedTests = fetchedTests.filter(t => {
                     const tSubj = (t.subject || '').trim();
                     if (tSubj.toLowerCase() !== currentSubject.toLowerCase()) return false;
@@ -2522,17 +2524,17 @@ const CCEManager = ({ teacherInfo, selectedYear, selectedDiv }) => {
                     }
                     return true;
                 });
-                
+
                 fetchedTests.sort((a, b) => new Date(a.date) - new Date(b.date));
 
                 const testMarksMap = {};
                 fetchedTests.forEach((testDoc, index) => {
-                    let testSlot = `test${index + 1}`; 
+                    let testSlot = `test${index + 1}`;
                     const tName = (testDoc.testName || '').toLowerCase();
                     if (tName.includes('1')) testSlot = 'test1';
                     else if (tName.includes('2')) testSlot = 'test2';
                     else if (tName.includes('3')) testSlot = 'test3';
-                    else if (index > 2) return; 
+                    else if (index > 2) return;
 
                     const scoresMap = testDoc.scores || {};
                     Object.keys(scoresMap).forEach(studentId => {
@@ -2542,13 +2544,13 @@ const CCEManager = ({ teacherInfo, selectedYear, selectedDiv }) => {
                 });
 
                 // 5. ✅ NEW: AUTO-FETCH ASSIGNMENT MARKS
-                const qAssign = query(collection(db, 'assignment_marks'), 
-                    where('teacherId', '==', teacherInfo.id || auth.currentUser.uid), 
+                const qAssign = query(collection(db, 'assignment_marks'),
+                    where('teacherId', '==', teacherInfo.id || auth.currentUser.uid),
                     where('year', '==', selectedYear)
                 );
                 const assignSnap = await getDocs(qAssign);
                 let fetchedAssigns = assignSnap.docs.map(doc => doc.data());
-                
+
                 fetchedAssigns = fetchedAssigns.filter(a => {
                     const aSubj = (a.subject || '').trim();
                     if (aSubj.toLowerCase() !== currentSubject.toLowerCase()) return false;
@@ -2557,17 +2559,17 @@ const CCEManager = ({ teacherInfo, selectedYear, selectedDiv }) => {
                     }
                     return true;
                 });
-                
+
                 fetchedAssigns.sort((a, b) => new Date(a.date) - new Date(b.date));
 
                 const assignMarksMap = {};
                 fetchedAssigns.forEach((assignDoc, index) => {
-                    let assignSlot = `assign${index + 1}`; 
-                    const aName = (assignDoc.testName || '').toLowerCase(); 
+                    let assignSlot = `assign${index + 1}`;
+                    const aName = (assignDoc.testName || '').toLowerCase();
                     if (aName.includes('1')) assignSlot = 'assign1';
                     else if (aName.includes('2')) assignSlot = 'assign2';
                     else if (aName.includes('3')) assignSlot = 'assign3';
-                    else if (index > 2) return; 
+                    else if (index > 2) return;
 
                     const scoresMap = assignDoc.scores || {};
                     Object.keys(scoresMap).forEach(studentId => {
@@ -2645,13 +2647,13 @@ const CCEManager = ({ teacherInfo, selectedYear, selectedDiv }) => {
     const exportPDF = () => {
         const doc = new jsPDF('landscape');
         const pageWidth = doc.internal.pageSize.width;
-        
+
         doc.setFontSize(16);
         doc.setFont('helvetica', 'bold');
         doc.text(teacherInfo.instituteName || "College Name", pageWidth / 2, 15, { align: 'center' });
         doc.setFontSize(12);
         doc.text("Comprehensive Continuous Evaluation", pageWidth / 2, 22, { align: 'center' });
-        
+
         doc.setFontSize(10);
         doc.setFont('helvetica', 'normal');
         doc.text(`Sub code: ________`, 14, 32);
@@ -2729,20 +2731,20 @@ const CCEManager = ({ teacherInfo, selectedYear, selectedDiv }) => {
                     <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
                         <div>
                             <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b' }}>Out Of (Multiplier)</label>
-                            <input 
-                                type="number" 
-                                value={formula.multiplier} 
-                                onChange={e => setFormula({...formula, multiplier: parseFloat(e.target.value) || 0})}
+                            <input
+                                type="number"
+                                value={formula.multiplier}
+                                onChange={e => setFormula({ ...formula, multiplier: parseFloat(e.target.value) || 0 })}
                                 style={{ display: 'block', padding: '6px', width: '80px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
                             />
                         </div>
                         <div style={{ fontSize: '20px', color: '#64748b', marginTop: '15px' }}>×</div>
                         <div>
                             <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b' }}>Total Divisor</label>
-                            <input 
-                                type="number" 
-                                value={formula.divisor} 
-                                onChange={e => setFormula({...formula, divisor: parseFloat(e.target.value) || 1})}
+                            <input
+                                type="number"
+                                value={formula.divisor}
+                                onChange={e => setFormula({ ...formula, divisor: parseFloat(e.target.value) || 1 })}
                                 style={{ display: 'block', padding: '6px', width: '80px', borderRadius: '4px', border: '1px solid #cbd5e1' }}
                             />
                         </div>
@@ -2774,17 +2776,17 @@ const CCEManager = ({ teacherInfo, selectedYear, selectedDiv }) => {
                                     <td style={{ textAlign: 'left', fontWeight: 'bold' }}>
                                         {s.firstName.toUpperCase()} {s.lastName.toUpperCase()}
                                     </td>
-                                    
+
                                     {/* Test Read-Only Data */}
                                     <td style={{ color: '#64748b' }}>{s.test1}</td>
                                     <td style={{ color: '#64748b' }}>{s.test2}</td>
                                     <td style={{ color: '#64748b' }}>{s.test3}</td>
-                                    
+
                                     {/* Assignment Read-Only Data */}
                                     <td style={{ color: '#64748b' }}>{s.assign1}</td>
                                     <td style={{ color: '#64748b' }}>{s.assign2}</td>
                                     <td style={{ color: '#64748b' }}>{s.assign3}</td>
-                                    
+
                                     {/* Auto Sums & Calcs */}
                                     <td style={{ fontWeight: 'bold' }}>{s.testSum}</td>
                                     <td style={{ fontWeight: 'bold' }}>{s.assignSum}</td>
@@ -2832,7 +2834,7 @@ export default function TeacherDashboard() {
                 if (docSnap.exists() && docSnap.data().currentAcademicYear) {
                     setCurrentAcademicYear(docSnap.data().currentAcademicYear);
                 }
-            } catch(e) { console.log("Year fetch error", e); }
+            } catch (e) { console.log("Year fetch error", e); }
         };
         fetchYear();
     }, [teacherInfo]);
@@ -3034,7 +3036,7 @@ export default function TeacherDashboard() {
 
     useEffect(() => {
         if (!auth.currentUser) return;
-        const q = query(collection(db, 'live_sessions'), where('teacherId', '==', auth.currentUser.uid),where('academicYear', '==', currentAcademicYear),where('isActive', '==', true));
+        const q = query(collection(db, 'live_sessions'), where('teacherId', '==', auth.currentUser.uid), where('academicYear', '==', currentAcademicYear), where('isActive', '==', true));
         const unsub = onSnapshot(q, (snap) => setActiveSession(!snap.empty ? { sessionId: snap.docs[0].id, ...snap.docs[0].data() } : null));
         return () => unsub();
     }, [teacherInfo, currentAcademicYear]);
@@ -3100,6 +3102,7 @@ export default function TeacherDashboard() {
                     collection(db, 'attendance'),
                     where('instituteId', '==', teacherInfo.instituteId),
                     where('subject', '==', targetSubject),
+                    where('academicYear', '==', currentAcademicYear),
                     where('timestamp', '>=', Timestamp.fromDate(start)),
                     where('timestamp', '<=', Timestamp.fromDate(end))
                 );
@@ -3300,13 +3303,14 @@ export default function TeacherDashboard() {
                 historySemester={historySemester}
                 setHistorySemester={setHistorySemester}
                 getSubjectForHistory={getSubjectForHistory}
-                selectedDiv={selectedDiv}       // ✅ Pass Prop
+                selectedDiv={selectedDiv}
+                currentAcademicYear={currentAcademicYear}
                 setSelectedDiv={setSelectedDiv}
                 historyDivision={historyDivision}
                 setHistoryDivision={setHistoryDivision}
                 setRefreshTrigger={setRefreshTrigger}
             />;
-            case 'analytics': return <TeacherAnalytics teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} />;
+            case 'analytics': return <TeacherAnalytics teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} currentAcademicYear={currentAcademicYear}/>;
             case 'reports':
                 return (
                     <div className="content-section">
@@ -3464,7 +3468,7 @@ export default function TeacherDashboard() {
             case 'marks':
                 return <MarksManager teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} />;
             case 'cce':
-                return <CCEManager teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} />;
+                return <CCEManager teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} currentAcademicYear={currentAcademicYear} />;
             case 'assignmentMarks':
                 return <AssignmentMarksManager teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} />;
             case 'adminNotices': return (

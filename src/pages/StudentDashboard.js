@@ -507,7 +507,8 @@ const AttendanceOverview = ({ user }) => {
                 const sessionsQuery = query(
                     collection(db, 'live_sessions'),
                     where('instituteId', '==', user.instituteId),
-                    where('department', '==', user.department)
+                    where('department', '==', user.department),
+                    where('academicYear', '==', user.academicYear)
                 );
 
                 const snap = await getDocs(sessionsQuery);
@@ -627,6 +628,7 @@ const StudentTestResults = ({ user }) => {
             where('year', '==', user.year),
             where('department', '==', user.department),
             orderBy('date', 'desc'),
+            where('academicYear', '==', user.academicYear),
             limit(5) // Show top 5 recent tests
         );
 
@@ -717,6 +719,7 @@ const StudentAssignmentResults = ({ user }) => {
             collection(db, 'assignment_marks'),
             where('year', '==', user.year),
             where('department', '==', user.department),
+            where('academicYear', '==', user.academicYear),
             orderBy('date', 'desc'),
             limit(5)
         );
@@ -730,7 +733,7 @@ const StudentAssignmentResults = ({ user }) => {
                 if (studentScore) {
                     myResults.push({
                         id: doc.id,
-                        testName: data.testName, 
+                        testName: data.testName,
                         subject: data.subject,
                         date: data.date,
                         maxMarks: data.maxMarks,
@@ -808,8 +811,8 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
         const q = query(
             collection(db, "attendance"),
             where("studentId", "==", auth.currentUser.uid),
-            where("timestamp", ">=", startOfDay), 
-            orderBy("timestamp", "desc") 
+            where("timestamp", ">=", startOfDay),
+            orderBy("timestamp", "desc")
         );
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -830,17 +833,17 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
     return (
         <div className="content-section">
             <h2 className="content-title">Welcome, {displayName}!</h2>
-            
+
             <div className="cards-grid">
-                
+
                 {/* 1. Smart Schedule Card */}
                 <SmartScheduleCard user={user} currentSlot={currentSlot} loading={!currentSlot} />
 
                 {/* 2. ✨ ULTRA-MODERN LIVE ATTENDANCE CARD ✨ */}
                 <div className="card" style={{
-                    background: 'linear-gradient(120deg, #4f46e5 0%, #0ea5e9 100%)', 
+                    background: 'linear-gradient(120deg, #4f46e5 0%, #0ea5e9 100%)',
                     color: 'white', border: 'none', borderRadius: '24px',
-                    boxShadow: '0 20px 40px -10px rgba(79, 70, 229, 0.5)', 
+                    boxShadow: '0 20px 40px -10px rgba(79, 70, 229, 0.5)',
                     position: 'relative', overflow: 'hidden', padding: '28px'
                 }}>
                     <div style={{
@@ -914,7 +917,7 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                                     <i className="fas fa-expand" style={{ fontSize: '18px' }}></i>
                                     {Capacitor.isNativePlatform() ? "Scan Now" : "Open Scanner"}
                                 </button>
-                                
+
                                 <div style={{ textAlign: 'center', marginTop: '20px' }}>
                                     <button
                                         onClick={() => setShowPinModal(true)}
@@ -1453,7 +1456,11 @@ export default function StudentDashboard() {
         if (!user?.instituteId) return;
 
         // Query assignments for this institute
-        const q = query(collection(db, 'assignments'), where('instituteId', '==', user.instituteId));
+        const q = query(
+            collection(db, 'assignments'),
+            where('instituteId', '==', user.instituteId),
+            where('academicYear', '==', user.academicYear) // 👈 ADD THIS
+        );
 
         const unsub = onSnapshot(q, (snapshot) => {
             const allTasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -1514,7 +1521,8 @@ export default function StudentDashboard() {
         // Fetch ALL announcements for this institute (then filter in JS for complex logic)
         const q = query(
             collection(db, 'announcements'),
-            where('instituteId', '==', user.instituteId)
+            where('instituteId', '==', user.instituteId),
+            where('academicYear', '==', user.academicYear)
         );
 
         const unsub = onSnapshot(q, (snapshot) => {
