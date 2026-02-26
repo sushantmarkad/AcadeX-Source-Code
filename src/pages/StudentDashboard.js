@@ -508,7 +508,7 @@ const AttendanceOverview = ({ user }) => {
                     collection(db, 'live_sessions'),
                     where('instituteId', '==', user.instituteId),
                     where('department', '==', user.department),
-                    where('academicYear', '==', user.academicYear)
+                    where('academicYear', '==', user.academicYear || '2025-2026')
                 );
 
                 const snap = await getDocs(sessionsQuery);
@@ -628,7 +628,7 @@ const StudentTestResults = ({ user }) => {
             where('year', '==', user.year),
             where('department', '==', user.department),
             orderBy('date', 'desc'),
-            where('academicYear', '==', user.academicYear),
+            where('academicYear', '==', user.academicYear || '2025-2026'),
             limit(5) // Show top 5 recent tests
         );
 
@@ -719,7 +719,7 @@ const StudentAssignmentResults = ({ user }) => {
             collection(db, 'assignment_marks'),
             where('year', '==', user.year),
             where('department', '==', user.department),
-            where('academicYear', '==', user.academicYear),
+            where('academicYear', '==', user.academicYear || '2025-2026'),
             orderBy('date', 'desc'),
             limit(5)
         );
@@ -1459,7 +1459,7 @@ export default function StudentDashboard() {
         const q = query(
             collection(db, 'assignments'),
             where('instituteId', '==', user.instituteId),
-            where('academicYear', '==', user.academicYear) // 👈 ADD THIS
+            where('academicYear', '==', user.academicYear || '2025-2026')
         );
 
         const unsub = onSnapshot(q, (snapshot) => {
@@ -1522,7 +1522,7 @@ export default function StudentDashboard() {
         const q = query(
             collection(db, 'announcements'),
             where('instituteId', '==', user.instituteId),
-            where('academicYear', '==', user.academicYear)
+            where('academicYear', '==', user.academicYear || '2025-2026')
         );
 
         const unsub = onSnapshot(q, (snapshot) => {
