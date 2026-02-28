@@ -8,6 +8,7 @@ import { Html5Qrcode } from 'html5-qrcode';
 import toast from 'react-hot-toast';
 import logo from "../assets/logo.png";
 import './Dashboard.css';
+import './FeedbackView.css';
 import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { Camera, CameraResultType, CameraSource } from '@capacitor/camera';
@@ -32,6 +33,68 @@ import FreePeriodQuiz from '../components/FreePeriodQuiz';
 
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
+let cachedFeedbackForms = null;
+let cachedDeptTeachers = null;
+
+// --- 📱 BEAUTIFUL CUSTOM MOBILE DROPDOWN ---
+const CustomMobileSelect = ({ label, value, onChange, options, icon }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const selectedLabel = options.find(o => String(o.value) === String(value))?.label || "Select...";
+
+    return (
+        <div style={{ position: 'relative', width: '100%' }}>
+            <label style={{ fontSize: '12px', fontWeight: '800', color: '#64748b', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                {icon && <i className={`fas ${icon}`} style={{ color: '#8b5cf6' }}></i>}
+                {label}
+            </label>
+
+            <div
+                onClick={() => setIsOpen(!isOpen)}
+                style={{
+                    padding: '16px 20px', borderRadius: '16px', background: isOpen ? '#ffffff' : '#f8fafc',
+                    border: isOpen ? '2px solid #3b82f6' : '2px solid #e2e8f0',
+                    color: '#1e293b', fontWeight: '600', cursor: 'pointer',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    transition: 'all 0.2s ease', width: '100%', boxSizing: 'border-box'
+                }}
+            >
+                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: '15px' }}>
+                    {selectedLabel}
+                </span>
+                <i className={`fas fa-chevron-down ${isOpen ? 'fa-rotate-180' : ''}`} style={{ transition: '0.3s', color: isOpen ? '#3b82f6' : '#94a3b8' }}></i>
+            </div>
+
+            {isOpen && (
+                <>
+                    <div style={{
+                        position: 'absolute', top: '100%', left: 0, right: 0, marginTop: '8px',
+                        background: 'white', borderRadius: '16px', border: '1px solid #e2e8f0',
+                        boxShadow: '0 10px 40px -10px rgba(0,0,0,0.15)',
+                        zIndex: 100, maxHeight: '250px', overflowY: 'auto'
+                    }}>
+                        {options.map((opt, idx) => (
+                            <div
+                                key={idx}
+                                onClick={() => { onChange(opt.value); setIsOpen(false); }}
+                                style={{
+                                    padding: '14px 20px', borderBottom: idx === options.length - 1 ? 'none' : '1px solid #f8fafc',
+                                    color: String(value) === String(opt.value) ? '#2563eb' : '#475569',
+                                    fontWeight: String(value) === String(opt.value) ? '700' : '500',
+                                    background: String(value) === String(opt.value) ? '#eff6ff' : 'transparent',
+                                    cursor: 'pointer', fontSize: '14px', transition: 'background 0.2s'
+                                }}
+                            >
+                                {opt.label}
+                            </div>
+                        ))}
+                    </div>
+                    {/* Overlay to close when clicking outside */}
+                    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 99 }} onClick={() => setIsOpen(false)}></div>
+                </>
+            )}
+        </div>
+    );
+};
 
 // --- HELPER: Time Logic ---
 const getCurrentTimeMinutes = () => {
@@ -1152,6 +1215,320 @@ const ManualAttendanceModal = ({ isOpen, onClose, onSubmit, pinValue, setPinValu
     );
 };
 
+// --- COMPONENT: Teacher Feedback Form (Student View) ---
+const FeedbackView = ({ user }) => {
+    const [feedbackForms, setFeedbackForms] = useState(cachedFeedbackForms || []);
+    const [deptTeachers, setDeptTeachers] = useState(cachedDeptTeachers || []);
+    const [mySubmissions, setMySubmissions] = useState([]); // ✅ TRACKS SUBMISSIONS
+    
+    // UI States
+    const [isInitialLoading, setIsInitialLoading] = useState(true);
+    const [selectedForm, setSelectedForm] = useState(null);
+    const [isFormLoading, setIsFormLoading] = useState(false);
+    const [feedbackResponse, setFeedbackResponse] = useState({ teacherId: '', subject: '', answers: {} });
+
+    useEffect(() => {
+        if (!user || !auth.currentUser) return;
+
+        const currentUserId = auth.currentUser.uid; // ✅ FIX: Guaranteed to have the exact ID
+        const fetchPromises = [];
+
+        // 1. Fetch Forms
+        if (!cachedFeedbackForms) {
+            const formsPromise = fetch(`${BACKEND_URL}/getFeedbackForms`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    department: user.department,
+                    year: user.year,
+                    academicYear: user.academicYear || '2025-2026'
+                })
+            }).then(res => res.json()).then(data => {
+                const myDiv = user.division || user.div;
+                const filtered = (data.forms || []).filter(f => !f.division || f.division === 'All' || f.division === myDiv);
+                cachedFeedbackForms = filtered; 
+                setFeedbackForms(filtered);
+            }).catch(err => console.error("Error fetching forms", err));
+            fetchPromises.push(formsPromise);
+        }
+
+        // 2. Fetch Teachers
+        if (!cachedDeptTeachers) {
+            const teachersPromise = fetch(`${BACKEND_URL}/getDepartmentTeachers`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    instituteId: user.instituteId,
+                    department: user.department
+                })
+            }).then(res => res.json()).then(data => {
+                cachedDeptTeachers = data.teachers || []; 
+                setDeptTeachers(data.teachers || []);
+            }).catch(err => console.error("Error fetching teachers", err));
+            fetchPromises.push(teachersPromise);
+        }
+
+        // 3. ✅ REAL-TIME LISTENER FOR THIS STUDENT'S SUBMISSIONS
+        const qSub = query(collection(db, 'feedback_responses'), where('studentId', '==', currentUserId));
+        const unsubSub = onSnapshot(qSub, (snapshot) => {
+            const subs = snapshot.docs.map(doc => doc.data());
+            setMySubmissions(subs);
+        });
+
+        Promise.all(fetchPromises).finally(() => {
+            setTimeout(() => { setIsInitialLoading(false); }, 2500); 
+        });
+
+        return () => unsubSub(); // Cleanup listener on unmount
+    }, [user]);
+
+    const handleStartEvaluation = (form) => {
+        setIsFormLoading(true);
+        setTimeout(() => {
+            setSelectedForm(form);
+            setFeedbackResponse({ teacherId: '', subject: '', answers: {} });
+            setIsFormLoading(false);
+        }, 2000); 
+    };
+
+    // 🎯 SMART TEACHER DROPDOWN LOGIC (Removes already evaluated subjects)
+    let availableTeacherOptions = [];
+    if (selectedForm) {
+        availableTeacherOptions = [
+            { value: '|', label: '-- Choose the subject to evaluate --' },
+            ...deptTeachers.flatMap(teacher => 
+                (teacher.assignedClasses || []).filter(cls => {
+                    const matchesYear = cls.year === user.year;
+                    let matchesDiv = true;
+                    if (user.year === 'FE' || user.year === 'First Year') {
+                        const myDiv = user.division || user.div;
+                        matchesDiv = (!cls.divisions || cls.divisions === myDiv);
+                    }
+                    
+                    // ✅ CHECK: Has this student already submitted feedback for this teacher/subject?
+                    const isAlreadyEvaluated = mySubmissions.some(sub => 
+                        sub.formId === selectedForm.id && 
+                        sub.teacherId === teacher.id && 
+                        sub.subject === cls.subject
+                    );
+
+                    return matchesYear && matchesDiv && !isAlreadyEvaluated;
+                }).map((cls, idx) => ({
+                    value: `${teacher.id}|${cls.subject}`,
+                    label: `${cls.subject} (Prof. ${teacher.name})`
+                }))
+            )
+        ];
+    }
+
+    return (
+        <div className="content-section std-fb-wrapper">
+            <div style={{ marginBottom: '25px' }}>
+                <h2 className="content-title" style={{ margin: 0 }}>Teacher Feedback</h2>
+                <p className="content-subtitle" style={{ margin: '5px 0 0 0' }}>Your honest feedback is 100% anonymous & secure.</p>
+            </div>
+
+            {isInitialLoading ? (
+                <div className="std-fb-initial-loader">
+                    <div className="std-fb-radar"></div>
+                    <h3 style={{ margin: '0 0 8px 0', color: '#1e293b', fontSize: '20px', fontWeight: '800' }}>Establishing Secure Link...</h3>
+                    <p style={{ color: '#64748b', fontSize: '14px', margin: 0 }}>Fetching your anonymous evaluation portals</p>
+                </div>
+            ) : 
+            isFormLoading ? (
+                <div className="std-fb-loader-container">
+                    <div className="std-fb-pulse-ring">
+                        <div className="std-fb-shield-icon"><i className="fas fa-user-secret"></i></div>
+                    </div>
+                    <h3 style={{ margin: '20px 0 5px 0', color: '#1e293b', fontSize: '18px', fontWeight: '800' }}>Encrypting Session...</h3>
+                    <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>Protecting your identity</p>
+                </div>
+            ) : !selectedForm ? (
+                // --- LIST VIEW ---
+                <div className="cards-grid std-fb-stagger-grid">
+                    {feedbackForms.length > 0 ? feedbackForms.map((form, index) => {
+                        
+                        // ✅ COUNT SUBMISSIONS FOR THIS SPECIFIC FORM
+                        const formSubmissions = mySubmissions.filter(s => s.formId === form.id);
+                        const hasSubmittedAtLeastOnce = formSubmissions.length > 0;
+
+                        return (
+                            <div key={form.id} className={`std-fb-list-card ${hasSubmittedAtLeastOnce ? 'completed' : ''}`} style={{ animationDelay: `${index * 0.15}s` }}>
+                                <div className="std-fb-card-bg-blob"></div>
+                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '18px', position: 'relative', zIndex: 2 }}>
+                                    
+                                    {/* Icon changes to Green Check if submitted */}
+                                    <div className={`std-fb-icon-box ${hasSubmittedAtLeastOnce ? 'submitted' : ''}`}>
+                                        <i className={`fas ${hasSubmittedAtLeastOnce ? 'fa-check-circle' : 'fa-clipboard-list'}`}></i>
+                                    </div>
+                                    
+                                    <div>
+                                        <h3 style={{ margin: 0, color: '#1e293b', fontSize: '18px', fontWeight: '800', lineHeight: '1.2' }}>{form.title}</h3>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+                                            <span className="std-fb-anon-badge" style={{ margin: 0 }}>
+                                                <i className="fas fa-shield-check"></i> Anonymous
+                                            </span>
+                                            
+                                            {/* ✅ SHOW GREEN BADGE WITH SUBMISSION COUNT */}
+                                            {hasSubmittedAtLeastOnce && (
+                                                <span className="std-fb-anon-badge" style={{ margin: 0, background: '#ecfdf5', color: '#10b981', border: '1px solid #a7f3d0' }}>
+                                                    <i className="fas fa-check-double"></i> Evaluated ({formSubmissions.length} subjects)
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                                <button 
+                                    className={`std-fb-start-btn ${hasSubmittedAtLeastOnce ? 'submitted' : ''}`} 
+                                    onClick={() => handleStartEvaluation(form)}
+                                >
+                                    <span>{hasSubmittedAtLeastOnce ? 'Evaluate Another Subject' : 'Start Evaluation'}</span> <i className="fas fa-arrow-right"></i>
+                                </button>
+                            </div>
+                        );
+                    }) : (
+                        <div className="std-fb-empty-wrapper">
+                            <div className="std-fb-empty-badge">
+                                <i className="fas fa-info-circle" style={{ color: '#3b82f6' }}></i> Status Clear
+                            </div>
+                            <div className="std-fb-empty-illustration">
+                                <i className="fas fa-check-double"></i>
+                            </div>
+                            <h3 className="std-fb-empty-title">You're All Caught Up!</h3>
+                            <p className="std-fb-empty-subtitle">
+                                There are no active feedback forms assigned to your class right now. Relax and check back later!
+                            </p>
+                        </div>
+                    )}
+                </div>
+            ) : (
+                // --- FORM VIEW ---
+                <div className="std-fb-form-container">
+                    <button 
+                        className="std-fb-back-btn"
+                        onClick={() => setSelectedForm(null)} 
+                    >
+                        <i className="fas fa-chevron-left"></i> Back
+                    </button>
+
+                    <h3 className="std-fb-form-title">
+                        {selectedForm.title}
+                    </h3>
+
+                    {/* ✅ CHECK IF ALL SUBJECTS ARE EVALUATED */}
+                    {availableTeacherOptions.length <= 1 ? (
+                        <div className="std-fb-all-complete">
+                            <div className="std-fb-all-complete-icon"><i className="fas fa-check"></i></div>
+                            <h3 style={{ margin: '0 0 10px 0', fontSize: '20px', color: '#1e293b' }}>Evaluation Complete</h3>
+                            <p style={{ margin: 0, color: '#64748b', fontSize: '14px', lineHeight: '1.6' }}>
+                                You have successfully submitted feedback for all your assigned subjects. Thank you for your honest responses!
+                            </p>
+                        </div>
+                    ) : (
+                        <>
+                            <div className="std-fb-dropdown-section" style={{ position: 'relative', zIndex: 100 }}>
+                                <CustomMobileSelect 
+                                    label="Select Subject & Teacher"
+                                    icon="fa-chalkboard-teacher"
+                                    value={`${feedbackResponse.teacherId}|${feedbackResponse.subject}`}
+                                    onChange={(val) => {
+                                        const [tId, sub] = val.split('|');
+                                        setFeedbackResponse({ ...feedbackResponse, teacherId: tId || '', subject: sub || '' });
+                                    }}
+                                    options={availableTeacherOptions}
+                                />
+                                <p className="std-fb-hint" style={{ marginTop: '12px' }}>
+                                    <i className="fas fa-info-circle"></i> Only remaining unevaluated subjects are shown.
+                                </p>
+                            </div>
+
+                            {/* Dynamic Questions */}
+                            {selectedForm.questions.map((q, index) => (
+                                <div key={q.id} className="std-fb-question-box" style={{ position: 'relative', zIndex: 40 - index }}>
+                                    <h4 className="std-fb-question-text">
+                                        <span className="std-fb-q-num">Q{index + 1}.</span> {q.text}
+                                    </h4>
+                                    
+                                    {q.type === 'text' ? (
+                                        <textarea 
+                                            rows="4" 
+                                            className="std-fb-textarea" 
+                                            placeholder="Type your honest thoughts here..."
+                                            value={feedbackResponse.answers[q.id] || ''}
+                                            onChange={e => setFeedbackResponse({
+                                                ...feedbackResponse,
+                                                answers: { ...feedbackResponse.answers, [q.id]: e.target.value }
+                                            })}
+                                        ></textarea>
+                                    ) : (
+                                        <div className="std-fb-radio-group">
+                                            {q.options.map((opt, oIndex) => {
+                                                const isSelected = feedbackResponse.answers[q.id] === opt;
+                                                return (
+                                                    <label key={oIndex} className={`std-fb-radio-label ${isSelected ? 'selected' : ''}`}>
+                                                        <input 
+                                                            type="radio" 
+                                                            name={`question_${q.id}`} 
+                                                            value={opt}
+                                                            checked={isSelected}
+                                                            onChange={e => setFeedbackResponse({
+                                                                ...feedbackResponse,
+                                                                answers: { ...feedbackResponse.answers, [q.id]: e.target.value }
+                                                            })}
+                                                            className="std-fb-radio-input"
+                                                        />
+                                                        <div className="std-fb-radio-circle"></div>
+                                                        <span className="std-fb-radio-text">{opt}</span>
+                                                    </label>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+
+                            <button 
+                                className="std-fb-submit-btn" 
+                                disabled={!feedbackResponse.teacherId || !feedbackResponse.subject}
+                                onClick={async () => {
+                                    const toastId = toast.loading("Submitting Securely...");
+                                    try {
+                                        const formattedAnswers = selectedForm.questions.map(q => ({
+                                            questionText: q.text,
+                                            answer: feedbackResponse.answers[q.id] || 'No Answer'
+                                        }));
+
+                                        const res = await fetch(`${BACKEND_URL}/submitFeedback`, {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({
+                                                formId: selectedForm.id,
+                                                studentId: auth.currentUser.uid, // ✅ FIX: Use guaranteed auth ID
+                                                teacherId: feedbackResponse.teacherId,
+                                                subject: feedbackResponse.subject,
+                                                answers: formattedAnswers,
+                                                academicYear: user.academicYear || '2025-2026'
+                                            })
+                                        });
+                                        
+                                        const data = await res.json();
+                                        if(!res.ok) throw new Error(data.error);
+
+                                        toast.success("Evaluation submitted anonymously!", { id: toastId });
+                                        setSelectedForm(null); // Kicks back to list view which immediately shows the ✅ Badge
+                                    } catch (error) {
+                                        toast.error(error.message || "Failed to submit.", { id: toastId });
+                                    }
+                                }}
+                            >
+                                <i className="fas fa-paper-plane" style={{ marginRight: '8px' }}></i> Submit Evaluation
+                            </button>
+                        </>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 // --- MAIN COMPONENT ---
 export default function StudentDashboard() {
     const [activePage, setActivePage] = useState('dashboard');
@@ -1178,6 +1555,7 @@ export default function StudentDashboard() {
     const [showPinModal, setShowPinModal] = useState(false);
     const [enteredPin, setEnteredPin] = useState('');
     const [loading, setLoading] = useState(false);
+    
 
 
 
@@ -1267,6 +1645,8 @@ export default function StudentDashboard() {
         }
     };
 
+
+
     // ✅ Toggle Flashlight for better scanning in low light
     const toggleFlashlight = async () => {
         try {
@@ -1319,6 +1699,8 @@ export default function StudentDashboard() {
         });
         return () => authUnsub();
     }, []);
+
+    
 
     // ✅ 2. Listen for Active Session (Filtered by Year AND Division)
     useEffect(() => {
@@ -1871,6 +2253,7 @@ export default function StudentDashboard() {
             case 'leaderboard': return <Leaderboard user={user} />;
             case 'leave': return <LeaveRequestForm user={user} />;
             case 'notices': return <NoticesView notices={notices} />;
+            case 'feedback': return <FeedbackView user={user} />;
             default: return <DashboardHome
                 user={user}
                 currentSlot={currentSlot}
@@ -1974,6 +2357,12 @@ export default function StudentDashboard() {
                         <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '15px' }}>
                             <i className="fas fa-user" style={{ width: '24px', textAlign: 'center' }}></i>
                             <span>Profile</span>
+                        </div>
+                    </li>
+                   <li className={activePage === 'feedback' ? 'active' : ''} onClick={() => { setActivePage('feedback'); setIsMobileNavOpen(false); }}>
+                        <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '15px' }}>
+                            <i className="fas fa-comment-dots" style={{ width: '24px', textAlign: 'center' }}></i>
+                            <span>Teacher Feedback</span>
                         </div>
                     </li>
                 </ul>

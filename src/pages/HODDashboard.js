@@ -16,6 +16,9 @@ import './HODDashboard.css';
 import TwoFactorSetup from '../components/TwoFactorSetup'; // ✅ Add this import
 import CustomDropdown from '../components/CustomDropdown';
 import ReactDOM from 'react-dom';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 
 import ManageTimetable from './ManageTimetable';
@@ -132,6 +135,19 @@ export default function HODDashboard() {
         academicYear: '2024-2025',
         assignedClasses: []
     });
+    const [feedbackForm, setFeedbackForm] = useState({
+        title: '',
+        targetYear: 'All',
+        division: 'All',
+        questions: [{ id: Date.now(), type: 'mcq', text: '', options: ['', ''] }]
+    });
+    // HOD Feedback Viewer States
+    const [fbTab, setFbTab] = useState('create'); // 'create' or 'view'
+    const [hodCreatedForms, setHodCreatedForms] = useState([]);
+    const [selectedFormToView, setSelectedFormToView] = useState(null);
+    const [formResponses, setFormResponses] = useState([]);
+    const [isResponsesLoading, setIsResponsesLoading] = useState(false);
+    const [editingFormId, setEditingFormId] = useState(null);
 
 
 
@@ -252,6 +268,21 @@ export default function HODDashboard() {
         });
         return () => unsub();
     }, [hodInfo]);
+
+    useEffect(() => {
+        if (activeTab === 'feedback' && fbTab === 'view' && hodInfo) {
+            fetch(`${BACKEND_URL}/getHODFeedbackForms`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ department: hodInfo.department, instituteId: hodInfo.instituteId })
+            })
+                .then(res => res.json())
+                .then(data => {
+                    // Sort by newest first
+                    const sorted = (data.forms || []).sort((a, b) => (b.createdAt?._seconds || 0) - (a.createdAt?._seconds || 0));
+                    setHodCreatedForms(sorted);
+                });
+        }
+    }, [activeTab, fbTab, hodInfo]);
 
     // --- 2. FETCH & PROCESS ATTENDANCE (Student Counts) ---
     useEffect(() => {
@@ -409,6 +440,59 @@ export default function HODDashboard() {
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleViewFormResponses = async (form) => {
+        setSelectedFormToView(form);
+        setIsResponsesLoading(true); // 👈 Show Loader
+
+        try {
+            const res = await fetch(`${BACKEND_URL}/getFeedbackResponses`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ formId: form.id })
+            });
+            const data = await res.json();
+
+            // 🕒 Wait 2.5 seconds to simulate secure data compilation
+            setTimeout(() => {
+                setFormResponses(data.responses || []);
+                setIsResponsesLoading(false); // 👈 Hide Loader
+            }, 2500);
+
+        } catch (error) {
+            toast.error("Failed to load responses");
+            setIsResponsesLoading(false);
+        }
+    };
+
+    // ✅ HANDLE DELETE FORM
+    const handleDeleteFeedbackForm = (formId) => {
+        confirmAction("Delete Form?", "Are you sure you want to delete this feedback form? This cannot be undone.", async () => {
+            closeModal();
+            const toastId = toast.loading("Deleting form...");
+            try {
+                await fetch(`${BACKEND_URL}/deleteFeedbackForm`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ formId })
+                });
+                setHodCreatedForms(prev => prev.filter(f => f.id !== formId));
+                toast.success("Form deleted successfully!", { id: toastId });
+            } catch (e) {
+                toast.error("Failed to delete", { id: toastId });
+            }
+        }, "danger");
+    };
+
+    // ✅ HANDLE EDIT FORM
+    const handleEditFeedbackForm = (form) => {
+        setEditingFormId(form.id);
+        setFeedbackForm({
+            title: form.title,
+            targetYear: form.targetYear,
+            division: form.division || 'All',
+            questions: form.questions
+        });
+        setFbTab('create'); // Switch back to the create tab to edit
     };
 
     // ✅ SAVE STUDENT UPDATES (Fixed: Sends Token)
@@ -815,6 +899,81 @@ export default function HODDashboard() {
         }, 'danger');
     };
 
+    // 📄 DOWNLOAD TEACHER EMAILS (PDF)
+    const downloadTeacherEmails = () => {
+        const doc = new jsPDF();
+        doc.setFontSize(18);
+        doc.setTextColor(30, 41, 59);
+        doc.text(`${hodInfo?.department || 'Department'} - Faculty Directory`, 14, 20);
+        
+        doc.setFontSize(11);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`Total Teachers: ${teachersList.length}`, 14, 28);
+
+        const tableColumn = ["Name", "Email", "Phone", "Assigned Classes"];
+        const tableRows = teachersList.map(t => {
+            const classes = (t.assignedClasses || []).map(c => `${c.subject} (${c.year}${c.divisions ? ` Div ${c.divisions}` : ''})`).join(', ');
+            return [
+                `${t.firstName} ${t.lastName}`,
+                t.email,
+                t.phone || 'N/A',
+                classes || 'None'
+            ];
+        });
+
+        autoTable(doc, {
+            startY: 35,
+            head: [tableColumn],
+            body: tableRows,
+            theme: 'grid',
+            headStyles: { fillColor: [59, 130, 246] },
+            styles: { fontSize: 9 }
+        });
+
+        doc.save(`${hodInfo?.department}_Teachers.pdf`);
+        toast.success("Teachers PDF Downloaded!");
+    };
+
+    // 📄 DOWNLOAD STUDENT EMAILS (PDF)
+    const downloadStudentEmails = () => {
+        const doc = new jsPDF();
+        doc.setFontSize(18);
+        doc.setTextColor(30, 41, 59);
+        doc.text(`${hodInfo?.department || 'Department'} - Student Directory`, 14, 20);
+        
+        doc.setFontSize(11);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`Total Students: ${studentsList.length}`, 14, 28);
+
+        const tableColumn = ["Roll No", "Name", "Email", "Class / Div"];
+        
+        // Sort students by Year -> Division -> Roll Number
+        const sortedStudents = [...studentsList].sort((a, b) => {
+            if (a.year !== b.year) return (a.year || '').localeCompare(b.year || '');
+            if (a.division !== b.division) return (a.division || '').localeCompare(b.division || '');
+            return (a.rollNo || '').localeCompare(b.rollNo || '', undefined, { numeric: true });
+        });
+
+        const tableRows = sortedStudents.map(s => [
+            s.rollNo || '-',
+            `${s.firstName} ${s.lastName}`,
+            s.email,
+            `${s.year} ${s.division ? `(Div ${s.division})` : ''}`
+        ]);
+
+        autoTable(doc, {
+            startY: 35,
+            head: [tableColumn],
+            body: tableRows,
+            theme: 'grid',
+            headStyles: { fillColor: [16, 185, 129] }, // Green header for students
+            styles: { fontSize: 9 }
+        });
+
+        doc.save(`${hodInfo?.department}_Students.pdf`);
+        toast.success("Students PDF Downloaded!");
+    };
+
     const handleLeaveAction = async (leaveId, status) => {
         const toastId = toast.loading("Processing...");
         try {
@@ -965,6 +1124,9 @@ export default function HODDashboard() {
             <button className={activeTab === 'profile' ? 'active' : ''} onClick={() => setActiveTab('profile')}>
                 <i className="fas fa-user"></i><span>Profile</span>
             </button>
+            <button className={activeTab === 'feedback' ? 'active' : ''} onClick={() => setActiveTab('feedback')}>
+                <i className="fas fa-comment-dots"></i><span>Feedback</span>
+            </button>
         </div>
     );
 
@@ -1063,6 +1225,7 @@ export default function HODDashboard() {
                     <NavLink page="manage" iconClass="fa-users" label="Dept Users" />
                     <NavLink page="timetable" iconClass="fa-calendar-alt" label="Timetable" />
                     <NavLink page="addTeacher" iconClass="fa-chalkboard-teacher" label="Add Teacher" />
+                    <NavLink page="feedback" iconClass="fa-comment-dots" label="Feedback Forms" />
                     <NavLink page="profile" iconClass="fa-user-cog" label="My Profile" />
                 </ul>
                 <div className="sidebar-footer">
@@ -1273,6 +1436,485 @@ export default function HODDashboard() {
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
+                    </div>
+                )}
+
+               {activeTab === 'feedback' && (
+                    <div className="content-section">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '20px' }}>
+                            <div>
+                                <h2 className="content-title" style={{ margin: 0 }}>Teacher Feedback</h2>
+                                <p style={{ color: '#64748b', marginTop: '5px' }}>Create forms and analyze student evaluations.</p>
+                            </div>
+                        </div>
+
+                        {/* Top Toggle Navigation */}
+                        <div className="fb-toggle-nav">
+                            <button className={`fb-toggle-btn ${fbTab === 'create' ? 'active' : ''}`} onClick={() => {
+                                setFbTab('create');
+                                if(!editingFormId) {
+                                    setFeedbackForm({ title: '', targetYear: 'All', division: 'All', questions: [{ id: Date.now(), type: 'mcq', text: '', options: ['', ''] }] });
+                                }
+                            }}>
+                                <i className={`fas ${editingFormId ? 'fa-pen' : 'fa-plus-circle'}`} style={{ marginRight: '8px' }}></i> 
+                                {editingFormId ? 'Edit Form' : 'Create Form'}
+                            </button>
+                            <button className={`fb-toggle-btn ${fbTab === 'view' ? 'active' : ''}`} onClick={() => { 
+                                setFbTab('view'); 
+                                setSelectedFormToView(null); 
+                                setEditingFormId(null); // Clear edit state
+                                setFeedbackForm({ title: '', targetYear: 'All', division: 'All', questions: [{ id: Date.now(), type: 'mcq', text: '', options: ['', ''] }] });
+                            }}>
+                                <i className="fas fa-chart-bar" style={{ marginRight: '8px' }}></i> View Responses
+                            </button>
+                        </div>
+
+                        {/* --- CREATION / EDIT TAB --- */}
+                        {fbTab === 'create' && (
+                            <div className="fb-creator-container fade-in-up">
+                                <div style={{ marginBottom: '25px' }}>
+                                    <label style={{ fontSize: '12px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px', display: 'block', letterSpacing: '0.5px' }}>
+                                        <i className="fas fa-heading" style={{ marginRight: '6px', color: '#3b82f6' }}></i> Form Title
+                                    </label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="e.g. Mid-Semester Teaching Feedback" 
+                                        value={feedbackForm.title}
+                                        onChange={e => setFeedbackForm({...feedbackForm, title: e.target.value})}
+                                        className="fb-title-input"
+                                    />
+                                </div>
+
+                                <div className="fb-target-row" style={{ position: 'relative', zIndex: 100 }}>
+                                    <div style={{ flex: 1 }}>
+                                        <CustomMobileSelect 
+                                            label="Target Year"
+                                            icon="fa-users"
+                                            value={feedbackForm.targetYear}
+                                            onChange={(val) => setFeedbackForm({...feedbackForm, targetYear: val, division: 'All'})}
+                                            options={isFE ? [
+                                                { value: 'All', label: 'All First Year Students' },
+                                                { value: 'FE', label: 'First Year (FE)' }
+                                            ] : [
+                                                { value: 'All', label: 'All Years' },
+                                                { value: 'SE', label: 'Second Year (SE)' },
+                                                { value: 'TE', label: 'Third Year (TE)' },
+                                                { value: 'BE', label: 'Final Year (BE)' }
+                                            ]}
+                                        />
+                                    </div>
+
+                                    {(feedbackForm.targetYear === 'FE' || isFE) && (
+                                        <div style={{ flex: 1 }}>
+                                            <CustomMobileSelect 
+                                                label="Target Division"
+                                                icon="fa-layer-group"
+                                                value={feedbackForm.division}
+                                                onChange={(val) => setFeedbackForm({...feedbackForm, division: val})}
+                                                options={[
+                                                    { value: 'All', label: 'All Divisions' },
+                                                    ...DIVISIONS.map(div => ({ value: div, label: `Division ${div}` }))
+                                                ]}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+
+                                <h3 style={{ fontSize: '18px', color: '#1e293b', borderBottom: '2px solid #f1f5f9', paddingBottom: '10px', marginBottom: '20px' }}>
+                                    Questions Setup
+                                </h3>
+                                
+                                {feedbackForm.questions.map((q, qIndex) => (
+                                    <div key={q.id} className="fb-question-card" style={{ zIndex: 90 - qIndex }}>
+                                        <button className="fb-delete-q-btn" onClick={() => {
+                                            const updated = feedbackForm.questions.filter((_, idx) => idx !== qIndex);
+                                            setFeedbackForm({...feedbackForm, questions: updated});
+                                        }} title="Remove Question">
+                                            <i className="fas fa-trash"></i>
+                                        </button>
+
+                                        <div className="fb-question-input-grid">
+                                            <div>
+                                                <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', textTransform: 'uppercase' }}>
+                                                    <div style={{ background: '#dbeafe', color: '#2563eb', width: '22px', height: '22px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                        {qIndex + 1}
+                                                    </div>
+                                                    Question Text
+                                                </label>
+                                                <input 
+                                                    type="text" 
+                                                    value={q.text}
+                                                    onChange={(e) => {
+                                                        const updated = [...feedbackForm.questions];
+                                                        updated[qIndex].text = e.target.value;
+                                                        setFeedbackForm({...feedbackForm, questions: updated});
+                                                    }}
+                                                    className="fb-input-styled"
+                                                    placeholder="What do you want to ask the students?"
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <CustomMobileSelect 
+                                                    label="Answer Format"
+                                                    icon="fa-sliders-h"
+                                                    value={q.type}
+                                                    onChange={(val) => {
+                                                        const updated = [...feedbackForm.questions];
+                                                        updated[qIndex].type = val;
+                                                        setFeedbackForm({...feedbackForm, questions: updated});
+                                                    }}
+                                                    options={[
+                                                        { value: 'mcq', label: 'Multiple Choice' },
+                                                        { value: 'text', label: 'Short Text Box' }
+                                                    ]}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {q.type === 'mcq' && (
+                                            <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px dashed #e2e8f0' }}>
+                                                <label style={{ fontSize: '11px', fontWeight: '800', color: '#94a3b8', marginBottom: '12px', display: 'block', textTransform: 'uppercase' }}>
+                                                    <i className="fas fa-list-ul" style={{ marginRight: '6px' }}></i> Multiple Choice Options
+                                                </label>
+                                                
+                                                {q.options.map((opt, oIndex) => (
+                                                    <div key={oIndex} className="fb-option-row">
+                                                        <div style={{ width: '16px', height: '16px', borderRadius: '50%', border: '2px solid #cbd5e1', background: 'white' }}></div>
+                                                        <input 
+                                                            type="text" 
+                                                            value={opt}
+                                                            onChange={(e) => {
+                                                                const updated = [...feedbackForm.questions];
+                                                                updated[qIndex].options[oIndex] = e.target.value;
+                                                                setFeedbackForm({...feedbackForm, questions: updated});
+                                                            }}
+                                                            className="fb-option-input"
+                                                            placeholder={`Option ${oIndex + 1}`}
+                                                        />
+                                                        <button onClick={() => {
+                                                            const updated = [...feedbackForm.questions];
+                                                            updated[qIndex].options = updated[qIndex].options.filter((_, idx) => idx !== oIndex);
+                                                            setFeedbackForm({...feedbackForm, questions: updated});
+                                                        }} style={{ background: '#fee2e2', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '6px 8px', borderRadius: '8px', transition: 'all 0.2s' }}>
+                                                            <i className="fas fa-times"></i>
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                                
+                                                <button className="fb-add-option-btn" onClick={() => {
+                                                    const updated = [...feedbackForm.questions];
+                                                    updated[qIndex].options.push('');
+                                                    setFeedbackForm({...feedbackForm, questions: updated});
+                                                }}>
+                                                    <i className="fas fa-plus"></i> Add Option
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+
+                                <button className="fb-add-question-btn" onClick={() => setFeedbackForm({
+                                    ...feedbackForm, 
+                                    questions: [...feedbackForm.questions, { id: Date.now(), type: 'mcq', text: '', options: ['', ''] }]
+                                })}>
+                                    <i className="fas fa-plus-circle"></i> Add Another Question
+                                </button>
+
+                                {/* ✅ UPDATED SUBMIT BUTTON (Handles both Save and Edit) */}
+                                <button 
+                                    className="btn-primary" 
+                                    style={{ width: '100%', padding: '16px', fontSize: '16px', borderRadius: '14px', background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', boxShadow: '0 10px 20px -5px rgba(37, 99, 235, 0.4)' }}
+                                    onClick={async () => {
+                                        if(!feedbackForm.title) return toast.error("Title is required!");
+                                        const actionText = editingFormId ? "Updating" : "Publishing";
+                                        const endpoint = editingFormId ? "updateFeedbackForm" : "createFeedbackForm";
+                                        const toastId = toast.loading(`${actionText} Feedback Form...`);
+                                        
+                                        try {
+                                            const payload = {
+                                                instituteId: hodInfo.instituteId,
+                                                department: hodInfo.department,
+                                                targetYear: feedbackForm.targetYear,
+                                                division: feedbackForm.division,
+                                                title: feedbackForm.title,
+                                                questions: feedbackForm.questions,
+                                                academicYear: currentAcademicYear
+                                            };
+                                            if (editingFormId) payload.formId = editingFormId;
+
+                                            await fetch(`${BACKEND_URL}/${endpoint}`, {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify(payload)
+                                            });
+                                            
+                                            toast.success(`Form ${editingFormId ? 'Updated' : 'Published'} successfully!`, { id: toastId });
+                                            setFeedbackForm({ title: '', targetYear: 'All', division: 'All', questions: [{ id: Date.now(), type: 'mcq', text: '', options: ['', ''] }] });
+                                            setEditingFormId(null);
+                                            setFbTab('view'); 
+                                        } catch (error) {
+                                            toast.error(`Failed to ${editingFormId ? 'update' : 'publish'} form.`, { id: toastId });
+                                        }
+                                    }}
+                                >
+                                    <i className={`fas ${editingFormId ? 'fa-save' : 'fa-paper-plane'}`} style={{ marginRight: '8px' }}></i> 
+                                    {editingFormId ? 'Save Changes' : 'Publish Form to Students'}
+                                </button>
+                            </div>
+                        )}
+
+                        {/* --- VIEW RESPONSES TAB --- */}
+                        {fbTab === 'view' && !selectedFormToView && (
+                            <div className="cards-grid fade-in-up">
+                                {hodCreatedForms.length > 0 ? hodCreatedForms.map(form => (
+                                    <div key={form.id} className="fb-response-form-card" onClick={() => handleViewFormResponses(form)}>
+                                        <div style={{ width: '50px', height: '50px', borderRadius: '12px', background: '#eff6ff', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}>
+                                            <i className="fas fa-poll"></i>
+                                        </div>
+                                        <div style={{ flex: 1 }}>
+                                            <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>{form.title}</h3>
+                                            <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', display: 'flex', gap: '10px' }}>
+                                                <span><i className="fas fa-users"></i> {form.targetYear} {form.division !== 'All' ? `(Div ${form.division})` : ''}</span>
+                                                <span><i className="fas fa-calendar"></i> {form.academicYear}</span>
+                                            </div>
+                                        </div>
+                                        
+                                        {/* ✅ EDIT & DELETE BUTTONS ON THE CARD */}
+                                        <div style={{ display: 'flex', gap: '8px', zIndex: 10 }}>
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); handleEditFeedbackForm(form); }} 
+                                                style={{ background: '#f8fafc', color: '#3b82f6', border: '1px solid #e2e8f0', padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', transition: '0.2s' }}
+                                            >
+                                                <i className="fas fa-pen"></i>
+                                            </button>
+                                            <button 
+                                                onClick={(e) => { e.stopPropagation(); handleDeleteFeedbackForm(form.id); }} 
+                                                style={{ background: '#fee2e2', color: '#ef4444', border: '1px solid #fecaca', padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', transition: '0.2s' }}
+                                            >
+                                                <i className="fas fa-trash"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                )) : (
+                                    <div className="empty-state-modern" style={{ gridColumn: '1 / -1' }}>
+                                        <i className="fas fa-clipboard-list" style={{ fontSize: '40px', color: '#94a3b8', opacity: 0.5 }}></i>
+                                        <p>No feedback forms created yet.</p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* --- INSIDE A SPECIFIC FORM --- */}
+                        {fbTab === 'view' && selectedFormToView && (
+                            <div className="fade-in-up" style={{ background: 'white', borderRadius: '20px', padding: '30px', boxShadow: '0 10px 30px -10px rgba(0,0,0,0.05)' }}>
+                                <button 
+                                    onClick={() => setSelectedFormToView(null)}
+                                    style={{ background: 'transparent', border: 'none', color: '#64748b', fontWeight: '700', cursor: 'pointer', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}
+                                >
+                                    <i className="fas fa-arrow-left"></i> Back to Forms
+                                </button>
+                                
+                                <div style={{ borderBottom: '2px solid #f1f5f9', paddingBottom: '20px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
+                                    <div>
+                                        <h2 style={{ margin: 0, color: '#1e293b', fontSize: '22px' }}>{selectedFormToView.title}</h2>
+                                        {!isResponsesLoading && (
+                                            <p style={{ margin: '5px 0 0', color: '#64748b' }}>Total Submissions: <strong>{formResponses.length}</strong></p>
+                                        )}
+                                    </div>
+                                    
+                                    {/* 📥 GOOGLE FORMS STYLE EXPORT BUTTONS */}
+                                    {!isResponsesLoading && formResponses.length > 0 && (
+                                        <div style={{ display: 'flex', gap: '10px' }}>
+                                            <button 
+                                                onClick={() => {
+                                                    // 📊 EXCEL EXPORT LOGIC
+                                                    const rows = formResponses.map(r => {
+                                                        const teacherInfo = deptUsers.find(u => u.id === r.teacherId);
+                                                        const teacherName = teacherInfo ? `${teacherInfo.firstName} ${teacherInfo.lastName}` : 'Unknown Teacher';
+                                                        
+                                                        let rowData = {
+                                                            "Date Submitted": r.submittedAt?._seconds ? new Date(r.submittedAt._seconds * 1000).toLocaleString() : new Date().toLocaleString(),
+                                                            "Teacher Name": teacherName,
+                                                            "Subject": r.subject
+                                                        };
+                                                        
+                                                        // Add all questions as columns
+                                                        selectedFormToView.questions.forEach(q => {
+                                                            const ans = r.answers.find(a => a.questionText === q.text);
+                                                            rowData[q.text] = ans ? ans.answer : 'No Answer';
+                                                        });
+                                                        return rowData;
+                                                    });
+
+                                                    const worksheet = XLSX.utils.json_to_sheet(rows);
+                                                    const workbook = XLSX.utils.book_new();
+                                                    XLSX.utils.book_append_sheet(workbook, worksheet, "Responses");
+                                                    XLSX.writeFile(workbook, `${selectedFormToView.title}_Report.xlsx`);
+                                                }}
+                                                style={{ background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0', padding: '10px 16px', borderRadius: '10px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}
+                                                onMouseOver={e => e.currentTarget.style.background = '#d1fae5'}
+                                                onMouseOut={e => e.currentTarget.style.background = '#ecfdf5'}
+                                            >
+                                                <i className="fas fa-file-excel"></i> Download Excel
+                                            </button>
+
+                                            <button 
+                                                onClick={() => {
+                                                    // 📄 PDF EXPORT LOGIC
+                                                    const doc = new jsPDF();
+                                                    
+                                                    // Header (College Name & Details)
+                                                    doc.setFontSize(18);
+                                                    doc.setTextColor(30, 41, 59);
+                                                    doc.text(hodInfo.instituteName || "Institute Feedback Report", 14, 20);
+                                                    
+                                                    doc.setFontSize(11);
+                                                    doc.setTextColor(100, 116, 139);
+                                                    doc.text(`Department: ${hodInfo.department}`, 14, 28);
+                                                    doc.text(`Form Title: ${selectedFormToView.title}`, 14, 34);
+                                                    doc.text(`Target Audience: ${selectedFormToView.targetYear} ${selectedFormToView.division !== 'All' ? `(Div ${selectedFormToView.division})` : ''}`, 14, 40);
+                                                    doc.text(`Total Submissions: ${formResponses.length}`, 14, 46);
+
+                                                    let startY = 55;
+
+                                                    // Group responses by Teacher/Subject
+                                                    const grouped = formResponses.reduce((acc, curr) => {
+                                                        const key = `${curr.teacherId}_${curr.subject}`;
+                                                        if(!acc[key]) acc[key] = { teacherId: curr.teacherId, subject: curr.subject, responses: [] };
+                                                        acc[key].responses.push(curr);
+                                                        return acc;
+                                                    }, {});
+
+                                                    Object.values(grouped).forEach((group, index) => {
+                                                        const teacherInfo = deptUsers.find(u => u.id === group.teacherId);
+                                                        const teacherName = teacherInfo ? `${teacherInfo.firstName} ${teacherInfo.lastName}` : 'Unknown Teacher';
+
+                                                        // Section Title
+                                                        doc.setFontSize(13);
+                                                        doc.setTextColor(37, 99, 235);
+                                                        doc.text(`Teacher: ${teacherName} | Subject: ${group.subject}`, 14, startY);
+                                                        startY += 6;
+
+                                                        // Table Data
+                                                        const tableColumn = selectedFormToView.questions.map(q => q.text);
+                                                        const tableRows = group.responses.map(r => {
+                                                            return selectedFormToView.questions.map(q => {
+                                                                const ans = r.answers.find(a => a.questionText === q.text);
+                                                                return ans ? ans.answer : '-';
+                                                            });
+                                                        });
+
+                                                        // ✅ THE FIX: Call autoTable directly and pass 'doc' as the first argument
+                                                        autoTable(doc, {
+                                                            startY: startY,
+                                                            head: [tableColumn],
+                                                            body: tableRows,
+                                                            theme: 'grid',
+                                                            styles: { fontSize: 8, cellPadding: 3 },
+                                                            headStyles: { fillColor: [59, 130, 246], textColor: 255 },
+                                                            margin: { top: 15 }
+                                                        });
+
+                                                        startY = doc.lastAutoTable.finalY + 15;
+
+                                                        // Add page break if running out of space
+                                                        if (startY > 270) {
+                                                            doc.addPage();
+                                                            startY = 20;
+                                                        }
+                                                    });
+
+                                                    doc.save(`${selectedFormToView.title}_Report.pdf`);
+                                                }}
+                                                style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', padding: '10px 16px', borderRadius: '10px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}
+                                                onMouseOver={e => e.currentTarget.style.background = '#dbeafe'}
+                                                onMouseOut={e => e.currentTarget.style.background = '#eff6ff'}
+                                            >
+                                                <i className="fas fa-file-pdf"></i> Download PDF
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* ✅ THE 2-4 SEC LOADER UI */}
+                                {isResponsesLoading ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '250px', animation: 'fadeIn 0.3s' }}>
+                                        <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px', position: 'relative' }}>
+                                            <div style={{ position: 'absolute', width: '100%', height: '100%', border: '3px solid transparent', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+                                            <i className="fas fa-chart-pie" style={{ color: '#3b82f6', fontSize: '24px' }}></i>
+                                        </div>
+                                        <h3 style={{ margin: 0, color: '#1e293b', fontSize: '18px' }}>Analyzing Data...</h3>
+                                        <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '13px' }}>Compiling anonymous feedback</p>
+                                    </div>
+                                ) : formResponses.length === 0 ? (
+                                    <p style={{ color: '#94a3b8', textAlign: 'center', padding: '40px 0', fontStyle: 'italic' }}>No students have submitted feedback yet.</p>
+                                ) : (
+                                    <div>
+                                        {/* Group responses by Teacher & Subject logic */}
+                                        {Object.entries(
+                                            formResponses.reduce((acc, curr) => {
+                                                const key = `${curr.teacherId}_${curr.subject}`;
+                                                if(!acc[key]) acc[key] = { teacherId: curr.teacherId, subject: curr.subject, responses: [] };
+                                                acc[key].responses.push(curr);
+                                                return acc;
+                                            }, {})
+                                        ).map(([key, group]) => {
+                                            const teacherInfo = deptUsers.find(u => u.id === group.teacherId);
+                                            const teacherName = teacherInfo ? `${teacherInfo.firstName} ${teacherInfo.lastName}` : 'Unknown Teacher';
+
+                                            return (
+                                                <div key={key} className="fb-teacher-group">
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '20px' }}>
+                                                        <div style={{ width: '40px', height: '40px', borderRadius: '50%', background: '#dbeafe', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
+                                                            {teacherName.charAt(0)}
+                                                        </div>
+                                                        <div>
+                                                            <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>{teacherName}</h3>
+                                                            <span style={{ fontSize: '12px', fontWeight: '700', color: '#64748b', background: 'white', padding: '2px 8px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>{group.subject}</span>
+                                                        </div>
+                                                        <div style={{ marginLeft: 'auto', fontSize: '12px', color: '#94a3b8', fontWeight: 'bold' }}>
+                                                            {group.responses.length} Submissions
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Display Answers Aggregated */}
+                                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '15px' }}>
+                                                        {selectedFormToView.questions.map((q, i) => {
+                                                            const answers = group.responses.map(r => {
+                                                                const ansObj = r.answers.find(a => a.questionText === q.text);
+                                                                return ansObj ? ansObj.answer : 'No Answer';
+                                                            });
+
+                                                            return (
+                                                                <div key={q.id} style={{ background: 'white', padding: '15px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                                                                    <p style={{ margin: '0 0 10px 0', fontSize: '13px', fontWeight: '700', color: '#334155' }}>Q{i+1}: {q.text}</p>
+                                                                    
+                                                                    {q.type === 'mcq' ? (
+                                                                        <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '12px', color: '#64748b' }}>
+                                                                            {q.options.map(opt => {
+                                                                                const count = answers.filter(a => a === opt).length;
+                                                                                return count > 0 ? <li key={opt}><strong>{opt}:</strong> {count} votes</li> : null;
+                                                                            })}
+                                                                        </ul>
+                                                                    ) : (
+                                                                        <div style={{ maxHeight: '100px', overflowY: 'auto', fontSize: '12px', color: '#64748b', background: '#f8fafc', padding: '8px', borderRadius: '6px' }}>
+                                                                            {answers.map((ans, idx) => (
+                                                                                <div key={idx} style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: '4px', marginBottom: '4px' }}>"{ans}"</div>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -2132,14 +2774,31 @@ export default function HODDashboard() {
                         </div>
                     </div>
                 )}
-                {/* ✅ DEPT USERS TAB (Full Code) */}
+                {/* ✅ DEPT USERS TAB */}
                 {activeTab === 'manage' && (
-                    <div className="content-section">
-                        <h2 className="content-title">Department Users</h2>
+                    <div className="content-section fade-in-up">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                            <h2 className="content-title" style={{ margin: 0 }}>Department Users</h2>
+                        </div>
 
                         {/* --- 1. TEACHERS LIST --- */}
-                        <div className="card card-full-width" style={{ marginBottom: '24px' }}>
-                            <h3 style={{ margin: '0 0 10px 0' }}>Teachers ({teachersList.length})</h3>
+                        <div className="card card-full-width" style={{ marginBottom: '30px' }}>
+                            {/* Flex header for Title + Download Button */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', borderBottom: '2px solid #f1f5f9', paddingBottom: '10px' }}>
+                                <h3 style={{ margin: 0, color: '#1e293b' }}>
+                                    <i className="fas fa-chalkboard-teacher" style={{ color: '#3b82f6', marginRight: '8px' }}></i> 
+                                    Faculty ({teachersList.length})
+                                </h3>
+                                <button 
+                                    onClick={downloadTeacherEmails}
+                                    style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', padding: '8px 14px', borderRadius: '10px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}
+                                    onMouseOver={e => e.currentTarget.style.background = '#dbeafe'}
+                                    onMouseOut={e => e.currentTarget.style.background = '#eff6ff'}
+                                >
+                                    <i className="fas fa-file-pdf"></i> Download Directory
+                                </button>
+                            </div>
+
                             <div className="table-wrapper">
                                 <table className="attendance-table">
                                     <thead>
@@ -2148,7 +2807,7 @@ export default function HODDashboard() {
                                             <th>Name</th>
                                             <th>Email</th>
                                             <th>Assigned Classes</th>
-                                            <th style={{ textAlign: 'center' }}>Action</th> {/* ✅ Action Column */}
+                                            <th style={{ textAlign: 'center' }}>Action</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -2161,7 +2820,7 @@ export default function HODDashboard() {
                                                     <div style={{ fontWeight: '600', color: '#1e293b' }}>{t.firstName} {t.lastName}</div>
                                                     <div style={{ fontSize: '11px', color: '#64748b' }}>{t.phone || 'No Phone'}</div>
                                                 </td>
-                                                <td>{t.email}</td>
+                                                <td style={{ color: '#475569', fontSize: '13px' }}>{t.email}</td>
                                                 <td>
                                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                                                         {t.assignedClasses && t.assignedClasses.length > 0 ?
@@ -2186,7 +2845,6 @@ export default function HODDashboard() {
                                                         }
                                                     </div>
                                                 </td>
-                                                {/* ✅ TEACHER EDIT BUTTON */}
                                                 <td style={{ textAlign: 'center' }}>
                                                     <button
                                                         onClick={() => {
@@ -2207,9 +2865,22 @@ export default function HODDashboard() {
                         </div>
 
                         {/* --- 2. STUDENTS LIST (Grouped) --- */}
-                        <h3 style={{ margin: '0 0 15px 0' }}>Students ({studentsList.length})</h3>
-                        <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', margin: '0 0 15px 0' }}>
+                            <h3 style={{ margin: 0, color: '#1e293b' }}>
+                                <i className="fas fa-user-graduate" style={{ color: '#10b981', marginRight: '8px' }}></i> 
+                                Enrolled Students ({studentsList.length})
+                            </h3>
+                            <button 
+                                onClick={downloadStudentEmails}
+                                style={{ background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0', padding: '8px 14px', borderRadius: '10px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}
+                                onMouseOver={e => e.currentTarget.style.background = '#d1fae5'}
+                                onMouseOut={e => e.currentTarget.style.background = '#ecfdf5'}
+                            >
+                                <i className="fas fa-file-pdf"></i> Download Directory
+                            </button>
+                        </div>
 
+                        <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
                             {(isFE ? DIVISIONS : ['SE', 'TE', 'BE']).map(label => {
                                 const groupStudents = studentsList.filter(s =>
                                     isFE ? s.division === label : s.year === label
@@ -2239,14 +2910,13 @@ export default function HODDashboard() {
                                                     <tbody>
                                                         {groupStudents.sort((a, b) => (a.rollNo || "").localeCompare(b.rollNo, undefined, { numeric: true })).map(s => (
                                                             <tr key={s.id}>
-                                                                <td style={{ fontWeight: 'bold' }}>{s.rollNo}</td>
+                                                                <td style={{ fontWeight: 'bold', color: '#475569' }}>{s.rollNo}</td>
                                                                 <td>
-                                                                    <div style={{ lineHeight: '1.2' }}>
+                                                                    <div style={{ lineHeight: '1.2', color: '#1e293b', fontWeight: '600' }}>
                                                                         {s.firstName} {s.lastName}
                                                                     </div>
                                                                     <div style={{ fontSize: '10px', color: '#64748b' }}>{s.email}</div>
                                                                 </td>
-                                                                {/* ✅ STUDENT EDIT BUTTON */}
                                                                 <td style={{ textAlign: 'right' }}>
                                                                     <button
                                                                         onClick={() => {
@@ -2267,7 +2937,7 @@ export default function HODDashboard() {
                                                         ))}
                                                     </tbody>
                                                 </table>
-                                            ) : <p style={{ textAlign: 'center', color: '#94a3b8', marginTop: '20px' }}>No students found.</p>}
+                                            ) : <p style={{ textAlign: 'center', color: '#94a3b8', marginTop: '20px', fontStyle: 'italic' }}>No students found.</p>}
                                         </div>
                                     </div>
                                 );
@@ -2277,7 +2947,7 @@ export default function HODDashboard() {
                         {/* --- 3. BULK DELETE BUTTON --- */}
                         {selectedUserIds.length > 0 && (
                             <button className="floating-delete-btn" onClick={handleDeleteUsers}>
-                                <i className="fas fa-trash-alt"></i> Delete ({selectedUserIds.length})
+                                <i className="fas fa-trash-alt"></i> Delete Selected ({selectedUserIds.length})
                             </button>
                         )}
                     </div>

@@ -874,8 +874,333 @@
     transition: all 0.2s;
 }
 
+
 .action-btn.approve { background: #dcfce7; color: #166534; }
 .action-btn.approve:hover { background: #bbf7d0; }
 
 .action-btn.reject { background: #fee2e2; color: #991b1b; }
 .action-btn.reject:hover { background: #fecaca; }
+
+/* =========================================
+   🎓 UNIQUE HOD FEEDBACK FORM CSS
+   ========================================= */
+
+.fb-creator-container {
+    background: #ffffff;
+    border-radius: 20px;
+    padding: 35px;
+    box-shadow: 0 20px 40px -10px rgba(0,0,0,0.05);
+    border: 1px solid #f1f5f9;
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.fb-toggle-nav {
+    display: flex;
+    gap: 10px;
+    background: #f8fafc;
+    padding: 8px;
+    border-radius: 14px;
+    width: fit-content;
+    margin-bottom: 25px;
+}
+
+.fb-toggle-btn {
+    padding: 10px 24px;
+    border: none;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background: transparent;
+    color: #64748b;
+}
+
+.fb-toggle-btn.active {
+    background: white;
+    color: #3b82f6;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+.fb-question-card {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 25px;
+    margin-bottom: 20px;
+    position: relative;
+    transition: all 0.2s ease;
+}
+
+.fb-question-card:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 10px 20px -5px rgba(0,0,0,0.03);
+}
+
+.fb-delete-q-btn {
+    position: absolute;
+    top: -12px;
+    right: -12px;
+    background: #fee2e2;
+    color: #ef4444;
+    border: none;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 4px 10px rgba(239, 68, 68, 0.2);
+    transition: transform 0.2s;
+}
+
+.fb-delete-q-btn:hover {
+    transform: scale(1.1);
+}
+
+.fb-add-option-btn {
+    background: #e0f2fe;
+    color: #0284c7;
+    border: 1px dashed #7dd3fc;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    margin-top: 10px;
+    transition: all 0.2s;
+}
+
+.fb-add-option-btn:hover {
+    background: #bae6fd;
+}
+
+.fb-add-question-btn {
+    background: white;
+    color: #475569;
+    border: 2px dashed #cbd5e1;
+    padding: 16px;
+    width: 100%;
+    border-radius: 16px;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 15px;
+    margin-bottom: 25px;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+
+.fb-add-question-btn:hover {
+    border-color: #3b82f6;
+    color: #3b82f6;
+    background: #eff6ff;
+}
+
+/* Response Viewer Styles */
+.fb-response-form-card {
+    background: white;
+    border-radius: 16px;
+    padding: 20px;
+    border: 1px solid #e2e8f0;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+.fb-response-form-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05);
+    border-color: #3b82f6;
+}
+
+.fb-teacher-group {
+    background: #f8fafc;
+    border-radius: 16px;
+    padding: 20px;
+    margin-bottom: 20px;
+    border-left: 4px solid #3b82f6;
+}
+/* =========================================
+   ✨ MODERN RESPONSIVE QUESTION GRID
+   ========================================= */
+
+/* The grid that holds Question Text & Answer Type */
+.fb-question-input-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr; /* 2/3 for question, 1/3 for type on PC */
+    gap: 15px;
+    align-items: start;
+}
+
+/* On mobile screens, stack them vertically */
+@media (max-width: 768px) {
+    .fb-question-input-grid {
+        grid-template-columns: 1fr; 
+    }
+}
+
+/* The card holding each question */
+.fb-question-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    padding: 25px;
+    margin-bottom: 20px;
+    position: relative;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.02);
+}
+
+.fb-question-card:hover {
+    border-color: #cbd5e1;
+    box-shadow: 0 12px 25px -5px rgba(0,0,0,0.06);
+}
+
+/* Modern Input Field inside forms */
+.fb-input-styled {
+    width: 100%;
+    padding: 14px 16px;
+    border-radius: 12px;
+    border: 2px solid #f1f5f9;
+    background: #f8fafc;
+    font-size: 14px;
+    color: #1e293b;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    outline: none;
+}
+
+.fb-input-styled:focus {
+    background: #ffffff;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
+}
+
+/* Modern Select Dropdown */
+.fb-select-styled {
+    width: 100%;
+    padding: 14px 16px;
+    border-radius: 12px;
+    border: 2px solid #f1f5f9;
+    background: #f8fafc;
+    font-size: 14px;
+    color: #475569;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    /* Custom arrow icon for the dropdown */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748b'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 16px center;
+    background-size: 16px;
+    padding-right: 40px; /* Space for the arrow */
+}
+
+.fb-select-styled:focus {
+    background: #ffffff;
+    border-color: #8b5cf6;
+    box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.15);
+}
+
+/* Multiple Choice Option Rows */
+.fb-option-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 10px;
+    background: #f8fafc;
+    padding: 8px 12px;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    transition: all 0.2s;
+}
+
+.fb-option-row:focus-within {
+    border-color: #cbd5e1;
+    background: #ffffff;
+}
+
+.fb-option-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    font-size: 14px;
+    color: #1e293b;
+    outline: none;
+    font-weight: 500;
+}
+/* =========================================
+   🎓 UNIQUE HOD FEEDBACK FORM CSS
+   ========================================= */
+
+/* 1. Left-Aligned Main Container */
+.fb-creator-container {
+    background: #ffffff;
+    border-radius: 20px;
+    padding: 35px;
+    box-shadow: 0 20px 40px -10px rgba(0,0,0,0.05);
+    border: 1px solid #f1f5f9;
+    max-width: 900px;
+    margin: 0; /* 👈 Removed '0 auto' to align it to the left! */
+}
+
+/* 2. Responsive Row for Target Audience */
+.fb-target-row {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 30px;
+}
+
+/* 3. The grid that holds Question Text & Answer Type */
+.fb-question-input-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr; /* 2/3 for question, 1/3 for type on PC */
+    gap: 20px;
+    align-items: start;
+}
+
+/* 📱 Mobile Responsive Rules */
+@media (max-width: 768px) {
+    .fb-creator-container {
+        padding: 20px;
+        border-radius: 16px;
+    }
+    
+    .fb-target-row {
+        flex-direction: column; /* Stacks the dropdowns vertically on phones */
+        gap: 15px;
+    }
+
+    .fb-question-input-grid {
+        grid-template-columns: 1fr; /* Stacks Question and Answer Type vertically */
+    }
+}
+
+/* 4. Form Title Input Style */
+.fb-title-input {
+    width: 100%;
+    padding: 16px 20px;
+    border-radius: 14px;
+    border: 2px solid #e2e8f0;
+    background: #f8fafc;
+    font-size: 16px;
+    font-weight: 700;
+    color: #1e293b;
+    transition: all 0.3s ease;
+    outline: none;
+}
+.fb-title-input:focus {
+    background: #ffffff;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
+}
+
+/* Keep your existing .fb-question-card, .fb-delete-q-btn, etc. below this... */
