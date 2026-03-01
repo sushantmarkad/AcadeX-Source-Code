@@ -10,7 +10,7 @@ import toast from 'react-hot-toast';
 import './MarksManager.css';
 // import './MarksManager.css'; // UNCOMMENT THIS IF YOU PUT THE CSS IN A SEPARATE FILE
 
-const MarksManager = ({ teacherInfo, selectedYear, selectedDiv }) => {
+const MarksManager = ({ teacherInfo, selectedYear, selectedDiv, selectedSubject }) => {
   const [view, setView] = useState('list');
   const [tests, setTests] = useState([]);
   const [currentTest, setCurrentTest] = useState(null);
@@ -25,13 +25,12 @@ const MarksManager = ({ teacherInfo, selectedYear, selectedDiv }) => {
   const [editForm, setEditForm] = useState({ maxMarks: 0, passingMarks: 0 });
   const [testForm, setTestForm] = useState({ name: '', maxMarks: 20, passingMarks: 8, date: new Date().toISOString().split('T')[0] });
 
-  // Helper: Get Class Details
   const getClassDetails = () => {
-    if (!teacherInfo?.assignedClasses) return { semester: 'N/A', subject: teacherInfo?.subject || 'Subject' };
+    if (!teacherInfo?.assignedClasses) return { semester: 'N/A', subject: selectedSubject || teacherInfo?.subject || 'Subject' };
     const cls = teacherInfo.assignedClasses.find(c => c.year === selectedYear);
     return {
       semester: cls ? `Semester ${cls.semester}` : 'Semester --',
-      subject: cls ? cls.subject : teacherInfo.subject
+      subject: selectedSubject || (cls ? cls.subject : teacherInfo.subject)
     };
   };
 

@@ -430,7 +430,7 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
 // ------------------------------------
 //  COMPONENT: TEACHER ANALYTICS (Updated for Division Support)
 // ------------------------------------
-const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv, currentAcademicYear }) => {
+const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv, currentAcademicYear, selectedSubject }) => {
     const [chartData, setChartData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [graphType, setGraphType] = useState('theory');
@@ -443,8 +443,8 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv, currentAcade
             setLoading(true);
 
             // Determine Subject
-            let currentSubject = teacherInfo.subject;
-            if (teacherInfo.assignedClasses) {
+            let currentSubject = selectedSubject || teacherInfo.subject;
+            if (!selectedSubject && teacherInfo.assignedClasses) {
                 const classData = teacherInfo.assignedClasses.find(c => c.year === selectedYear);
                 if (classData) currentSubject = classData.subject;
             }
@@ -869,7 +869,7 @@ const DashboardHome = ({
     sessionType, setSessionType, selectedBatch, setSelectedBatch,
     rollStart, setRollStart, rollEnd, setRollEnd,
     historySemester, setHistorySemester, getSubjectForHistory, historyLoading,
-    selectedDiv, setRefreshTrigger, currentAcademicYear
+    selectedDiv, setRefreshTrigger, currentAcademicYear, selectedSubject
 }) => {
     const [qrCodeValue, setQrCodeValue] = useState('');
     const [timer, setTimer] = useState(25);
@@ -978,7 +978,7 @@ const DashboardHome = ({
         return true;
     });
 
-    
+
 
     // ✅ NEW: Filter Students specifically for the Batch Report
     let studentsForReport = allStudentsReport;
@@ -1032,6 +1032,7 @@ const DashboardHome = ({
 
 
     const getCurrentSubject = () => {
+        if (selectedSubject) return selectedSubject;
         if (!teacherInfo) return "Class";
         if (teacherInfo.assignedClasses) {
             const cls = teacherInfo.assignedClasses.find(c => c.year === selectedYear);
@@ -2428,7 +2429,7 @@ const CustomDatePicker = ({ label, value, onChange }) => {
 /// ------------------------------------
 //  COMPONENT: CCE MANAGER (FULLY AUTOMATED)
 // ------------------------------------
-const CCEManager = ({ teacherInfo, selectedYear, selectedDiv }) => {
+const CCEManager = ({ teacherInfo, selectedYear, selectedDiv, selectedSubject }) => {
     const [students, setStudents] = useState([]);
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -2440,7 +2441,7 @@ const CCEManager = ({ teacherInfo, selectedYear, selectedDiv }) => {
         divisor: 180,
     });
 
-    const currentSubject = (teacherInfo?.assignedClasses?.find(c => c.year === selectedYear)?.subject || teacherInfo?.subject || '').trim();
+    const currentSubject = selectedSubject || (teacherInfo?.assignedClasses?.find(c => c.year === selectedYear)?.subject || teacherInfo?.subject || '').trim();
 
     useEffect(() => {
         const fetchCCEData = async () => {
@@ -2847,6 +2848,7 @@ export default function TeacherDashboard() {
     const [rollStart, setRollStart] = useState(1);
     const [rollEnd, setRollEnd] = useState(20);
     const [selectedDiv, setSelectedDiv] = useState('A');
+    const [selectedSubject, setSelectedSubject] = useState(null);
 
     // History State
     const [viewMode, setViewMode] = useState('live');
@@ -2860,19 +2862,21 @@ export default function TeacherDashboard() {
     const [historyLoading, setHistoryLoading] = useState(false);
     const navigate = useNavigate();
     const [refreshTrigger, setRefreshTrigger] = useState(0);
+   // ✅ 3. PROPER SEMESTER FILTERING IN REPORTS TAB
     const getSubjectForHistory = () => {
-        if (!teacherInfo) return "";
+        if (!teacherInfo?.assignedClasses) return selectedSubject || teacherInfo?.subject || "Subject";
 
-        // 1. Check assignedClasses array first
-        if (teacherInfo.assignedClasses) {
-            const pastClass = teacherInfo.assignedClasses.find(c =>
-                c.year === selectedYear && Number(c.semester) === Number(historySemester)
-            );
-            if (pastClass) return pastClass.subject;
+        // Match the subject exactly to the chosen historySemester in the dropdown
+        const semClass = teacherInfo.assignedClasses.find(c => 
+            c.year === selectedYear && Number(c.semester) === Number(historySemester)
+        );
+
+        if (semClass) {
+            return semClass.subject; // Prioritize the subject assigned for this specific semester!
         }
 
-        // 2. Fallback
-        return teacherInfo.subject;
+        // Fallback
+        return selectedSubject || teacherInfo?.subject || "Subject";
     };
 
     const playSessionStartSound = () => { const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2578/2578-preview.mp3'); audio.play().catch(error => console.log("Audio play failed:", error)); };
@@ -2892,6 +2896,8 @@ export default function TeacherDashboard() {
                         // Teacher only has 1 class, auto-select it!
                         const singleClass = data.assignedClasses[0];
                         setSelectedYear(singleClass.year);
+                        setSelectedSubject(singleClass.subject); // ✅ AUTO-SET SUBJECT
+                        if (singleClass.semester) setHistorySemester(Number(singleClass.semester)); // ✅ SYNC SEMESTER
 
                         // Auto-select division if FE
                         if (singleClass.year === 'FE' && singleClass.divisions) {
@@ -2913,31 +2919,36 @@ export default function TeacherDashboard() {
 
         return () => unsub();
     }, [auth.currentUser, selectedYear]);
-
+    // ✅ 1. REAL-TIME HOD SYNC (Academic Year & Semester)
     useEffect(() => {
-        const fetchStats = async () => {
-            if (!teacherInfo?.instituteId || !teacherInfo?.department) return;
-            try {
-                // Fetch the same document the HOD updates
-                const docRef = doc(db, "department_stats", `${teacherInfo.instituteId}_${teacherInfo.department}`);
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
-                    setActiveSemesters(docSnap.data().activeSemesters || {});
+        if (!teacherInfo?.instituteId || !teacherInfo?.department) return;
+
+        const docRef = doc(db, "department_stats", `${teacherInfo.instituteId}_${teacherInfo.department}`);
+        const unsubscribe = onSnapshot(docRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                if (data.currentAcademicYear) {
+                    setCurrentAcademicYear(data.currentAcademicYear);
                 }
-            } catch (err) {
-                console.error("Error fetching dept stats:", err);
+                if (data.activeSemesters) {
+                    setActiveSemesters(data.activeSemesters);
+                }
             }
-        };
-        fetchStats();
-    }, [teacherInfo]);
+        }, (err) => {
+            console.error("Failed to sync HOD settings:", err);
+        });
 
-    // ✅ NEW: Auto-select the correct semester when Teacher switches Year
+        return () => unsubscribe();
+    }, [teacherInfo?.instituteId, teacherInfo?.department]);
+
+   // ✅ 2. SET HOD'S SEMESTER AS DEFAULT IN REPORTS
     useEffect(() => {
-        if (selectedYear && activeSemesters[selectedYear]) {
-            // If HOD set a semester, use it
-            setHistorySemester(activeSemesters[selectedYear]);
+        if (!selectedYear) return;
+
+        if (activeSemesters[selectedYear]) {
+            setHistorySemester(Number(activeSemesters[selectedYear]));
         } else {
-            // Fallback defaults if HOD hasn't configured it yet
+            // Fallbacks if HOD hasn't set anything
             if (selectedYear === 'FE') setHistorySemester(1);
             else if (selectedYear === 'SE') setHistorySemester(3);
             else if (selectedYear === 'TE') setHistorySemester(5);
@@ -3213,8 +3224,8 @@ export default function TeacherDashboard() {
             // --- START SESSION LOGIC ---
             if (!teacherInfo?.instituteId) return toast.error("Institute ID missing.");
 
-            let currentSubject = teacherInfo.subject;
-            if (teacherInfo.assignedClasses) {
+            let currentSubject = selectedSubject || teacherInfo.subject;
+            if (!selectedSubject && teacherInfo.assignedClasses) {
                 const cls = teacherInfo.assignedClasses.find(c => c.year === selectedYear);
                 if (cls) currentSubject = cls.subject;
             }
@@ -3305,13 +3316,14 @@ export default function TeacherDashboard() {
                 setHistorySemester={setHistorySemester}
                 getSubjectForHistory={getSubjectForHistory}
                 selectedDiv={selectedDiv}
+                selectedSubject={selectedSubject}
                 currentAcademicYear={currentAcademicYear}
                 setSelectedDiv={setSelectedDiv}
                 historyDivision={historyDivision}
                 setHistoryDivision={setHistoryDivision}
                 setRefreshTrigger={setRefreshTrigger}
             />;
-            case 'analytics': return <TeacherAnalytics teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} currentAcademicYear={currentAcademicYear} />;
+            case 'analytics': return <TeacherAnalytics teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} currentAcademicYear={currentAcademicYear} selectedSubject={selectedSubject} />;
             case 'reports':
                 return (
                     <div className="content-section">
@@ -3467,11 +3479,14 @@ export default function TeacherDashboard() {
             case 'announcements': return <TeacherAnnouncements teacherInfo={teacherInfo} />;
             case 'addTasks': return <AddTasks teacherInfo={teacherInfo} />;
             case 'marks':
-                return <MarksManager teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} />;
+                // ✅ ADD selectedSubject prop here
+                return <MarksManager teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} selectedSubject={selectedSubject} />;
             case 'cce':
-                return <CCEManager teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} currentAcademicYear={currentAcademicYear} />;
+                // ✅ ADD selectedSubject prop here
+                return <CCEManager teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} currentAcademicYear={currentAcademicYear} selectedSubject={selectedSubject} />;
             case 'assignmentMarks':
-                return <AssignmentMarksManager teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} />;
+                // ✅ ADD selectedSubject prop here
+                return <AssignmentMarksManager teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} selectedSubject={selectedSubject} />;
             case 'adminNotices': return (
                 <div className="content-section">
                     {/* ✅ UPDATED TITLE CLASS */}
@@ -3593,48 +3608,47 @@ export default function TeacherDashboard() {
                         <h2 style={{ color: '#1e293b', marginBottom: '15px' }}>Select Classroom</h2>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
-                            {/* ✅ LOGIC: Generate specific buttons for EACH Division */}
                             {teacherInfo?.assignedClasses?.flatMap(cls => {
-                                // 1. If FE, split into separate buttons for each assigned Division
+                                // 1. If FE, generate separate buttons for each assigned Division
                                 if (cls.year === 'FE' && cls.divisions) {
                                     if (cls.divisions.toLowerCase() === 'all') {
-                                        return [{ ...cls, displayDiv: 'All', uniqueKey: 'FE-All' }];
+                                        return [{ ...cls, displayDiv: 'All', uniqueKey: `FE-All-${cls.subject}` }];
                                     }
                                     // Split "A, B" -> Objects for A and B
                                     return cls.divisions.split(',').map(d => ({
                                         ...cls,
                                         displayDiv: d.trim(),
-                                        uniqueKey: `${cls.year}-${d.trim()}`
+                                        uniqueKey: `${cls.year}-${d.trim()}-${cls.subject}`
                                     }));
                                 }
-                                // 2. Default for SE/TE/BE
-                                return [{ ...cls, displayDiv: null, uniqueKey: cls.year }];
+                                // 2. Default for SE/TE/BE (✅ FIX: Subject added to uniqueKey)
+                                return [{ ...cls, displayDiv: null, uniqueKey: `${cls.year}-${cls.subject}` }];
                             }).map(cls => (
-                                <button
+                               <button
                                     key={cls.uniqueKey}
                                     onClick={() => {
                                         setSelectedYear(cls.year);
-                                        // ✅ SET DIVISION STATE IMMEDIATELY
                                         if (cls.displayDiv) setSelectedDiv(cls.displayDiv);
+                                        setSelectedSubject(cls.subject); // ✅ Set exact subject for Live Class
+                                        if (cls.semester) setHistorySemester(Number(cls.semester)); // ✅ Sync reports to the class you clicked
                                         setShowYearModal(false);
-                                        toast.success(`Entered ${cls.year} ${cls.displayDiv ? `(Div ${cls.displayDiv})` : ''}`);
+                                        toast.success(`Entered ${cls.year} ${cls.displayDiv ? `(Div ${cls.displayDiv})` : ''} - ${cls.subject}`);
                                     }}
                                     style={{
                                         padding: '15px', background: '#fff', border: '1px solid #e2e8f0',
-                                        borderRadius: '12px', fontSize: '15px', fontWeight: 'bold',
-                                        cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                        boxShadow: '0 2px 5px rgba(0,0,0,0.05)'
+                                        borderRadius: '12px', fontSize: '15px', fontWeight: 'bold', cursor: 'pointer',
+                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.02)', transition: 'all 0.2s'
                                     }}
+                                    onMouseOver={e => { e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.transform = 'translateY(-2px)'; }}
+                                    onMouseOut={e => { e.currentTarget.style.borderColor = '#e2e8f0'; e.currentTarget.style.transform = 'translateY(0)'; }}
                                 >
-                                    <div style={{ textAlign: 'left' }}>
-                                        <span style={{ display: 'block', color: '#1e293b' }}>
-                                            {cls.year} {cls.displayDiv && <span style={{ color: '#2563eb' }}>(Div {cls.displayDiv})</span>}
-                                        </span>
-                                        <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '500' }}>
-                                            {cls.subject}
-                                        </span>
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px' }}>
+                                        <span style={{ color: '#1e293b' }}>{cls.year} {cls.displayDiv ? `- Div ${cls.displayDiv}` : ''}</span>
+                                        {/* ✅ SHOW SUBJECT NAME ON BUTTON */}
+                                        <span style={{ fontSize: '12px', color: '#64748b', fontWeight: '600' }}>{cls.subject}</span>
                                     </div>
-                                    <i className="fas fa-chevron-right" style={{ color: '#cbd5e1' }}></i>
+                                    <i className="fas fa-chevron-right" style={{ color: '#cbd5e1', fontSize: '14px' }}></i>
                                 </button>
                             ))}
 
@@ -3659,7 +3673,7 @@ export default function TeacherDashboard() {
                         <h4>{teacherInfo.firstName} {teacherInfo.lastName}</h4>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
                             <p style={{ margin: 0, fontSize: '13px', opacity: 0.9 }}>
-                                {selectedYear} • {teacherInfo.assignedClasses?.find(c => c.year === selectedYear)?.subject || "Select Class"}
+                                {selectedYear} • {selectedSubject || teacherInfo.assignedClasses?.find(c => c.year === selectedYear)?.subject || "Select Class"}
                             </p>
 
                             {/* ✅ BEAUTIFUL DIV BADGE (Only for FE) */}

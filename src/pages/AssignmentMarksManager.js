@@ -7,7 +7,7 @@ import { db, auth } from '../firebase';
 import toast from 'react-hot-toast';
 import './AssignmentMarksManager.css';
 
-const AssignmentMarksManager = ({ teacherInfo, selectedYear, selectedDiv }) => {
+const AssignmentMarksManager = ({ teacherInfo, selectedYear, selectedDiv, selectedSubject }) => {
   const [view, setView] = useState('list');
   const [assignments, setAssignments] = useState([]);
   const [currentAssignment, setCurrentAssignment] = useState(null);
@@ -22,11 +22,11 @@ const AssignmentMarksManager = ({ teacherInfo, selectedYear, selectedDiv }) => {
   const [testForm, setTestForm] = useState({ name: '', maxMarks: 20, passingMarks: 8, date: new Date().toISOString().split('T')[0] });
 
   const getClassDetails = () => {
-    if (!teacherInfo?.assignedClasses) return { semester: 'N/A', subject: teacherInfo?.subject || 'Subject' };
+    if (!teacherInfo?.assignedClasses) return { semester: 'N/A', subject: selectedSubject || teacherInfo?.subject || 'Subject' };
     const cls = teacherInfo.assignedClasses.find(c => c.year === selectedYear);
     return {
       semester: cls ? `Semester ${cls.semester}` : 'Semester --',
-      subject: cls ? cls.subject : teacherInfo.subject
+      subject: selectedSubject || (cls ? cls.subject : teacherInfo.subject)
     };
   };
 
