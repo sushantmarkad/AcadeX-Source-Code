@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import { signOut, onAuthStateChanged } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
-import { collection, query, where, onSnapshot, doc, getDoc, getDocs, orderBy, limit, updateDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, getDoc, getDocs, orderBy, limit, updateDoc, getCountFromServer } from 'firebase/firestore';
 import { Html5Qrcode } from 'html5-qrcode';
 import toast from 'react-hot-toast';
 import logo from "../assets/logo.png";
@@ -540,7 +540,6 @@ const SmartScheduleCard = ({ user, currentSlot, loading }) => {
         </>
     );
 };
-
 // --- COMPONENT: Attendance Overview (Split Theory & Practical) ---
 const AttendanceOverview = ({ user }) => {
     const [stats, setStats] = useState({
@@ -558,65 +557,61 @@ const AttendanceOverview = ({ user }) => {
             if (!user?.instituteId || !user?.department || !user?.year) return;
 
             try {
-                // 1. Fetch My Attendance Records to count specific types
-                const myAttendanceQ = query(
-                    collection(db, 'attendance'),
-                    where('studentId', '==', user.uid)
+                // ✅ 1. FAST ATTENDED COUNT (Still saves hundreds of reads!)
+                const attendedTheoryQ = query(collection(db, 'attendance'),
+                    where('studentId', '==', user.uid),
+                    where('status', '==', 'Present'),
+                    where('type', '==', 'theory') // Assumes backend fix is live
                 );
-                const myAttendanceSnap = await getDocs(myAttendanceQ);
-                const myPresentSessionIds = new Set(myAttendanceSnap.docs.map(d => d.data().sessionId));
+                const tPresentSnap = await getCountFromServer(attendedTheoryQ);
+                const tPresent = tPresentSnap.data().count;
 
-                // 2. Fetch ALL Relevant Sessions for this student's Class
-                const sessionsQuery = query(
-                    collection(db, 'live_sessions'),
+                const attendedPracticalQ = query(collection(db, 'attendance'),
+                    where('studentId', '==', user.uid),
+                    where('status', '==', 'Present'),
+                    where('type', '==', 'practical') // Assumes backend fix is live
+                );
+                const pPresentSnap = await getCountFromServer(attendedPracticalQ);
+                const pPresent = pPresentSnap.data().count;
+
+                // ✅ 2. ACCURATE TOTAL COUNT (Filtered by Year, Division & Roll No)
+                const sessionsQ = query(collection(db, 'live_sessions'),
                     where('instituteId', '==', user.instituteId),
                     where('department', '==', user.department),
                     where('academicYear', '==', user.academicYear || '2025-2026')
                 );
+                
+                const sessionsSnap = await getDocs(sessionsQ);
+                let tTotal = 0;
+                let pTotal = 0;
 
-                const snap = await getDocs(sessionsQuery);
-
-                let tTotal = 0, tPresent = 0;
-                let pTotal = 0, pPresent = 0;
-
-                snap.docs.forEach(doc => {
+                sessionsSnap.forEach(doc => {
                     const data = doc.data();
+                    
+                    // A. Year Match
+                    const sYear = data.year || data.targetYear;
+                    if (sYear !== 'All' && sYear !== user.year) return;
 
-                    // Filter 1: Must match Year
-                    // Filter 1: Must match Year (Fallback for both targetYear and year fields)
-                    const sessionYear = data.year || data.targetYear;
-                    if (sessionYear !== 'All' && sessionYear !== user.year) return;
-
-                    // Filter 2: Must match Division (if applicable)
-                    const studentDiv = user.division || user.div;
-                    if (user.year === 'FE' && data.division && studentDiv) {
-                        if (data.division !== 'All' && data.division !== studentDiv) return;
+                    // B. Division Match
+                    if (data.division && data.division !== 'All') {
+                        const myDiv = user.division || user.div;
+                        if (data.division !== myDiv) return;
                     }
 
-                    // Filter 3: Check Type & Batch (for Practicals)
-                    const isPractical = data.type === 'practical';
-
-                    // Count Totals
-                    if (isPractical) {
-                        // Check if student is in this batch roll range
-                        if (data.rollRange) {
-                            const r = parseInt(user.rollNo);
-                            if (r >= data.rollRange.start && r <= data.rollRange.end) {
-                                pTotal++;
-                                if (myPresentSessionIds.has(doc.id)) pPresent++;
-                            }
-                        } else {
-                            // If no range defined, assume applicable
-                            pTotal++;
-                            if (myPresentSessionIds.has(doc.id)) pPresent++;
-                        }
-                    } else {
-                        // Theory
-                        tTotal++;
-                        if (myPresentSessionIds.has(doc.id)) tPresent++;
+                    // C. Roll Number Match (For Practicals)
+                    if (data.type === 'practical' && data.rollRange) {
+                        const myRoll = parseInt(user.rollNo);
+                        const min = parseInt(data.rollRange.start);
+                        const max = parseInt(data.rollRange.end);
+                        if (isNaN(myRoll) || myRoll < min || myRoll > max) return;
                     }
+
+                    // If it passes all strict checks, count it!
+                    if (data.type === 'theory') tTotal++;
+                    if (data.type === 'practical') pTotal++;
                 });
 
+                // ✅ 3. SET ACCURATE STATS
                 setStats({
                     theory: tTotal > 0 ? Math.round((tPresent / tTotal) * 100) : 0,
                     practical: pTotal > 0 ? Math.round((pPresent / pTotal) * 100) : 0,
@@ -1220,7 +1215,7 @@ const FeedbackView = ({ user }) => {
     const [feedbackForms, setFeedbackForms] = useState(cachedFeedbackForms || []);
     const [deptTeachers, setDeptTeachers] = useState(cachedDeptTeachers || []);
     const [mySubmissions, setMySubmissions] = useState([]); // ✅ TRACKS SUBMISSIONS
-    
+
     // UI States
     const [isInitialLoading, setIsInitialLoading] = useState(true);
     const [selectedForm, setSelectedForm] = useState(null);
@@ -1245,7 +1240,7 @@ const FeedbackView = ({ user }) => {
             }).then(res => res.json()).then(data => {
                 const myDiv = user.division || user.div;
                 const filtered = (data.forms || []).filter(f => !f.division || f.division === 'All' || f.division === myDiv);
-                cachedFeedbackForms = filtered; 
+                cachedFeedbackForms = filtered;
                 setFeedbackForms(filtered);
             }).catch(err => console.error("Error fetching forms", err));
             fetchPromises.push(formsPromise);
@@ -1260,7 +1255,7 @@ const FeedbackView = ({ user }) => {
                     department: user.department
                 })
             }).then(res => res.json()).then(data => {
-                cachedDeptTeachers = data.teachers || []; 
+                cachedDeptTeachers = data.teachers || [];
                 setDeptTeachers(data.teachers || []);
             }).catch(err => console.error("Error fetching teachers", err));
             fetchPromises.push(teachersPromise);
@@ -1274,7 +1269,7 @@ const FeedbackView = ({ user }) => {
         });
 
         Promise.all(fetchPromises).finally(() => {
-            setTimeout(() => { setIsInitialLoading(false); }, 2500); 
+            setTimeout(() => { setIsInitialLoading(false); }, 2500);
         });
 
         return () => unsubSub(); // Cleanup listener on unmount
@@ -1286,7 +1281,7 @@ const FeedbackView = ({ user }) => {
             setSelectedForm(form);
             setFeedbackResponse({ teacherId: '', subject: '', answers: {} });
             setIsFormLoading(false);
-        }, 2000); 
+        }, 2000);
     };
 
     // 🎯 SMART TEACHER DROPDOWN LOGIC (Removes already evaluated subjects)
@@ -1294,7 +1289,7 @@ const FeedbackView = ({ user }) => {
     if (selectedForm) {
         availableTeacherOptions = [
             { value: '|', label: '-- Choose the subject to evaluate --' },
-            ...deptTeachers.flatMap(teacher => 
+            ...deptTeachers.flatMap(teacher =>
                 (teacher.assignedClasses || []).filter(cls => {
                     const matchesYear = cls.year === user.year;
                     let matchesDiv = true;
@@ -1302,11 +1297,11 @@ const FeedbackView = ({ user }) => {
                         const myDiv = user.division || user.div;
                         matchesDiv = (!cls.divisions || cls.divisions === myDiv);
                     }
-                    
+
                     // ✅ CHECK: Has this student already submitted feedback for this teacher/subject?
-                    const isAlreadyEvaluated = mySubmissions.some(sub => 
-                        sub.formId === selectedForm.id && 
-                        sub.teacherId === teacher.id && 
+                    const isAlreadyEvaluated = mySubmissions.some(sub =>
+                        sub.formId === selectedForm.id &&
+                        sub.teacherId === teacher.id &&
                         sub.subject === cls.subject
                     );
 
@@ -1332,199 +1327,199 @@ const FeedbackView = ({ user }) => {
                     <h3 style={{ margin: '0 0 8px 0', color: '#1e293b', fontSize: '20px', fontWeight: '800' }}>Establishing Secure Link...</h3>
                     <p style={{ color: '#64748b', fontSize: '14px', margin: 0 }}>Fetching your anonymous evaluation portals</p>
                 </div>
-            ) : 
-            isFormLoading ? (
-                <div className="std-fb-loader-container">
-                    <div className="std-fb-pulse-ring">
-                        <div className="std-fb-shield-icon"><i className="fas fa-user-secret"></i></div>
+            ) :
+                isFormLoading ? (
+                    <div className="std-fb-loader-container">
+                        <div className="std-fb-pulse-ring">
+                            <div className="std-fb-shield-icon"><i className="fas fa-user-secret"></i></div>
+                        </div>
+                        <h3 style={{ margin: '20px 0 5px 0', color: '#1e293b', fontSize: '18px', fontWeight: '800' }}>Encrypting Session...</h3>
+                        <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>Protecting your identity</p>
                     </div>
-                    <h3 style={{ margin: '20px 0 5px 0', color: '#1e293b', fontSize: '18px', fontWeight: '800' }}>Encrypting Session...</h3>
-                    <p style={{ color: '#64748b', fontSize: '13px', margin: 0 }}>Protecting your identity</p>
-                </div>
-            ) : !selectedForm ? (
-                // --- LIST VIEW ---
-                <div className="cards-grid std-fb-stagger-grid">
-                    {feedbackForms.length > 0 ? feedbackForms.map((form, index) => {
-                        
-                        // ✅ COUNT SUBMISSIONS FOR THIS SPECIFIC FORM
-                        const formSubmissions = mySubmissions.filter(s => s.formId === form.id);
-                        const hasSubmittedAtLeastOnce = formSubmissions.length > 0;
+                ) : !selectedForm ? (
+                    // --- LIST VIEW ---
+                    <div className="cards-grid std-fb-stagger-grid">
+                        {feedbackForms.length > 0 ? feedbackForms.map((form, index) => {
 
-                        return (
-                            <div key={form.id} className={`std-fb-list-card ${hasSubmittedAtLeastOnce ? 'completed' : ''}`} style={{ animationDelay: `${index * 0.15}s` }}>
-                                <div className="std-fb-card-bg-blob"></div>
-                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '18px', position: 'relative', zIndex: 2 }}>
-                                    
-                                    {/* Icon changes to Green Check if submitted */}
-                                    <div className={`std-fb-icon-box ${hasSubmittedAtLeastOnce ? 'submitted' : ''}`}>
-                                        <i className={`fas ${hasSubmittedAtLeastOnce ? 'fa-check-circle' : 'fa-clipboard-list'}`}></i>
-                                    </div>
-                                    
-                                    <div>
-                                        <h3 style={{ margin: 0, color: '#1e293b', fontSize: '18px', fontWeight: '800', lineHeight: '1.2' }}>{form.title}</h3>
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
-                                            <span className="std-fb-anon-badge" style={{ margin: 0 }}>
-                                                <i className="fas fa-shield-check"></i> Anonymous
-                                            </span>
-                                            
-                                            {/* ✅ SHOW GREEN BADGE WITH SUBMISSION COUNT */}
-                                            {hasSubmittedAtLeastOnce && (
-                                                <span className="std-fb-anon-badge" style={{ margin: 0, background: '#ecfdf5', color: '#10b981', border: '1px solid #a7f3d0' }}>
-                                                    <i className="fas fa-check-double"></i> Evaluated ({formSubmissions.length} subjects)
+                            // ✅ COUNT SUBMISSIONS FOR THIS SPECIFIC FORM
+                            const formSubmissions = mySubmissions.filter(s => s.formId === form.id);
+                            const hasSubmittedAtLeastOnce = formSubmissions.length > 0;
+
+                            return (
+                                <div key={form.id} className={`std-fb-list-card ${hasSubmittedAtLeastOnce ? 'completed' : ''}`} style={{ animationDelay: `${index * 0.15}s` }}>
+                                    <div className="std-fb-card-bg-blob"></div>
+                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '18px', position: 'relative', zIndex: 2 }}>
+
+                                        {/* Icon changes to Green Check if submitted */}
+                                        <div className={`std-fb-icon-box ${hasSubmittedAtLeastOnce ? 'submitted' : ''}`}>
+                                            <i className={`fas ${hasSubmittedAtLeastOnce ? 'fa-check-circle' : 'fa-clipboard-list'}`}></i>
+                                        </div>
+
+                                        <div>
+                                            <h3 style={{ margin: 0, color: '#1e293b', fontSize: '18px', fontWeight: '800', lineHeight: '1.2' }}>{form.title}</h3>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+                                                <span className="std-fb-anon-badge" style={{ margin: 0 }}>
+                                                    <i className="fas fa-shield-check"></i> Anonymous
                                                 </span>
-                                            )}
+
+                                                {/* ✅ SHOW GREEN BADGE WITH SUBMISSION COUNT */}
+                                                {hasSubmittedAtLeastOnce && (
+                                                    <span className="std-fb-anon-badge" style={{ margin: 0, background: '#ecfdf5', color: '#10b981', border: '1px solid #a7f3d0' }}>
+                                                        <i className="fas fa-check-double"></i> Evaluated ({formSubmissions.length} subjects)
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
+                                    <button
+                                        className={`std-fb-start-btn ${hasSubmittedAtLeastOnce ? 'submitted' : ''}`}
+                                        onClick={() => handleStartEvaluation(form)}
+                                    >
+                                        <span>{hasSubmittedAtLeastOnce ? 'Evaluate Another Subject' : 'Start Evaluation'}</span> <i className="fas fa-arrow-right"></i>
+                                    </button>
                                 </div>
-                                <button 
-                                    className={`std-fb-start-btn ${hasSubmittedAtLeastOnce ? 'submitted' : ''}`} 
-                                    onClick={() => handleStartEvaluation(form)}
-                                >
-                                    <span>{hasSubmittedAtLeastOnce ? 'Evaluate Another Subject' : 'Start Evaluation'}</span> <i className="fas fa-arrow-right"></i>
-                                </button>
-                            </div>
-                        );
-                    }) : (
-                        <div className="std-fb-empty-wrapper">
-                            <div className="std-fb-empty-badge">
-                                <i className="fas fa-info-circle" style={{ color: '#3b82f6' }}></i> Status Clear
-                            </div>
-                            <div className="std-fb-empty-illustration">
-                                <i className="fas fa-check-double"></i>
-                            </div>
-                            <h3 className="std-fb-empty-title">You're All Caught Up!</h3>
-                            <p className="std-fb-empty-subtitle">
-                                There are no active feedback forms assigned to your class right now. Relax and check back later!
-                            </p>
-                        </div>
-                    )}
-                </div>
-            ) : (
-                // --- FORM VIEW ---
-                <div className="std-fb-form-container">
-                    <button 
-                        className="std-fb-back-btn"
-                        onClick={() => setSelectedForm(null)} 
-                    >
-                        <i className="fas fa-chevron-left"></i> Back
-                    </button>
-
-                    <h3 className="std-fb-form-title">
-                        {selectedForm.title}
-                    </h3>
-
-                    {/* ✅ CHECK IF ALL SUBJECTS ARE EVALUATED */}
-                    {availableTeacherOptions.length <= 1 ? (
-                        <div className="std-fb-all-complete">
-                            <div className="std-fb-all-complete-icon"><i className="fas fa-check"></i></div>
-                            <h3 style={{ margin: '0 0 10px 0', fontSize: '20px', color: '#1e293b' }}>Evaluation Complete</h3>
-                            <p style={{ margin: 0, color: '#64748b', fontSize: '14px', lineHeight: '1.6' }}>
-                                You have successfully submitted feedback for all your assigned subjects. Thank you for your honest responses!
-                            </p>
-                        </div>
-                    ) : (
-                        <>
-                            <div className="std-fb-dropdown-section" style={{ position: 'relative', zIndex: 100 }}>
-                                <CustomMobileSelect 
-                                    label="Select Subject & Teacher"
-                                    icon="fa-chalkboard-teacher"
-                                    value={`${feedbackResponse.teacherId}|${feedbackResponse.subject}`}
-                                    onChange={(val) => {
-                                        const [tId, sub] = val.split('|');
-                                        setFeedbackResponse({ ...feedbackResponse, teacherId: tId || '', subject: sub || '' });
-                                    }}
-                                    options={availableTeacherOptions}
-                                />
-                                <p className="std-fb-hint" style={{ marginTop: '12px' }}>
-                                    <i className="fas fa-info-circle"></i> Only remaining unevaluated subjects are shown.
+                            );
+                        }) : (
+                            <div className="std-fb-empty-wrapper">
+                                <div className="std-fb-empty-badge">
+                                    <i className="fas fa-info-circle" style={{ color: '#3b82f6' }}></i> Status Clear
+                                </div>
+                                <div className="std-fb-empty-illustration">
+                                    <i className="fas fa-check-double"></i>
+                                </div>
+                                <h3 className="std-fb-empty-title">You're All Caught Up!</h3>
+                                <p className="std-fb-empty-subtitle">
+                                    There are no active feedback forms assigned to your class right now. Relax and check back later!
                                 </p>
                             </div>
+                        )}
+                    </div>
+                ) : (
+                    // --- FORM VIEW ---
+                    <div className="std-fb-form-container">
+                        <button
+                            className="std-fb-back-btn"
+                            onClick={() => setSelectedForm(null)}
+                        >
+                            <i className="fas fa-chevron-left"></i> Back
+                        </button>
 
-                            {/* Dynamic Questions */}
-                            {selectedForm.questions.map((q, index) => (
-                                <div key={q.id} className="std-fb-question-box" style={{ position: 'relative', zIndex: 40 - index }}>
-                                    <h4 className="std-fb-question-text">
-                                        <span className="std-fb-q-num">Q{index + 1}.</span> {q.text}
-                                    </h4>
-                                    
-                                    {q.type === 'text' ? (
-                                        <textarea 
-                                            rows="4" 
-                                            className="std-fb-textarea" 
-                                            placeholder="Type your honest thoughts here..."
-                                            value={feedbackResponse.answers[q.id] || ''}
-                                            onChange={e => setFeedbackResponse({
-                                                ...feedbackResponse,
-                                                answers: { ...feedbackResponse.answers, [q.id]: e.target.value }
-                                            })}
-                                        ></textarea>
-                                    ) : (
-                                        <div className="std-fb-radio-group">
-                                            {q.options.map((opt, oIndex) => {
-                                                const isSelected = feedbackResponse.answers[q.id] === opt;
-                                                return (
-                                                    <label key={oIndex} className={`std-fb-radio-label ${isSelected ? 'selected' : ''}`}>
-                                                        <input 
-                                                            type="radio" 
-                                                            name={`question_${q.id}`} 
-                                                            value={opt}
-                                                            checked={isSelected}
-                                                            onChange={e => setFeedbackResponse({
-                                                                ...feedbackResponse,
-                                                                answers: { ...feedbackResponse.answers, [q.id]: e.target.value }
-                                                            })}
-                                                            className="std-fb-radio-input"
-                                                        />
-                                                        <div className="std-fb-radio-circle"></div>
-                                                        <span className="std-fb-radio-text">{opt}</span>
-                                                    </label>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
+                        <h3 className="std-fb-form-title">
+                            {selectedForm.title}
+                        </h3>
+
+                        {/* ✅ CHECK IF ALL SUBJECTS ARE EVALUATED */}
+                        {availableTeacherOptions.length <= 1 ? (
+                            <div className="std-fb-all-complete">
+                                <div className="std-fb-all-complete-icon"><i className="fas fa-check"></i></div>
+                                <h3 style={{ margin: '0 0 10px 0', fontSize: '20px', color: '#1e293b' }}>Evaluation Complete</h3>
+                                <p style={{ margin: 0, color: '#64748b', fontSize: '14px', lineHeight: '1.6' }}>
+                                    You have successfully submitted feedback for all your assigned subjects. Thank you for your honest responses!
+                                </p>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="std-fb-dropdown-section" style={{ position: 'relative', zIndex: 100 }}>
+                                    <CustomMobileSelect
+                                        label="Select Subject & Teacher"
+                                        icon="fa-chalkboard-teacher"
+                                        value={`${feedbackResponse.teacherId}|${feedbackResponse.subject}`}
+                                        onChange={(val) => {
+                                            const [tId, sub] = val.split('|');
+                                            setFeedbackResponse({ ...feedbackResponse, teacherId: tId || '', subject: sub || '' });
+                                        }}
+                                        options={availableTeacherOptions}
+                                    />
+                                    <p className="std-fb-hint" style={{ marginTop: '12px' }}>
+                                        <i className="fas fa-info-circle"></i> Only remaining unevaluated subjects are shown.
+                                    </p>
                                 </div>
-                            ))}
 
-                            <button 
-                                className="std-fb-submit-btn" 
-                                disabled={!feedbackResponse.teacherId || !feedbackResponse.subject}
-                                onClick={async () => {
-                                    const toastId = toast.loading("Submitting Securely...");
-                                    try {
-                                        const formattedAnswers = selectedForm.questions.map(q => ({
-                                            questionText: q.text,
-                                            answer: feedbackResponse.answers[q.id] || 'No Answer'
-                                        }));
+                                {/* Dynamic Questions */}
+                                {selectedForm.questions.map((q, index) => (
+                                    <div key={q.id} className="std-fb-question-box" style={{ position: 'relative', zIndex: 40 - index }}>
+                                        <h4 className="std-fb-question-text">
+                                            <span className="std-fb-q-num">Q{index + 1}.</span> {q.text}
+                                        </h4>
 
-                                        const res = await fetch(`${BACKEND_URL}/submitFeedback`, {
-                                            method: 'POST',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify({
-                                                formId: selectedForm.id,
-                                                studentId: auth.currentUser.uid, // ✅ FIX: Use guaranteed auth ID
-                                                teacherId: feedbackResponse.teacherId,
-                                                subject: feedbackResponse.subject,
-                                                answers: formattedAnswers,
-                                                academicYear: user.academicYear || '2025-2026'
-                                            })
-                                        });
-                                        
-                                        const data = await res.json();
-                                        if(!res.ok) throw new Error(data.error);
+                                        {q.type === 'text' ? (
+                                            <textarea
+                                                rows="4"
+                                                className="std-fb-textarea"
+                                                placeholder="Type your honest thoughts here..."
+                                                value={feedbackResponse.answers[q.id] || ''}
+                                                onChange={e => setFeedbackResponse({
+                                                    ...feedbackResponse,
+                                                    answers: { ...feedbackResponse.answers, [q.id]: e.target.value }
+                                                })}
+                                            ></textarea>
+                                        ) : (
+                                            <div className="std-fb-radio-group">
+                                                {q.options.map((opt, oIndex) => {
+                                                    const isSelected = feedbackResponse.answers[q.id] === opt;
+                                                    return (
+                                                        <label key={oIndex} className={`std-fb-radio-label ${isSelected ? 'selected' : ''}`}>
+                                                            <input
+                                                                type="radio"
+                                                                name={`question_${q.id}`}
+                                                                value={opt}
+                                                                checked={isSelected}
+                                                                onChange={e => setFeedbackResponse({
+                                                                    ...feedbackResponse,
+                                                                    answers: { ...feedbackResponse.answers, [q.id]: e.target.value }
+                                                                })}
+                                                                className="std-fb-radio-input"
+                                                            />
+                                                            <div className="std-fb-radio-circle"></div>
+                                                            <span className="std-fb-radio-text">{opt}</span>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
 
-                                        toast.success("Evaluation submitted anonymously!", { id: toastId });
-                                        setSelectedForm(null); // Kicks back to list view which immediately shows the ✅ Badge
-                                    } catch (error) {
-                                        toast.error(error.message || "Failed to submit.", { id: toastId });
-                                    }
-                                }}
-                            >
-                                <i className="fas fa-paper-plane" style={{ marginRight: '8px' }}></i> Submit Evaluation
-                            </button>
-                        </>
-                    )}
-                </div>
-            )}
+                                <button
+                                    className="std-fb-submit-btn"
+                                    disabled={!feedbackResponse.teacherId || !feedbackResponse.subject}
+                                    onClick={async () => {
+                                        const toastId = toast.loading("Submitting Securely...");
+                                        try {
+                                            const formattedAnswers = selectedForm.questions.map(q => ({
+                                                questionText: q.text,
+                                                answer: feedbackResponse.answers[q.id] || 'No Answer'
+                                            }));
+
+                                            const res = await fetch(`${BACKEND_URL}/submitFeedback`, {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({
+                                                    formId: selectedForm.id,
+                                                    studentId: auth.currentUser.uid, // ✅ FIX: Use guaranteed auth ID
+                                                    teacherId: feedbackResponse.teacherId,
+                                                    subject: feedbackResponse.subject,
+                                                    answers: formattedAnswers,
+                                                    academicYear: user.academicYear || '2025-2026'
+                                                })
+                                            });
+
+                                            const data = await res.json();
+                                            if (!res.ok) throw new Error(data.error);
+
+                                            toast.success("Evaluation submitted anonymously!", { id: toastId });
+                                            setSelectedForm(null); // Kicks back to list view which immediately shows the ✅ Badge
+                                        } catch (error) {
+                                            toast.error(error.message || "Failed to submit.", { id: toastId });
+                                        }
+                                    }}
+                                >
+                                    <i className="fas fa-paper-plane" style={{ marginRight: '8px' }}></i> Submit Evaluation
+                                </button>
+                            </>
+                        )}
+                    </div>
+                )}
         </div>
     );
 };
@@ -1555,7 +1550,7 @@ export default function StudentDashboard() {
     const [showPinModal, setShowPinModal] = useState(false);
     const [enteredPin, setEnteredPin] = useState('');
     const [loading, setLoading] = useState(false);
-    
+
 
 
 
@@ -1700,7 +1695,7 @@ export default function StudentDashboard() {
         return () => authUnsub();
     }, []);
 
-    
+
 
     // ✅ 2. Listen for Active Session (Filtered by Year AND Division)
     useEffect(() => {
@@ -1837,10 +1832,11 @@ export default function StudentDashboard() {
     useEffect(() => {
         if (!user?.instituteId) return;
 
-        // Query assignments for this institute
+        // ✅ OPTIMIZED: Added department filter to save reads
         const q = query(
             collection(db, 'assignments'),
             where('instituteId', '==', user.instituteId),
+            where('department', '==', user.department), // <-- ADD THIS
             where('academicYear', '==', user.academicYear || '2025-2026')
         );
 
@@ -1900,13 +1896,13 @@ export default function StudentDashboard() {
     useEffect(() => {
         if (!user?.instituteId) return;
 
-        // Fetch ALL announcements for this institute (then filter in JS for complex logic)
+        // ✅ OPTIMIZED: Added department filter to save reads
         const q = query(
             collection(db, 'announcements'),
             where('instituteId', '==', user.instituteId),
+            where('department', '==', user.department), // <-- ADD THIS
             where('academicYear', '==', user.academicYear || '2025-2026')
         );
-
         const unsub = onSnapshot(q, (snapshot) => {
             const allNotices = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
@@ -2359,7 +2355,7 @@ export default function StudentDashboard() {
                             <span>Profile</span>
                         </div>
                     </li>
-                   <li className={activePage === 'feedback' ? 'active' : ''} onClick={() => { setActivePage('feedback'); setIsMobileNavOpen(false); }}>
+                    <li className={activePage === 'feedback' ? 'active' : ''} onClick={() => { setActivePage('feedback'); setIsMobileNavOpen(false); }}>
                         <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '15px' }}>
                             <i className="fas fa-comment-dots" style={{ width: '24px', textAlign: 'center' }}></i>
                             <span>Teacher Feedback</span>
