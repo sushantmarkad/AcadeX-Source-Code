@@ -557,21 +557,24 @@ const AttendanceOverview = ({ user }) => {
             if (!user?.instituteId || !user?.department || !user?.year) return;
 
             try {
-                // ✅ 1. FAST ATTENDED COUNT (Still saves hundreds of reads!)
-                const attendedTheoryQ = query(collection(db, 'attendance'),
+                // ✅ 1. OPTIMIZED SERVER-SIDE COUNT FOR ATTENDANCE (Costs exactly 2 reads!)
+                const theoryAttQ = query(collection(db, 'attendance'),
                     where('studentId', '==', user.uid),
                     where('status', '==', 'Present'),
-                    where('type', '==', 'theory') // Assumes backend fix is live
+                    where('type', '==', 'theory')
                 );
-                const tPresentSnap = await getCountFromServer(attendedTheoryQ);
-                const tPresent = tPresentSnap.data().count;
+                const practicalAttQ = query(collection(db, 'attendance'),
+                    where('studentId', '==', user.uid),
+                    where('status', '==', 'Present'),
+                    where('type', '==', 'practical')
+                );
 
-                const attendedPracticalQ = query(collection(db, 'attendance'),
-                    where('studentId', '==', user.uid),
-                    where('status', '==', 'Present'),
-                    where('type', '==', 'practical') // Assumes backend fix is live
-                );
-                const pPresentSnap = await getCountFromServer(attendedPracticalQ);
+                const [tPresentSnap, pPresentSnap] = await Promise.all([
+                    getCountFromServer(theoryAttQ),
+                    getCountFromServer(practicalAttQ)
+                ]);
+
+                const tPresent = tPresentSnap.data().count;
                 const pPresent = pPresentSnap.data().count;
 
                 // ✅ 2. ACCURATE TOTAL COUNT (Filtered by Year, Division & Roll No)
@@ -580,14 +583,14 @@ const AttendanceOverview = ({ user }) => {
                     where('department', '==', user.department),
                     where('academicYear', '==', user.academicYear || '2025-2026')
                 );
-                
+
                 const sessionsSnap = await getDocs(sessionsQ);
                 let tTotal = 0;
                 let pTotal = 0;
 
                 sessionsSnap.forEach(doc => {
                     const data = doc.data();
-                    
+
                     // A. Year Match
                     const sYear = data.year || data.targetYear;
                     if (sYear !== 'All' && sYear !== user.year) return;
@@ -1705,7 +1708,8 @@ export default function StudentDashboard() {
         const q = query(
             collection(db, 'live_sessions'),
             where('isActive', '==', true),
-            where('instituteId', '==', user.instituteId)
+            where('instituteId', '==', user.instituteId),
+            where('department', '==', user.department)
         );
 
         const unsub = onSnapshot(q, (snap) => {
