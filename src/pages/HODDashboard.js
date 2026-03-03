@@ -986,6 +986,67 @@ export default function HODDashboard() {
         } catch (e) { toast.error("Failed", { id: toastId }); }
     };
 
+   // 📄 DOWNLOAD DEFAULTERS (CRITICAL LIST) PDF
+    const downloadDefaultersPDF = () => {
+        if (!analyticsData || !analyticsData.defaulters || analyticsData.defaulters.length === 0) {
+            return toast.error("No defaulters to download.");
+        }
+
+        const doc = new jsPDF();
+        
+        // Get the exact width of the PDF page for perfect centering
+        const pageWidth = doc.internal.pageSize.getWidth();
+
+        // 1. 🎓 Centered College / Institute Name
+        doc.setFontSize(18);
+        doc.setTextColor(15, 23, 42); // Dark bold color
+        const collegeName = hodInfo?.instituteName || "Institute Name";
+        doc.text(collegeName, pageWidth / 2, 18, { align: 'center' }); // Perfectly centered
+
+        // 2. Report Title (Left aligned, shifted down)
+        doc.setFontSize(14);
+        doc.setTextColor(30, 41, 59);
+        const reportTitle = isFE 
+            ? `${hodInfo?.department || 'First Year'} - Div ${analyticsDivision} Defaulters`
+            : `${hodInfo?.department || 'Department'} - ${analyticsYear} Defaulters`;
+            
+        doc.text(reportTitle, 14, 30);
+        
+        // 3. Subtitle / Metadata (Shifted down)
+        doc.setFontSize(11);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`Criteria: Below ${analyticsData.threshold}% | Filter: ${analyticsFilter} Attendance`, 14, 38);
+        doc.text(`Total Defaulters: ${analyticsData.defaulters.length}`, 14, 44);
+
+        const tableColumn = ["Roll No", "Student Name", "Email", "Attendance %"];
+        
+        // Sort students by Roll Number numerically
+        const sortedDefaulters = [...analyticsData.defaulters].sort((a, b) => 
+            (a.rollNo || '').localeCompare(b.rollNo || '', undefined, { numeric: true })
+        );
+
+        const tableRows = sortedDefaulters.map(s => [
+            s.rollNo || '-',
+            `${s.firstName} ${s.lastName}`,
+            s.email,
+            `${s.percentage.toFixed(0)}%`
+        ]);
+
+        autoTable(doc, {
+            startY: 50, // Pushed the table down to make room for the new header
+            head: [tableColumn],
+            body: tableRows,
+            theme: 'grid',
+            headStyles: { fillColor: [239, 68, 68] }, // Red color for warning/defaulters
+            styles: { fontSize: 9 }
+        });
+
+        // Save with dynamic filename
+        const fileName = isFE ? `Defaulters_FE_Div_${analyticsDivision}.pdf` : `Defaulters_${analyticsYear}.pdf`;
+        doc.save(fileName);
+        toast.success("Defaulters PDF Downloaded!");
+    };
+
     const executeBulkApprove = async () => {
         closeModal();
         const toastId = toast.loading(`Approving ${selectedRequestIds.length} students...`);
@@ -2104,14 +2165,35 @@ export default function HODDashboard() {
                             </div>
 
                             {/* Card 2: Defaulters List */}
+                            {/* Card 2: Defaulters List */}
                             <div className="card" style={{ borderTop: '4px solid #ef4444', height: '420px', display: 'flex', flexDirection: 'column', padding: '0' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 20px 15px', borderBottom: '1px solid #f1f5f9' }}>
-                                    <h3 style={{ color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px', margin: 0, fontSize: '16px', fontWeight: '700' }}>
-                                        ⚠️ Critical List
-                                    </h3>
-                                    <span className="nav-badge" style={{ background: '#fee2e2', color: '#ef4444', fontSize: '12px', padding: '4px 10px' }}>
-                                        {analyticsData.defaulters.length}
-                                    </span>
+                                    
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <h3 style={{ color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px', margin: 0, fontSize: '16px', fontWeight: '700' }}>
+                                            ⚠️ Critical List
+                                        </h3>
+                                        <span className="nav-badge" style={{ background: '#fee2e2', color: '#ef4444', fontSize: '12px', padding: '4px 10px' }}>
+                                            {analyticsData.defaulters.length}
+                                        </span>
+                                    </div>
+
+                                    {/* 📥 NEW DOWNLOAD PDF BUTTON */}
+                                    {analyticsData.defaulters.length > 0 && (
+                                        <button 
+                                            onClick={downloadDefaultersPDF}
+                                            style={{ 
+                                                background: '#fef2f2', color: '#ef4444', border: '1px solid #fecaca', 
+                                                padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '700', 
+                                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.2s' 
+                                            }}
+                                            onMouseOver={e => e.currentTarget.style.background = '#fee2e2'}
+                                            onMouseOut={e => e.currentTarget.style.background = '#fef2f2'}
+                                        >
+                                            <i className="fas fa-file-pdf"></i> Download PDF
+                                        </button>
+                                    )}
+
                                 </div>
 
                                 <div className="table-wrapper custom-scroll" style={{ flex: 1, overflowY: 'auto', overflowX: 'auto', border: 'none', padding: '0' }}>

@@ -101,6 +101,7 @@ const AssignmentMarksManager = ({ teacherInfo, selectedYear, selectedDiv, select
         year: selectedYear,
         division: selectedYear === 'FE' ? selectedDiv : null,
         instituteId: teacherInfo.instituteId,
+        academicYear: teacherInfo.academicYear || '2025-2026',
         createdAt: serverTimestamp(),
         scores: {}
       };

@@ -106,6 +106,7 @@ const MarksManager = ({ teacherInfo, selectedYear, selectedDiv, selectedSubject 
         subject: subject,
         department: teacherInfo.department,
         year: selectedYear,
+        academicYear: teacherInfo.academicYear || '2025-2026',
         division: selectedYear === 'FE' ? selectedDiv : null,
         instituteId: teacherInfo.instituteId,
         createdAt: serverTimestamp(),

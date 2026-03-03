@@ -8,7 +8,6 @@ import './Dashboard.css';
 import logo from "../assets/logo.png";
 import TwoFactorSetup from '../components/TwoFactorSetup';
 
-
 import AddHOD from './AddHOD';
 import AddDepartment from './AddDepartment';
 import ManageInstituteUsers from './ManageInstituteUsers';
@@ -166,6 +165,12 @@ export default function InstituteAdminDashboard() {
     const [formData, setFormData] = useState({ firstName: '', lastName: '', phone: '' });
     const [passData, setPassData] = useState({ newPass: '', confirmPass: '' });
     const [passLoading, setPassLoading] = useState(false);
+    
+    // --- BULK PROMOTE STATE ---
+    const [isPromoteModalOpen, setIsPromoteModalOpen] = useState(false);
+    const [newTargetYear, setNewTargetYear] = useState('2026-2027');
+    const [isPromoting, setIsPromoting] = useState(false);
+    const [classToPromote, setClassToPromote] = useState('ALL');
 
     const navigate = useNavigate();
 
@@ -249,6 +254,41 @@ export default function InstituteAdminDashboard() {
         }
     };
 
+    const handleBulkPromote = async () => {
+        if (!newTargetYear.match(/^\d{4}-\d{4}$/)) {
+            return toast.error("Please format year as YYYY-YYYY (e.g., 2026-2027)");
+        }
+
+        setIsPromoting(true);
+        const toastId = toast.loading(`Promoting ${classToPromote === 'ALL' ? 'All' : classToPromote} students... Please wait.`);
+
+        try {
+            const response = await fetch(`${BACKEND_URL}/bulkPromoteStudents`, { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    instituteId: adminInfo.instituteId, 
+                    newAcademicYear: newTargetYear,
+                    targetClass: classToPromote // PASSING THE SPECIFIC CLASS
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok && data.success) {
+                toast.success(data.message, { id: toastId, duration: 5000 });
+                setIsPromoteModalOpen(false);
+            } else {
+                throw new Error(data.error || "Failed to promote");
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error(error.message, { id: toastId });
+        } finally {
+            setIsPromoting(false);
+        }
+    };
+
     const NavLink = ({ page, iconClass, label }) => (
         <li className={activePage === page ? 'active' : ''} onClick={() => { setActivePage(page); setIsMobileNavOpen(false); }}>
             <i className={`fas ${iconClass}`}></i> <span>{label}</span>
@@ -266,6 +306,230 @@ export default function InstituteAdminDashboard() {
             
             case 'bulkStudents': return <BulkAddStudents instituteId={instituteId} instituteName={instituteName} />;
             case 'manageUsers': return <ManageInstituteUsers instituteId={instituteId} showModal={showModal} />;
+
+            // ✅ MODERN, ANIMATED PROMOTE PAGE
+            case 'promote': return (
+                <div className="content-section" style={{ maxWidth: '1050px', margin: '0 auto', animation: 'fadeIn 0.5s ease-out' }}>
+                    
+                    {/* Deep Space Glowing Banner */}
+                    <div className="promo-banner">
+                        <div className="promo-banner-glow-1"></div>
+                        <div className="promo-banner-glow-2"></div>
+                        <div className="promo-banner-content">
+                            <div className="promo-banner-icon">
+                                <i className="fas fa-layer-group"></i>
+                            </div>
+                            <div className="promo-banner-text">
+                                <h2>Academic Promotion Center</h2>
+                                <p>Seamlessly transition students to their next academic year. Ensure all final grades and CCE marks are submitted before proceeding.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="promo-section-header stagger-1">
+                        <h3><i className="fas fa-level-up-alt"></i> Class-wise Transition</h3>
+                        <span className="promo-badge-outline">Recommended</span>
+                    </div>
+                    
+                    {/* Modern Interactive Grid */}
+                    <div className="promo-cards-grid">
+                        {/* FE -> SE */}
+                        <div className="promo-card theme-blue stagger-2">
+                            <div className="promo-card-icon-wrapper">
+                                <i className="fas fa-seedling"></i>
+                            </div>
+                            <div className="promo-card-body">
+                                <h4>First Year (FE)</h4>
+                                <p>Move all active FE students into Second Year (SE).</p>
+                            </div>
+                            <button className="promo-card-btn" onClick={() => { setClassToPromote('FE'); setIsPromoteModalOpen(true); }}>
+                                Promote to SE <i className="fas fa-arrow-right"></i>
+                            </button>
+                        </div>
+
+                        {/* SE -> TE */}
+                        <div className="promo-card theme-green stagger-3">
+                            <div className="promo-card-icon-wrapper">
+                                <i className="fas fa-leaf"></i>
+                            </div>
+                            <div className="promo-card-body">
+                                <h4>Second Year (SE)</h4>
+                                <p>Move all active SE students into Third Year (TE).</p>
+                            </div>
+                            <button className="promo-card-btn" onClick={() => { setClassToPromote('SE'); setIsPromoteModalOpen(true); }}>
+                                Promote to TE <i className="fas fa-arrow-right"></i>
+                            </button>
+                        </div>
+
+                        {/* TE -> BE */}
+                        <div className="promo-card theme-purple stagger-4">
+                            <div className="promo-card-icon-wrapper">
+                                <i className="fas fa-tree"></i>
+                            </div>
+                            <div className="promo-card-body">
+                                <h4>Third Year (TE)</h4>
+                                <p>Move all active TE students into Final Year (BE).</p>
+                            </div>
+                            <button className="promo-card-btn" onClick={() => { setClassToPromote('TE'); setIsPromoteModalOpen(true); }}>
+                                Promote to BE <i className="fas fa-arrow-right"></i>
+                            </button>
+                        </div>
+
+                        {/* BE -> Alumni */}
+                        <div className="promo-card theme-orange stagger-5">
+                            <div className="promo-card-icon-wrapper">
+                                <i className="fas fa-graduation-cap"></i>
+                            </div>
+                            <div className="promo-card-body">
+                                <h4>Final Year (BE)</h4>
+                                <p>Graduate BE students and assign Alumni status.</p>
+                            </div>
+                            <button className="promo-card-btn" onClick={() => { setClassToPromote('BE'); setIsPromoteModalOpen(true); }}>
+                                Graduate Class <i className="fas fa-check-circle"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Danger Zone: Bulk Promote All */}
+                    <div className="promo-danger-zone stagger-6">
+                        <div className="promo-danger-content">
+                            <div className="promo-danger-icon"><i className="fas fa-exclamation-triangle"></i></div>
+                            <div className="promo-danger-text">
+                                <h3>Promote Entire Institute</h3>
+                                <p>Executes all 4 class transitions simultaneously. Recommended only at the very end of the academic year.</p>
+                            </div>
+                        </div>
+                        <button className="promo-danger-btn" onClick={() => { setClassToPromote('ALL'); setIsPromoteModalOpen(true); }}>
+                            <i className="fas fa-bolt"></i> Execute Bulk Promotion
+                        </button>
+                    </div>
+
+                    {/* Enhanced Modal */}
+                    {isPromoteModalOpen && (
+                        <div className="custom-modal-overlay" style={{ backdropFilter: 'blur(8px)' }}>
+                            <div className="custom-modal-box" style={{ animation: 'springUp 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards' }}>
+                                <div className="modal-icon" style={{ background: '#fef2f2', color: '#ef4444', width: '60px', height: '60px', fontSize: '24px', margin: '0 auto 20px auto', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <i className="fas fa-radiation"></i>
+                                </div>
+                                <h3 style={{ textAlign: 'center', fontSize: '22px', color: '#1e293b', marginBottom: '10px' }}>Confirm Action</h3>
+                                <p style={{ color: '#64748b', fontSize: '15px', lineHeight: '1.6', textAlign: 'center', marginBottom: '25px' }}>
+                                    You are about to promote <strong>{classToPromote === 'ALL' ? 'THE ENTIRE INSTITUTE' : `${classToPromote} Students`}</strong>. 
+                                    This will transition their classes and assign a new Academic Year string.
+                                </p>
+                                
+                                <div className="prof-input-group" style={{ textAlign: 'left' }}>
+                                    <label className="prof-label" style={{ color: '#475569', fontWeight: 'bold' }}>Target Academic Year</label>
+                                    <input 
+                                        type="text" 
+                                        className="prof-input"
+                                        value={newTargetYear}
+                                        onChange={(e) => setNewTargetYear(e.target.value)}
+                                        placeholder="e.g., 2026-2027"
+                                        disabled={isPromoting}
+                                        style={{ fontSize: '18px', letterSpacing: '2px', fontWeight: '800', textAlign: 'center', background: '#f8fafc', border: '2px solid #e2e8f0' }}
+                                    />
+                                </div>
+
+                                <div className="modal-actions" style={{ marginTop: '30px', display: 'flex', gap: '15px' }}>
+                                    <button onClick={() => setIsPromoteModalOpen(false)} className="btn-secondary" style={{ flex: 1, padding: '12px', borderRadius: '12px', fontSize: '16px', fontWeight: '600' }} disabled={isPromoting}>
+                                        Cancel
+                                    </button>
+                                    <button onClick={handleBulkPromote} className="btn-primary" style={{ flex: 1, background: 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)', boxShadow: '0 10px 20px -5px rgba(239, 68, 68, 0.4)', border: 'none', padding: '12px', borderRadius: '12px', fontSize: '16px', fontWeight: 'bold', color: 'white' }} disabled={isPromoting}>
+                                        {isPromoting ? <><i className="fas fa-spinner fa-spin"></i> Processing</> : 'Confirm Transition'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ✅ INJECTED CSS JUST FOR THE PROMOTE TAB */}
+                    <style>{`
+                        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+                        @keyframes springUp { from { opacity: 0; transform: scale(0.8) translateY(40px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+                        @keyframes slideUpFade { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+                        
+                        .stagger-1 { animation: slideUpFade 0.5s ease-out 0.1s forwards; opacity: 0; }
+                        .stagger-2 { animation: slideUpFade 0.5s ease-out 0.2s forwards; opacity: 0; }
+                        .stagger-3 { animation: slideUpFade 0.5s ease-out 0.3s forwards; opacity: 0; }
+                        .stagger-4 { animation: slideUpFade 0.5s ease-out 0.4s forwards; opacity: 0; }
+                        .stagger-5 { animation: slideUpFade 0.5s ease-out 0.5s forwards; opacity: 0; }
+                        .stagger-6 { animation: slideUpFade 0.5s ease-out 0.6s forwards; opacity: 0; }
+
+                        /* Deep Space Banner */
+                        .promo-banner { background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border-radius: 24px; padding: 40px; margin-bottom: 40px; position: relative; overflow: hidden; box-shadow: 0 20px 40px -10px rgba(15, 23, 42, 0.4); border: 1px solid rgba(255,255,255,0.05); }
+                        .promo-banner-glow-1 { position: absolute; top: -50px; right: -50px; width: 250px; height: 250px; background: rgba(56, 189, 248, 0.2); filter: blur(60px); border-radius: 50%; }
+                        .promo-banner-glow-2 { position: absolute; bottom: -80px; left: 10%; width: 200px; height: 200px; background: rgba(139, 92, 246, 0.2); filter: blur(60px); border-radius: 50%; }
+                        .promo-banner-content { display: flex; align-items: center; gap: 25px; position: relative; z-index: 2; }
+                        .promo-banner-icon { width: 75px; height: 75px; min-width: 75px; border-radius: 20px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); backdrop-filter: blur(10px); display: flex; justify-content: center; align-items: center; font-size: 30px; color: #38bdf8; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
+                        .promo-banner-text h2 { margin: 0 0 8px 0; color: white; font-size: 28px; font-weight: 800; letter-spacing: -0.5px; }
+                        .promo-banner-text p { margin: 0; color: #94a3b8; font-size: 15px; line-height: 1.6; max-width: 650px; }
+
+                        @media (max-width: 768px) {
+                            .promo-banner-content { flex-direction: column; text-align: center; }
+                        }
+
+                        /* Section Header */
+                        .promo-section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 25px; }
+                        .promo-section-header h3 { margin: 0; color: #1e293b; font-size: 20px; display: flex; align-items: center; gap: 10px; }
+                        .promo-section-header h3 i { color: #64748b; background: #f1f5f9; padding: 10px; border-radius: 10px; }
+                        .promo-badge-outline { padding: 6px 12px; border-radius: 20px; border: 1px solid #cbd5e1; color: #64748b; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
+
+                        /* Cards Grid */
+                        .promo-cards-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 24px; margin-bottom: 40px; }
+                        .promo-card { background: white; border-radius: 24px; padding: 30px 25px; border: 1px solid #f1f5f9; box-shadow: 0 10px 30px -10px rgba(0,0,0,0.05); display: flex; flex-direction: column; transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); position: relative; overflow: hidden; }
+                        .promo-card:hover { transform: translateY(-8px); box-shadow: 0 20px 40px -10px rgba(0,0,0,0.12); }
+                        .promo-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 5px; opacity: 0.8; }
+                        
+                        .promo-card-icon-wrapper { width: 55px; height: 55px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 22px; margin-bottom: 20px; transition: transform 0.3s ease; }
+                        .promo-card:hover .promo-card-icon-wrapper { transform: scale(1.1) rotate(5deg); }
+                        
+                        .promo-card-body { flex-grow: 1; margin-bottom: 25px; }
+                        .promo-card-body h4 { margin: 0 0 10px 0; font-size: 18px; color: #1e293b; font-weight: 800; }
+                        .promo-card-body p { margin: 0; font-size: 14px; color: #64748b; line-height: 1.6; }
+                        
+                        .promo-card-btn { width: 100%; padding: 14px; border-radius: 14px; border: none; font-size: 14px; font-weight: 700; display: flex; justify-content: space-between; align-items: center; cursor: pointer; transition: all 0.3s ease; }
+                        .promo-card-btn i { transition: transform 0.3s ease; }
+                        .promo-card:hover .promo-card-btn i { transform: translateX(5px); }
+                        
+                        /* Themes */
+                        .theme-blue::before { background: #3b82f6; }
+                        .theme-blue .promo-card-icon-wrapper { background: #eff6ff; color: #3b82f6; }
+                        .theme-blue .promo-card-btn { background: #eff6ff; color: #1d4ed8; }
+                        .theme-blue:hover .promo-card-btn { background: #3b82f6; color: white; box-shadow: 0 8px 20px -5px rgba(59, 130, 246, 0.4); }
+
+                        .theme-green::before { background: #10b981; }
+                        .theme-green .promo-card-icon-wrapper { background: #ecfdf5; color: #10b981; }
+                        .theme-green .promo-card-btn { background: #ecfdf5; color: #047857; }
+                        .theme-green:hover .promo-card-btn { background: #10b981; color: white; box-shadow: 0 8px 20px -5px rgba(16, 185, 129, 0.4); }
+
+                        .theme-purple::before { background: #8b5cf6; }
+                        .theme-purple .promo-card-icon-wrapper { background: #f5f3ff; color: #8b5cf6; }
+                        .theme-purple .promo-card-btn { background: #f5f3ff; color: #6d28d9; }
+                        .theme-purple:hover .promo-card-btn { background: #8b5cf6; color: white; box-shadow: 0 8px 20px -5px rgba(139, 92, 246, 0.4); }
+
+                        .theme-orange::before { background: #f59e0b; }
+                        .theme-orange .promo-card-icon-wrapper { background: #fffbeb; color: #f59e0b; }
+                        .theme-orange .promo-card-btn { background: #fffbeb; color: #b45309; }
+                        .theme-orange:hover .promo-card-btn { background: #f59e0b; color: white; box-shadow: 0 8px 20px -5px rgba(245, 158, 11, 0.4); }
+
+                        /* Danger Zone */
+                        .promo-danger-zone { background: white; border: 1px solid #fecaca; border-radius: 24px; padding: 30px; display: flex; justify-content: space-between; align-items: center; gap: 30px; box-shadow: 0 10px 30px -10px rgba(239, 68, 68, 0.1); position: relative; overflow: hidden; }
+                        .promo-danger-zone::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: #ef4444; }
+                        .promo-danger-content { display: flex; align-items: center; gap: 20px; }
+                        .promo-danger-icon { width: 60px; height: 60px; border-radius: 16px; background: #fef2f2; color: #ef4444; font-size: 24px; display: flex; justify-content: center; align-items: center; }
+                        .promo-danger-text h3 { margin: 0 0 5px 0; color: #b91c1c; font-size: 20px; font-weight: 800; }
+                        .promo-danger-text p { margin: 0; color: #7f1d1d; font-size: 14px; line-height: 1.5; max-width: 500px; }
+                        
+                        .promo-danger-btn { padding: 16px 32px; border-radius: 14px; background: #ef4444; color: white; border: none; font-size: 15px; font-weight: bold; cursor: pointer; transition: all 0.3s ease; display: flex; align-items: center; gap: 10px; white-space: nowrap; box-shadow: 0 10px 20px -5px rgba(239, 68, 68, 0.4); }
+                        .promo-danger-btn:hover { background: #dc2626; transform: translateY(-3px); box-shadow: 0 15px 25px -5px rgba(239, 68, 68, 0.5); }
+
+                        @media (max-width: 768px) {
+                            .promo-danger-zone { flex-direction: column; align-items: flex-start; padding: 25px; }
+                            .promo-danger-btn { width: 100%; justify-content: center; }
+                        }
+                    `}</style>
+                </div>
+            );
             
             // ✅ UPDATED PROFILE & SECURITY SECTION
             case 'security': return (
@@ -387,7 +651,7 @@ export default function InstituteAdminDashboard() {
                         </div>
                     )}
 
-                    {/* --- EMBEDDED STYLES --- */}
+                    {/* --- EMBEDDED STYLES FOR PROFILE TAB --- */}
                     <style>{`
                         .prof-header-card { background: linear-gradient(135deg, #7c3aed 0%, #db2777 100%); border-radius: 20px; box-shadow: 0 10px 30px rgba(219, 39, 119, 0.25); margin-bottom: 30px; position: relative; border: 1px solid rgba(255,255,255,0.2); }
                         .prof-header-content { padding: 40px; display: flex; align-items: center; gap: 30px; }
@@ -485,6 +749,7 @@ export default function InstituteAdminDashboard() {
                     <NavLink page="addHOD" iconClass="fa-user-tie" label="Add HOD" />
                     <NavLink page="bulkStudents" iconClass="fa-file-upload" label="Bulk Upload" />
                     <NavLink page="manageUsers" iconClass="fa-users" label="Manage Users" />
+                    <NavLink page="promote" iconClass="fa-level-up-alt" label="Promote Students" />
                     <NavLink page="security" iconClass="fa-user-circle" label="Profile & Security" />
                 </ul>
                 

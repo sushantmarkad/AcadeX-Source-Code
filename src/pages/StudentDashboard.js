@@ -561,12 +561,14 @@ const AttendanceOverview = ({ user }) => {
                 const theoryAttQ = query(collection(db, 'attendance'),
                     where('studentId', '==', user.uid),
                     where('status', '==', 'Present'),
-                    where('type', '==', 'theory')
+                    where('type', '==', 'theory'),
+                    where('academicYear', '==', user.academicYear || '2025-2026')
                 );
                 const practicalAttQ = query(collection(db, 'attendance'),
                     where('studentId', '==', user.uid),
                     where('status', '==', 'Present'),
-                    where('type', '==', 'practical')
+                    where('type', '==', 'practical'),
+                    where('academicYear', '==', user.academicYear || '2025-2026')
                 );
 
                 const [tPresentSnap, pPresentSnap] = await Promise.all([
