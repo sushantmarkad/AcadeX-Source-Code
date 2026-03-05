@@ -869,7 +869,7 @@ const DashboardHome = ({
     sessionType, setSessionType, selectedBatch, setSelectedBatch,
     rollStart, setRollStart, rollEnd, setRollEnd,
     historySemester, setHistorySemester, getSubjectForHistory, historyLoading,
-    selectedDiv, setRefreshTrigger, currentAcademicYear, selectedSubject
+    selectedDiv, setRefreshTrigger, currentAcademicYear, selectedSubject,setHistoryLoading, setHistorySessions, refreshTrigger
 }) => {
     const [qrCodeValue, setQrCodeValue] = useState('');
     const [timer, setTimer] = useState(25);
@@ -887,6 +887,11 @@ const DashboardHome = ({
     const [pastAbsent, setPastAbsent] = useState("");
     const [pastLoading, setPastLoading] = useState(false);
     const [reportBatchFilter, setReportBatchFilter] = useState('All');
+    // ✅ FIX 1: Auto-reset the Batch Filter when switching Divisions so it doesn't get stuck!
+    useEffect(() => {
+        setReportBatchFilter('All');
+    }, [selectedDiv, selectedYear]);
+
     // Fetch Class Strength for Percentage (Fixed for Division)
     useEffect(() => {
         const fetchStrength = async () => {
@@ -969,24 +974,27 @@ const DashboardHome = ({
         }
     };
 
-    // 👇 REPLACE YOUR EXISTING filteredHistorySessions WITH THIS 👇
+ // 👇 BULLETPROOF BATCH FILTER LOGIC 👇
     const filteredHistorySessions = historySessions.filter(session => {
         if (reportFilter !== 'All' && session.type !== reportFilter.toLowerCase()) return false;
+        
         if (reportFilter === 'Practical' && reportBatchFilter !== 'All') {
-            if (session.batch !== reportBatchFilter) return false;
+            // Trim spaces and lowercase to ensure a perfect match every time
+            const sBatch = String(session.batch || '').trim().toLowerCase();
+            const rFilter = String(reportBatchFilter || '').trim().toLowerCase();
+            if (sBatch !== rFilter) return false;
         }
+        
         return true;
     });
 
-
-
-    // ✅ NEW: Filter Students specifically for the Batch Report
+    // ✅ NEW: Filter Students for PDF/Excel Export safely
     let studentsForReport = allStudentsReport;
     if (reportFilter === 'Practical' && reportBatchFilter !== 'All') {
         const batchKey = `${selectedYear}_${reportBatchFilter}`;
         const bSettings = teacherInfo?.batchSettings?.[batchKey];
 
-        if (bSettings) {
+        if (bSettings && bSettings.start && bSettings.end) {
             const s = parseInt(bSettings.start);
             const e = parseInt(bSettings.end);
             studentsForReport = allStudentsReport.filter(st => {
@@ -994,11 +1002,11 @@ const DashboardHome = ({
                 return r >= s && r <= e;
             });
         } else {
-            // Fallback: Infer from sessions
+            // Fallback: Infer from actual sessions if settings missing
             const ranges = filteredHistorySessions.map(s => s.rollRange).filter(Boolean);
             if (ranges.length > 0) {
-                const min = Math.min(...ranges.map(r => r.start));
-                const max = Math.max(...ranges.map(r => r.end));
+                const min = Math.min(...ranges.map(r => parseInt(r.start)));
+                const max = Math.max(...ranges.map(r => parseInt(r.end)));
                 studentsForReport = allStudentsReport.filter(st => {
                     const r = parseInt(st.rollNo);
                     return r >= min && r <= max;
@@ -2862,17 +2870,29 @@ export default function TeacherDashboard() {
     const [historyLoading, setHistoryLoading] = useState(false);
     const navigate = useNavigate();
     const [refreshTrigger, setRefreshTrigger] = useState(0);
-   // ✅ 3. PROPER SEMESTER FILTERING IN REPORTS TAB
+   // ✅ 3. PROPER SEMESTER & DIVISION FILTERING IN REPORTS TAB
     const getSubjectForHistory = () => {
         if (!teacherInfo?.assignedClasses) return selectedSubject || teacherInfo?.subject || "Subject";
 
-        // Match the subject exactly to the chosen historySemester in the dropdown
-        const semClass = teacherInfo.assignedClasses.find(c => 
-            c.year === selectedYear && Number(c.semester) === Number(historySemester)
-        );
+        // Find the class that matches Year, Semester, AND the specifically selected Division!
+        const semClass = teacherInfo.assignedClasses.find(c => {
+            const isYearSemMatch = c.year === selectedYear && Number(c.semester) === Number(historySemester);
+            
+            // 🚨 THE FIX: Make sure we grab the subject for the CORRECT division!
+            if (isYearSemMatch && selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
+                if (c.divisions && c.divisions.toLowerCase() !== 'all') {
+                    // Split in case divisions are saved like "C, J"
+                    const divs = c.divisions.split(',').map(d => d.trim().toUpperCase());
+                    if (!divs.includes(selectedDiv.toUpperCase())) {
+                        return false; // Skip this class, it belongs to the other division!
+                    }
+                }
+            }
+            return isYearSemMatch;
+        });
 
         if (semClass) {
-            return semClass.subject; // Prioritize the subject assigned for this specific semester!
+            return semClass.subject; // Now it correctly returns "Chemistry" for Div J and "Physics" for Div C!
         }
 
         // Fallback
@@ -3069,11 +3089,12 @@ export default function TeacherDashboard() {
     }, [activeSession?.sessionId, teacherInfo?.instituteId]);
 
     // ✅ UPDATED HISTORY FETCH (With Loader)
+   // ✅ ULTIMATE HISTORY FETCH (Exposes 0-Attendance Sessions + Protects Division Practicals)
     useEffect(() => {
         const fetchHistory = async () => {
             if (!teacherInfo?.instituteId || !selectedYear) return;
 
-            setHistoryLoading(true); // ⏳ START LOADING
+            setHistoryLoading(true); 
 
             const targetSubject = getSubjectForHistory();
             if (!targetSubject) {
@@ -3082,12 +3103,11 @@ export default function TeacherDashboard() {
                 return;
             }
 
-            // Define Range
             const start = new Date(startDate); start.setHours(0, 0, 0, 0);
             const end = new Date(endDate); end.setHours(23, 59, 59, 999);
 
             try {
-                // 1. Get ALL Students (Master List)
+                // 1. Get ALL Students
                 const qStudents = query(
                     collection(db, 'users'),
                     where('instituteId', '==', teacherInfo.instituteId),
@@ -3109,59 +3129,91 @@ export default function TeacherDashboard() {
 
                 setAllStudentsReport(allStudents);
 
-                // 2. Get Attendance Records
-                const qAttendance = query(
-                    collection(db, 'attendance'),
-                    where('instituteId', '==', teacherInfo.instituteId),
-                    where('subject', '==', targetSubject),
-                    where('academicYear', '==', currentAcademicYear),
-                    where('timestamp', '>=', Timestamp.fromDate(start)),
-                    where('timestamp', '<=', Timestamp.fromDate(end))
+               // 2. 🚨 QUERY SESSIONS DIRECTLY (Removed strict academicYear query to fix old Div I data)
+                const qSessions = query(
+                    collection(db, 'live_sessions'),
+                    where('teacherId', '==', auth.currentUser.uid)
                 );
-                const attSnap = await getDocsFromServer(qAttendance);
-
-                // 3. Process Session Data
-                const uniqueSessionIds = new Set();
-                attSnap.docs.forEach(d => uniqueSessionIds.add(d.data().sessionId));
-
-                const sessionMetaMap = {};
-                await Promise.all(Array.from(uniqueSessionIds).map(async (sId) => {
-                    try {
-                        const sDoc = await getDoc(doc(db, 'live_sessions', sId));
-                        if (sDoc.exists()) sessionMetaMap[sId] = sDoc.data();
-                    } catch (e) { console.error("Error fetching session details", e); }
-                }));
-
+                const sessionSnap = await getDocs(qSessions);
+                
                 const sessionsMap = {};
-                attSnap.docs.forEach(doc => {
-                    const data = doc.data();
-                    const sId = data.sessionId;
-                    const meta = sessionMetaMap[sId] || {};
+                const sessionIds = [];
 
-                    if (selectedYear === 'FE') {
-                        if (meta.division && meta.division !== selectedDiv) return;
+                sessionSnap.docs.forEach(doc => {
+                    const data = doc.data();
+
+                    // ✅ FALLBACK: If session is old and has no academicYear, don't hide it!
+                    const sessionAcadYear = data.academicYear || currentAcademicYear;
+                    if (sessionAcadYear !== currentAcademicYear) return;
+                    
+                    // Match Subject EXACTLY to keep Div C / Div J separate
+                    if (String(data.subject || '').trim().toLowerCase() !== String(targetSubject).trim().toLowerCase()) return;
+                    
+                    // Match Year
+                    const sessionYear = data.targetYear || data.year || 'Unknown';
+                    if (sessionYear !== 'All' && sessionYear !== selectedYear) return;
+
+                    // Match Division
+                    if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
+                        const sessionDiv = data.division || 'All';
+                        if (sessionDiv !== 'All' && sessionDiv !== selectedDiv) return;
                     }
 
-                    if (!sessionsMap[sId]) {
-                        sessionsMap[sId] = {
-                            sessionId: sId,
-                            startTime: data.timestamp.toDate().toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
-                            rawDate: data.timestamp.toDate(),
-                            type: meta.type || 'theory',
-                            batch: meta.batch || 'All',
-                            division: meta.division || (selectedYear === 'FE' ? 'A' : null),
-                            rollRange: meta.rollRange || null,
+                    // Skip deleted sessions
+                    if (data.isDeleted === true || data.status === 'deleted' || data.status === 'cancelled') return;
+
+                    // Match Date
+                    let sessionDate = data.createdAt?.toDate ? data.createdAt.toDate() : (data.timestamp?.toDate ? data.timestamp.toDate() : new Date());
+
+                    if (sessionDate >= start && sessionDate <= end) {
+                        sessionIds.push(doc.id);
+                        sessionsMap[doc.id] = {
+                            sessionId: doc.id,
+                            startTime: data.startTime || sessionDate.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
+                            rawDate: sessionDate,
+                            type: data.type || 'theory',
+                            batch: data.batch || 'All',
+                            division: data.division || (selectedYear === 'FE' ? selectedDiv : null),
+                            rollRange: data.rollRange || null,
                             presentRolls: new Map()
                         };
                     }
-                    sessionsMap[sId].presentRolls.set(parseInt(data.rollNo), doc.id);
+                });
+
+                if (sessionIds.length === 0) {
+                    setHistorySessions([]);
+                    setHistoryLoading(false);
+                    return;
+                }
+
+                // 3. Fetch Attendance ONLY for these specific sessions
+                const attDocs = [];
+                for (let i = 0; i < sessionIds.length; i += 10) {
+                    const chunk = sessionIds.slice(i, i + 10);
+                    const qAtt = query(
+                        collection(db, 'attendance'),
+                        where('instituteId', '==', teacherInfo.instituteId), 
+                        where('sessionId', 'in', chunk),
+                        where('status', '==', 'Present')
+                    );
+                    const attSnap = await getDocs(qAtt);
+                    attSnap.docs.forEach(d => attDocs.push({ id: d.id, ...d.data() }));
+                }
+
+                attDocs.forEach(data => {
+                    if (sessionsMap[data.sessionId]) {
+                        sessionsMap[data.sessionId].presentRolls.set(parseInt(data.rollNo), data.id);
+                    }
                 });
 
                 const finalSessions = Object.values(sessionsMap).map(session => {
                     let targetStudents = allStudents;
-                    if (session.type === 'practical' && session.rollRange) {
-                        const { start, end } = session.rollRange;
-                        targetStudents = allStudents.filter(s => s.rollNo >= start && s.rollNo <= end);
+                    
+                    // 🚨 SAFE PRACTICAL BATCH FILTERING
+                    if (session.type === 'practical' && session.rollRange && session.rollRange.start && session.rollRange.end) {
+                        const sNum = parseInt(session.rollRange.start);
+                        const eNum = parseInt(session.rollRange.end);
+                        targetStudents = allStudents.filter(s => s.rollNo >= sNum && s.rollNo <= eNum);
                     }
 
                     const studentsWithStatus = targetStudents.map(student => {
@@ -3195,13 +3247,13 @@ export default function TeacherDashboard() {
                 console.error("History Error:", err);
                 toast.error("Failed to load history.");
             } finally {
-                setHistoryLoading(false); // ✅ STOP LOADING
+                setHistoryLoading(false);
             }
         };
 
         if (viewMode === 'history') fetchHistory();
 
-    }, [viewMode, startDate, endDate, teacherInfo, selectedYear, historySemester, selectedDiv, refreshTrigger]);
+    }, [viewMode, startDate, endDate, teacherInfo, selectedYear, historySemester, selectedDiv, refreshTrigger, currentAcademicYear, selectedSubject]);
 
 
 
@@ -3321,7 +3373,10 @@ export default function TeacherDashboard() {
                 setSelectedDiv={setSelectedDiv}
                 historyDivision={historyDivision}
                 setHistoryDivision={setHistoryDivision}
+                setHistoryLoading={setHistoryLoading}
                 setRefreshTrigger={setRefreshTrigger}
+                setHistorySessions={setHistorySessions}
+                refreshTrigger={refreshTrigger}
             />;
             case 'analytics': return <TeacherAnalytics teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} currentAcademicYear={currentAcademicYear} selectedSubject={selectedSubject} />;
             case 'reports':
