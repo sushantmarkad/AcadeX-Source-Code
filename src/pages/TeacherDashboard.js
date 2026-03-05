@@ -3088,8 +3088,7 @@ export default function TeacherDashboard() {
         return () => { if (unsubscribe) unsubscribe(); };
     }, [activeSession?.sessionId, teacherInfo?.instituteId]);
 
-    // ✅ UPDATED HISTORY FETCH (With Loader)
-   // ✅ ULTIMATE HISTORY FETCH (Exposes 0-Attendance Sessions + Protects Division Practicals)
+    // ✅ ULTIMATE HISTORY FETCH (Bulletproof Division & Subject Matching)
     useEffect(() => {
         const fetchHistory = async () => {
             if (!teacherInfo?.instituteId || !selectedYear) return;
@@ -3107,7 +3106,7 @@ export default function TeacherDashboard() {
             const end = new Date(endDate); end.setHours(23, 59, 59, 999);
 
             try {
-                // 1. Get ALL Students
+                // 1. Get ALL Students (Case-Insensitive Division Matching)
                 const qStudents = query(
                     collection(db, 'users'),
                     where('instituteId', '==', teacherInfo.instituteId),
@@ -3123,13 +3122,15 @@ export default function TeacherDashboard() {
                     rollNo: parseInt(doc.data().rollNo) || 9999
                 }));
 
+                // 🚨 BULLETPROOF STUDENT DIVISION FILTER
                 if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
-                    allStudents = allStudents.filter(s => s.division === selectedDiv);
+                    const targetDiv = String(selectedDiv).trim().toUpperCase();
+                    allStudents = allStudents.filter(s => String(s.division || '').trim().toUpperCase() === targetDiv);
                 }
 
                 setAllStudentsReport(allStudents);
 
-               // 2. 🚨 QUERY SESSIONS DIRECTLY (Removed strict academicYear query to fix old Div I data)
+                // 2. 🚨 QUERY SESSIONS DIRECTLY (Catches old sessions & strips spaces)
                 const qSessions = query(
                     collection(db, 'live_sessions'),
                     where('teacherId', '==', auth.currentUser.uid)
@@ -3141,22 +3142,37 @@ export default function TeacherDashboard() {
 
                 sessionSnap.docs.forEach(doc => {
                     const data = doc.data();
-
-                    // ✅ FALLBACK: If session is old and has no academicYear, don't hide it!
+                    
+                    // FALLBACK: Catch old sessions missing academicYear
                     const sessionAcadYear = data.academicYear || currentAcademicYear;
                     if (sessionAcadYear !== currentAcademicYear) return;
-                    
-                    // Match Subject EXACTLY to keep Div C / Div J separate
-                    if (String(data.subject || '').trim().toLowerCase() !== String(targetSubject).trim().toLowerCase()) return;
-                    
-                    // Match Year
-                    const sessionYear = data.targetYear || data.year || 'Unknown';
-                    if (sessionYear !== 'All' && sessionYear !== selectedYear) return;
 
-                    // Match Division
+                    // Match Year
+                    const sessionYear = String(data.targetYear || data.year || '').trim().toUpperCase();
+                    const targetYr = String(selectedYear).trim().toUpperCase();
+                    if (sessionYear !== 'ALL' && sessionYear !== targetYr) return;
+
+                    // 🚨 BULLETPROOF SESSION DIVISION MATCHING
+                    let isFeDivisionMatch = false;
                     if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
-                        const sessionDiv = data.division || 'All';
-                        if (sessionDiv !== 'All' && sessionDiv !== selectedDiv) return;
+                        const sessionDiv = String(data.division || 'ALL').trim().toUpperCase();
+                        const targetDiv = String(selectedDiv).trim().toUpperCase();
+                        
+                        if (sessionDiv !== 'ALL' && sessionDiv !== targetDiv) {
+                            // Handle edge case where division was saved as "G, I"
+                            const divsArray = sessionDiv.split(',').map(d => d.trim());
+                            if (!divsArray.includes(targetDiv)) return; // Fails division check
+                        }
+                        isFeDivisionMatch = true; // We successfully confirmed this belongs to Div I (or G)
+                    }
+
+                    // 🚨 SMART SUBJECT MATCHING 🚨
+                    // If we already confirmed it perfectly matches Div I and this Teacher, 
+                    // we bypass the strict subject check to prevent "Semester Dropdown Mismatches" from hiding the data!
+                    if (!isFeDivisionMatch) {
+                        const dataSubj = String(data.subject || '').trim().toLowerCase();
+                        const targetSubj = String(targetSubject || '').trim().toLowerCase();
+                        if (dataSubj !== targetSubj) return;
                     }
 
                     // Skip deleted sessions
@@ -3171,8 +3187,8 @@ export default function TeacherDashboard() {
                             sessionId: doc.id,
                             startTime: data.startTime || sessionDate.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
                             rawDate: sessionDate,
-                            type: data.type || 'theory',
-                            batch: data.batch || 'All',
+                            type: String(data.type || 'theory').trim().toLowerCase(),
+                            batch: String(data.batch || 'All').trim().toUpperCase(),
                             division: data.division || (selectedYear === 'FE' ? selectedDiv : null),
                             rollRange: data.rollRange || null,
                             presentRolls: new Map()
@@ -3209,7 +3225,6 @@ export default function TeacherDashboard() {
                 const finalSessions = Object.values(sessionsMap).map(session => {
                     let targetStudents = allStudents;
                     
-                    // 🚨 SAFE PRACTICAL BATCH FILTERING
                     if (session.type === 'practical' && session.rollRange && session.rollRange.start && session.rollRange.end) {
                         const sNum = parseInt(session.rollRange.start);
                         const eNum = parseInt(session.rollRange.end);
