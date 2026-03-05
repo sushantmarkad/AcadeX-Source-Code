@@ -557,7 +557,6 @@ const AttendanceOverview = ({ user }) => {
             if (!user?.instituteId || !user?.department || !user?.year) return;
 
             try {
-                // ✅ 1. Fetch ALL of the student's attendance records and store the Session IDs
                 const myAttendanceQ = query(
                     collection(db, 'attendance'),
                     where('studentId', '==', user.uid),
@@ -565,10 +564,8 @@ const AttendanceOverview = ({ user }) => {
                     where('academicYear', '==', user.academicYear || '2025-2026')
                 );
                 const myAttendanceSnap = await getDocs(myAttendanceQ);
-                // Create a fast lookup Set of the session IDs the student actually attended
                 const myPresentSessionIds = new Set(myAttendanceSnap.docs.map(doc => doc.data().sessionId));
 
-                // ✅ 2. Fetch all sessions for this class
                 const sessionsQ = query(
                     collection(db, 'live_sessions'),
                     where('instituteId', '==', user.instituteId),
@@ -585,17 +582,18 @@ const AttendanceOverview = ({ user }) => {
                     const data = doc.data();
                     const sessionId = doc.id;
 
-                    // A. Year Match
+                    // 🚨 THE FIX: Ignore Deleted and Cancelled sessions!
+                    if (data.isDeleted === true || data.status === 'deleted' || data.status === 'cancelled') return;
+                    if (data.type !== 'theory' && data.type !== 'practical') return;
+
                     const sYear = data.year || data.targetYear;
                     if (sYear !== 'All' && sYear !== user.year) return;
 
-                    // B. Division Match
                     if (data.division && data.division !== 'All') {
                         const myDiv = user.division || user.div;
                         if (data.division !== myDiv) return;
                     }
 
-                    // C. Roll Number Match (For Practicals)
                     if (data.type === 'practical' && data.rollRange) {
                         const myRoll = parseInt(user.rollNo);
                         const min = parseInt(data.rollRange.start);
@@ -603,7 +601,6 @@ const AttendanceOverview = ({ user }) => {
                         if (isNaN(myRoll) || myRoll < min || myRoll > max) return;
                     }
 
-                    // ✅ 3. THE FIX: Only count "Present" IF the session passes the above strict filters
                     if (data.type === 'theory') {
                         tTotal++;
                         if (myPresentSessionIds.has(sessionId)) tPresent++;
@@ -615,7 +612,6 @@ const AttendanceOverview = ({ user }) => {
                     }
                 });
 
-                // ✅ 4. SET ACCURATE STATS (Math is now safe)
                 setStats({
                     theory: tTotal > 0 ? Math.round((tPresent / tTotal) * 100) : 0,
                     practical: pTotal > 0 ? Math.round((pPresent / pTotal) * 100) : 0,
@@ -636,7 +632,6 @@ const AttendanceOverview = ({ user }) => {
             <h3 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#1e293b' }}>Attendance Overview</h3>
 
             <div style={{ display: 'flex', gap: '20px', justifyContent: 'space-around' }}>
-                {/* Theory Circle */}
                 <div style={{ textAlign: 'center' }}>
                     <div style={{ position: 'relative', width: '70px', height: '70px', margin: '0 auto' }}>
                         <svg width="70" height="70" viewBox="0 0 100 100">
@@ -653,7 +648,6 @@ const AttendanceOverview = ({ user }) => {
                     <p style={{ fontSize: '10px', color: '#94a3b8' }}>{stats.attendedTheory}/{stats.totalTheory}</p>
                 </div>
 
-                {/* Practical Circle */}
                 <div style={{ textAlign: 'center' }}>
                     <div style={{ position: 'relative', width: '70px', height: '70px', margin: '0 auto' }}>
                         <svg width="70" height="70" viewBox="0 0 100 100">
@@ -684,7 +678,6 @@ const SubjectWiseAttendance = ({ user }) => {
             if (!user?.instituteId || !user?.department || !user?.year) return;
 
             try {
-                // 1. Fetch My Attendance (Used as a fast lookup Set)
                 const myAttendanceQ = query(
                     collection(db, 'attendance'),
                     where('studentId', '==', user.uid)
@@ -692,7 +685,6 @@ const SubjectWiseAttendance = ({ user }) => {
                 const myAttendanceSnap = await getDocs(myAttendanceQ);
                 const myPresentSessionIds = new Set(myAttendanceSnap.docs.map(d => d.data().sessionId));
 
-                // 2. Fetch ALL Sessions for strict filtering
                 const sessionsQ = query(
                     collection(db, 'live_sessions'),
                     where('instituteId', '==', user.instituteId),
@@ -706,11 +698,13 @@ const SubjectWiseAttendance = ({ user }) => {
                 snap.docs.forEach(doc => {
                     const data = doc.data();
                     
-                    // Filter 1: Year
+                    // 🚨 THE FIX: Ignore Deleted and Cancelled sessions!
+                    if (data.isDeleted === true || data.status === 'deleted' || data.status === 'cancelled') return;
+                    if (data.type !== 'theory' && data.type !== 'practical') return;
+
                     const sessionYear = data.year || data.targetYear;
                     if (sessionYear !== 'All' && sessionYear !== user.year) return;
 
-                    // Filter 2: Division
                     if (data.division && data.division !== 'All') {
                         const myDiv = user.division || user.div;
                         if (data.division !== myDiv) return;
@@ -721,7 +715,6 @@ const SubjectWiseAttendance = ({ user }) => {
                     
                     const isPresent = myPresentSessionIds.has(doc.id);
 
-                    // Filter 3: Practical Batch & Calculations
                     if (data.type === 'practical') {
                         if (data.rollRange) {
                             const r = parseInt(user.rollNo);
@@ -734,7 +727,6 @@ const SubjectWiseAttendance = ({ user }) => {
                             if (isPresent) stats[subject].pPresent++;
                         }
                     } else {
-                        // Theory
                         stats[subject].tTotal++;
                         if (isPresent) stats[subject].tPresent++;
                     }

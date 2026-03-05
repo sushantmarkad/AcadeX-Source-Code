@@ -1000,39 +1000,118 @@ const TeacherUsageReport = ({ user }) => {
 
         const fetchSessions = async () => {
             try {
-                // 1. Fetch all sessions for this department
+                const hodDept = (user.department === 'First Year' || user.department === 'FirstYear') ? 'FE' : user.department;
+                const currentAcademicYear = user.academicYear || '2025-2026';
+
+                // 1. Fetch sessions for the department
                 const q = query(
                     collection(db, 'live_sessions'),
                     where('instituteId', '==', user.instituteId),
-                    where('department', '==', user.department),
-                    where('academicYear', '==', user.academicYear || '2025-2026')
+                    where('department', '==', hodDept)
                 );
                 const snap = await getDocs(q);
+
+                // 2. Build a secure list of what teachers are ACTUALLY assigned to right now
+                const teacherAssignments = {};
+                teachersList.forEach(t => {
+                    const tId = t.id || t.uid;
+                    if (!tId) return;
+                    
+                    teacherAssignments[tId] = {
+                        name: `${t.firstName} ${t.lastName}`,
+                        validClasses: []
+                    };
+
+                    if (t.assignedClasses) {
+                        t.assignedClasses.forEach(cls => {
+                            const year = cls.year;
+                            const subject = cls.subject;
+                            let divisions = [];
+
+                            if (year === 'FE') {
+                                if (cls.divisions && cls.divisions.toLowerCase() !== 'all') {
+                                    // Parse "A, B" into ['A', 'B'] safely
+                                    divisions = cls.divisions.split(',').map(d => d.trim().toUpperCase());
+                                } else {
+                                    divisions = ['ALL'];
+                                }
+                            } else {
+                                divisions = ['ALL'];
+                            }
+
+                            teacherAssignments[tId].validClasses.push({ year, subject, divisions });
+                        });
+                    }
+                });
 
                 const grouped = {};
 
                 snap.docs.forEach(doc => {
                     const data = doc.data();
 
-                    // 🚨 FIX 1: Ignore Deleted, Cancelled, or Test sessions to match Teacher Dashboard perfectly!
+                    // 🚨 FILTER 1: Skip Deleted/Cancelled Sessions
                     if (data.isDeleted === true || data.status === 'deleted' || data.status === 'cancelled') return;
-                    if (data.type !== 'theory' && data.type !== 'practical') return;
 
-                    // Original Perfect Grouping Logic you liked
-                    const tName = data.teacherName || 'Unknown Teacher';
-                    const div = data.division || 'All';
-                    const sub = data.subject || 'Unknown Subject';
+                    // 🚨 FILTER 2: Handle missing Academic Year on old sessions
+                    if (data.academicYear && data.academicYear !== currentAcademicYear) return;
 
-                    if (!grouped[tName]) grouped[tName] = {};
-                    if (!grouped[tName][div]) grouped[tName][div] = {};
-                    if (!grouped[tName][div][sub]) {
-                        grouped[tName][div][sub] = { theoryCount: 0, practicalCount: 0, sessionIds: [] };
+                    // 🚨 FILTER 3: Default missing types to 'theory' so they don't get lost
+                    const sType = data.type || 'theory';
+                    if (sType !== 'theory' && sType !== 'practical') return;
+
+                    const tId = data.teacherId || data.uid;
+                    if (!tId || !teacherAssignments[tId]) return;
+
+                    const tName = teacherAssignments[tId].name;
+                    const sessionYear = data.targetYear || data.year || '';
+                    const sessionSubject = data.subject || '';
+                    const sessionDiv = data.division || 'All';
+
+                    // 🚨 FILTER 4: The "Fuzzy Match" Ghost Filter (Ignores spaces and capitalization)
+                    const isAssigned = teacherAssignments[tId].validClasses.some(validCls => {
+                        const vYear = String(validCls.year).trim().toUpperCase();
+                        const sYear = String(sessionYear).trim().toUpperCase();
+                        if (vYear !== sYear) return false;
+
+                        const vSub = String(validCls.subject).trim().toLowerCase();
+                        const sSub = String(sessionSubject).trim().toLowerCase();
+                        if (vSub !== sSub) return false; // Fixes "Math " !== "Math" bug!
+                        
+                        if (vYear === 'FE' || vYear === 'FIRST YEAR') {
+                            const sDiv = String(sessionDiv).trim().toUpperCase();
+                            if (validCls.divisions.includes('ALL')) return true; 
+                            if (sDiv === 'ALL') return true; 
+                            if (validCls.divisions.includes(sDiv)) return true; 
+                            return false; 
+                        }
+                        
+                        return true; 
+                    });
+
+                    // Drop the session if they are no longer assigned to it!
+                    if (!isAssigned) return; 
+
+                    // Format the Division Label beautifully
+                    let divLabel = sessionDiv;
+                    if (!sessionDiv || String(sessionDiv).trim().toUpperCase() === 'ALL') {
+                        if (sessionYear === 'FE' || sessionYear === 'First Year') divLabel = 'Combined FE Lecture'; 
+                        else divLabel = `${sessionYear} Class`; 
+                    } else {
+                        divLabel = `Div ${sessionDiv}`; 
                     }
 
-                    if (data.type === 'theory') grouped[tName][div][sub].theoryCount++;
-                    if (data.type === 'practical') grouped[tName][div][sub].practicalCount++;
+                    // Initialize grouping
+                    if (!grouped[tName]) grouped[tName] = { name: tName, divisions: {} };
+                    if (!grouped[tName].divisions[divLabel]) grouped[tName].divisions[divLabel] = {};
+                    if (!grouped[tName].divisions[divLabel][sessionSubject]) {
+                        grouped[tName].divisions[divLabel][sessionSubject] = { theoryCount: 0, practicalCount: 0, sessionIds: [] };
+                    }
+
+                    // Count it
+                    if (sType === 'theory') grouped[tName].divisions[divLabel][sessionSubject].theoryCount++;
+                    if (sType === 'practical') grouped[tName].divisions[divLabel][sessionSubject].practicalCount++;
                     
-                    grouped[tName][div][sub].sessionIds.push(doc.id);
+                    grouped[tName].divisions[divLabel][sessionSubject].sessionIds.push(doc.id);
                 });
 
                 setReportData(grouped);
@@ -1044,7 +1123,7 @@ const TeacherUsageReport = ({ user }) => {
         };
 
         fetchSessions();
-    }, [user]);
+    }, [user, teachersList, currentAcademicYear]); 
 
     // 3. OPTIMIZED: Fetch Count
     const fetchAttendanceCountForGroup = async (teacherName, division, subject, sessionIds) => {
@@ -1055,12 +1134,11 @@ const TeacherUsageReport = ({ user }) => {
 
         try {
             let totalStudents = 0;
-            // Firestore 'in' query supports max 10 items. We chunk the session IDs.
             for (let i = 0; i < sessionIds.length; i += 10) {
                 const chunk = sessionIds.slice(i, i + 10);
                 const attQ = query(
                     collection(db, 'attendance'),
-                    where('instituteId', '==', user.instituteId), // 🚨 FIX 2: Solves the Firebase Permission Error!
+                    where('instituteId', '==', user.instituteId), // 🚨 Stops the 403 Forbidden Error
                     where('sessionId', 'in', chunk),
                     where('status', '==', 'Present')
                 );
@@ -1091,7 +1169,7 @@ const TeacherUsageReport = ({ user }) => {
                 ) : (
                     Object.keys(reportData).map(teacherName => {
                         const isExpanded = expandedTeacherId === teacherName;
-                        const divisions = reportData[teacherName];
+                        const divisions = reportData[teacherName].divisions;
                         
                         let totalTeacherSessions = 0;
                         Object.values(divisions).forEach(subs => Object.values(subs).forEach(stats => {
@@ -1118,7 +1196,7 @@ const TeacherUsageReport = ({ user }) => {
                                             <div key={division} style={{ background: '#f8fafc', padding: '15px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                                                 <h4 style={{ margin: '0 0 12px 0', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                     <span style={{ background: '#dbeafe', color: '#1e40af', padding: '4px 10px', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold' }}>
-                                                        {division === 'All' ? 'Combined (All Divs)' : `Div ${division}`}
+                                                        {division === 'Combined FE Lecture' ? <i className="fas fa-users"></i> : ''} {division}
                                                     </span>
                                                 </h4>
                                                 
