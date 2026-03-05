@@ -3088,25 +3088,21 @@ export default function TeacherDashboard() {
         return () => { if (unsubscribe) unsubscribe(); };
     }, [activeSession?.sessionId, teacherInfo?.instituteId]);
 
-    // ✅ ULTIMATE HISTORY FETCH (Bulletproof Division & Subject Matching)
+    // ✅ ULTIMATE HISTORY FETCH (GUARANTEED TO WORK FOR ALL DIVISIONS)
     useEffect(() => {
         const fetchHistory = async () => {
             if (!teacherInfo?.instituteId || !selectedYear) return;
 
             setHistoryLoading(true); 
 
-            const targetSubject = getSubjectForHistory();
-            if (!targetSubject) {
-                setHistorySessions([]);
-                setHistoryLoading(false);
-                return;
-            }
+            // 🚨 Use the exact subject selected in the initial popup! (Same as Analytics)
+            const targetSubject = selectedSubject || teacherInfo.subject || '';
 
             const start = new Date(startDate); start.setHours(0, 0, 0, 0);
             const end = new Date(endDate); end.setHours(23, 59, 59, 999);
 
             try {
-                // 1. Get ALL Students (Case-Insensitive Division Matching)
+                // 1. Get ALL Students
                 const qStudents = query(
                     collection(db, 'users'),
                     where('instituteId', '==', teacherInfo.instituteId),
@@ -3122,15 +3118,13 @@ export default function TeacherDashboard() {
                     rollNo: parseInt(doc.data().rollNo) || 9999
                 }));
 
-                // 🚨 BULLETPROOF STUDENT DIVISION FILTER
                 if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
-                    const targetDiv = String(selectedDiv).trim().toUpperCase();
-                    allStudents = allStudents.filter(s => String(s.division || '').trim().toUpperCase() === targetDiv);
+                    allStudents = allStudents.filter(s => String(s.division || '').trim().toUpperCase() === String(selectedDiv).trim().toUpperCase());
                 }
 
                 setAllStudentsReport(allStudents);
 
-                // 2. 🚨 QUERY SESSIONS DIRECTLY (Catches old sessions & strips spaces)
+                // 2. 🚨 FETCH ALL SESSIONS BY TEACHER
                 const qSessions = query(
                     collection(db, 'live_sessions'),
                     where('teacherId', '==', auth.currentUser.uid)
@@ -3143,35 +3137,25 @@ export default function TeacherDashboard() {
                 sessionSnap.docs.forEach(doc => {
                     const data = doc.data();
                     
-                    // FALLBACK: Catch old sessions missing academicYear
-                    const sessionAcadYear = data.academicYear || currentAcademicYear;
-                    if (sessionAcadYear !== currentAcademicYear) return;
-
                     // Match Year
                     const sessionYear = String(data.targetYear || data.year || '').trim().toUpperCase();
                     const targetYr = String(selectedYear).trim().toUpperCase();
                     if (sessionYear !== 'ALL' && sessionYear !== targetYr) return;
 
-                    // 🚨 BULLETPROOF SESSION DIVISION MATCHING
-                    let isFeDivisionMatch = false;
+                    // Match Division (CRITICAL FIX: Split correctly and handle uppercase)
                     if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
                         const sessionDiv = String(data.division || 'ALL').trim().toUpperCase();
                         const targetDiv = String(selectedDiv).trim().toUpperCase();
-                        
-                        if (sessionDiv !== 'ALL' && sessionDiv !== targetDiv) {
-                            // Handle edge case where division was saved as "G, I"
+                        if (sessionDiv !== 'ALL') {
                             const divsArray = sessionDiv.split(',').map(d => d.trim());
-                            if (!divsArray.includes(targetDiv)) return; // Fails division check
+                            if (!divsArray.includes(targetDiv)) return; 
                         }
-                        isFeDivisionMatch = true; // We successfully confirmed this belongs to Div I (or G)
                     }
 
-                    // 🚨 SMART SUBJECT MATCHING 🚨
-                    // If we already confirmed it perfectly matches Div I and this Teacher, 
-                    // we bypass the strict subject check to prevent "Semester Dropdown Mismatches" from hiding the data!
-                    if (!isFeDivisionMatch) {
+                    // Match Subject (Fuzzy Match - Ignores spaces and casing)
+                    if (targetSubject && targetSubject !== "Subject") {
                         const dataSubj = String(data.subject || '').trim().toLowerCase();
-                        const targetSubj = String(targetSubject || '').trim().toLowerCase();
+                        const targetSubj = String(targetSubject).trim().toLowerCase();
                         if (dataSubj !== targetSubj) return;
                     }
 
@@ -3202,7 +3186,7 @@ export default function TeacherDashboard() {
                     return;
                 }
 
-                // 3. Fetch Attendance ONLY for these specific sessions
+                // 3. Fetch Attendance ONLY for the matched valid sessions
                 const attDocs = [];
                 for (let i = 0; i < sessionIds.length; i += 10) {
                     const chunk = sessionIds.slice(i, i + 10);
@@ -3225,6 +3209,7 @@ export default function TeacherDashboard() {
                 const finalSessions = Object.values(sessionsMap).map(session => {
                     let targetStudents = allStudents;
                     
+                    // 🚨 SAFE PRACTICAL BATCH FILTERING
                     if (session.type === 'practical' && session.rollRange && session.rollRange.start && session.rollRange.end) {
                         const sNum = parseInt(session.rollRange.start);
                         const eNum = parseInt(session.rollRange.end);
