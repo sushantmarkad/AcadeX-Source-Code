@@ -557,41 +557,33 @@ const AttendanceOverview = ({ user }) => {
             if (!user?.instituteId || !user?.department || !user?.year) return;
 
             try {
-                // ✅ 1. OPTIMIZED SERVER-SIDE COUNT FOR ATTENDANCE (Costs exactly 2 reads!)
-                const theoryAttQ = query(collection(db, 'attendance'),
+                // ✅ 1. Fetch ALL of the student's attendance records and store the Session IDs
+                const myAttendanceQ = query(
+                    collection(db, 'attendance'),
                     where('studentId', '==', user.uid),
                     where('status', '==', 'Present'),
-                    where('type', '==', 'theory'),
                     where('academicYear', '==', user.academicYear || '2025-2026')
                 );
-                const practicalAttQ = query(collection(db, 'attendance'),
-                    where('studentId', '==', user.uid),
-                    where('status', '==', 'Present'),
-                    where('type', '==', 'practical'),
-                    where('academicYear', '==', user.academicYear || '2025-2026')
-                );
+                const myAttendanceSnap = await getDocs(myAttendanceQ);
+                // Create a fast lookup Set of the session IDs the student actually attended
+                const myPresentSessionIds = new Set(myAttendanceSnap.docs.map(doc => doc.data().sessionId));
 
-                const [tPresentSnap, pPresentSnap] = await Promise.all([
-                    getCountFromServer(theoryAttQ),
-                    getCountFromServer(practicalAttQ)
-                ]);
-
-                const tPresent = tPresentSnap.data().count;
-                const pPresent = pPresentSnap.data().count;
-
-                // ✅ 2. ACCURATE TOTAL COUNT (Filtered by Year, Division & Roll No)
-                const sessionsQ = query(collection(db, 'live_sessions'),
+                // ✅ 2. Fetch all sessions for this class
+                const sessionsQ = query(
+                    collection(db, 'live_sessions'),
                     where('instituteId', '==', user.instituteId),
                     where('department', '==', user.department),
                     where('academicYear', '==', user.academicYear || '2025-2026')
                 );
 
                 const sessionsSnap = await getDocs(sessionsQ);
-                let tTotal = 0;
-                let pTotal = 0;
+                
+                let tTotal = 0, tPresent = 0;
+                let pTotal = 0, pPresent = 0;
 
                 sessionsSnap.forEach(doc => {
                     const data = doc.data();
+                    const sessionId = doc.id;
 
                     // A. Year Match
                     const sYear = data.year || data.targetYear;
@@ -611,12 +603,19 @@ const AttendanceOverview = ({ user }) => {
                         if (isNaN(myRoll) || myRoll < min || myRoll > max) return;
                     }
 
-                    // If it passes all strict checks, count it!
-                    if (data.type === 'theory') tTotal++;
-                    if (data.type === 'practical') pTotal++;
+                    // ✅ 3. THE FIX: Only count "Present" IF the session passes the above strict filters
+                    if (data.type === 'theory') {
+                        tTotal++;
+                        if (myPresentSessionIds.has(sessionId)) tPresent++;
+                    }
+                    
+                    if (data.type === 'practical') {
+                        pTotal++;
+                        if (myPresentSessionIds.has(sessionId)) pPresent++;
+                    }
                 });
 
-                // ✅ 3. SET ACCURATE STATS
+                // ✅ 4. SET ACCURATE STATS (Math is now safe)
                 setStats({
                     theory: tTotal > 0 ? Math.round((tPresent / tTotal) * 100) : 0,
                     practical: pTotal > 0 ? Math.round((pPresent / pTotal) * 100) : 0,
@@ -670,6 +669,129 @@ const AttendanceOverview = ({ user }) => {
                     <p style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', marginTop: '5px' }}>Practical</p>
                     <p style={{ fontSize: '10px', color: '#94a3b8' }}>{stats.attendedPractical}/{stats.totalPractical}</p>
                 </div>
+            </div>
+        </div>
+    );
+};
+
+// --- COMPONENT: Subject-Wise Attendance (Optimized) ---
+const SubjectWiseAttendance = ({ user }) => {
+    const [subjectStats, setSubjectStats] = useState({});
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchSubjectStats = async () => {
+            if (!user?.instituteId || !user?.department || !user?.year) return;
+
+            try {
+                // 1. Fetch My Attendance (Used as a fast lookup Set)
+                const myAttendanceQ = query(
+                    collection(db, 'attendance'),
+                    where('studentId', '==', user.uid)
+                );
+                const myAttendanceSnap = await getDocs(myAttendanceQ);
+                const myPresentSessionIds = new Set(myAttendanceSnap.docs.map(d => d.data().sessionId));
+
+                // 2. Fetch ALL Sessions for strict filtering
+                const sessionsQ = query(
+                    collection(db, 'live_sessions'),
+                    where('instituteId', '==', user.instituteId),
+                    where('department', '==', user.department),
+                    where('academicYear', '==', user.academicYear || '2025-2026')
+                );
+                const snap = await getDocs(sessionsQ);
+                
+                let stats = {};
+
+                snap.docs.forEach(doc => {
+                    const data = doc.data();
+                    
+                    // Filter 1: Year
+                    const sessionYear = data.year || data.targetYear;
+                    if (sessionYear !== 'All' && sessionYear !== user.year) return;
+
+                    // Filter 2: Division
+                    if (data.division && data.division !== 'All') {
+                        const myDiv = user.division || user.div;
+                        if (data.division !== myDiv) return;
+                    }
+
+                    const subject = data.subject || 'Unknown Subject';
+                    if (!stats[subject]) stats[subject] = { tTotal: 0, tPresent: 0, pTotal: 0, pPresent: 0 };
+                    
+                    const isPresent = myPresentSessionIds.has(doc.id);
+
+                    // Filter 3: Practical Batch & Calculations
+                    if (data.type === 'practical') {
+                        if (data.rollRange) {
+                            const r = parseInt(user.rollNo);
+                            if (r >= data.rollRange.start && r <= data.rollRange.end) {
+                                stats[subject].pTotal++;
+                                if (isPresent) stats[subject].pPresent++; 
+                            }
+                        } else {
+                            stats[subject].pTotal++;
+                            if (isPresent) stats[subject].pPresent++;
+                        }
+                    } else {
+                        // Theory
+                        stats[subject].tTotal++;
+                        if (isPresent) stats[subject].tPresent++;
+                    }
+                });
+
+                setSubjectStats(stats);
+                setLoading(false);
+            } catch (error) {
+                console.error("Subject Stats Error:", error);
+                setLoading(false);
+            }
+        };
+        fetchSubjectStats();
+    }, [user]);
+
+    if (loading) return <div className="card" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Loading Subject Analytics...</div>;
+
+    const subjectsArray = Object.entries(subjectStats).filter(([_, stat]) => stat.tTotal > 0 || stat.pTotal > 0);
+
+    return (
+        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+            <h3 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#1e293b' }}>Subject-wise Analytics</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {subjectsArray.length > 0 ? subjectsArray.map(([subject, stat]) => {
+                    const tPct = stat.tTotal > 0 ? Math.round((stat.tPresent / stat.tTotal) * 100) : 0;
+                    const pPct = stat.pTotal > 0 ? Math.round((stat.pPresent / stat.pTotal) * 100) : 0;
+                    
+                    return (
+                        <div key={subject} style={{ background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                            <h4 style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#334155' }}>{subject}</h4>
+                            
+                            {stat.tTotal > 0 && (
+                                <div style={{ marginBottom: stat.pTotal > 0 ? '10px' : '0' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>
+                                        <span>Theory ({stat.tPresent}/{stat.tTotal})</span>
+                                        <span style={{ fontWeight: 'bold', color: tPct >= 75 ? '#10b981' : tPct >= 60 ? '#f59e0b' : '#ef4444' }}>{tPct}%</span>
+                                    </div>
+                                    <div style={{ width: '100%', background: '#e2e8f0', borderRadius: '4px', height: '6px' }}>
+                                        <div style={{ width: `${tPct}%`, background: tPct >= 75 ? '#10b981' : tPct >= 60 ? '#f59e0b' : '#ef4444', height: '100%', borderRadius: '4px' }}></div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {stat.pTotal > 0 && (
+                                <div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>
+                                        <span>Practical ({stat.pPresent}/{stat.pTotal})</span>
+                                        <span style={{ fontWeight: 'bold', color: pPct >= 75 ? '#10b981' : pPct >= 60 ? '#f59e0b' : '#ef4444' }}>{pPct}%</span>
+                                    </div>
+                                    <div style={{ width: '100%', background: '#e2e8f0', borderRadius: '4px', height: '6px' }}>
+                                        <div style={{ width: `${pPct}%`, background: pPct >= 75 ? '#10b981' : pPct >= 60 ? '#f59e0b' : '#ef4444', height: '100%', borderRadius: '4px' }}></div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )
+                }) : <div style={{ textAlign: 'center', padding: '10px', color: '#94a3b8', fontSize: '13px' }}>No subjects found.</div>}
             </div>
         </div>
     );
@@ -1058,6 +1180,8 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
 
                 {/* 4. Attendance Overview (Theory/Practical Circles) */}
                 <AttendanceOverview user={user} />
+
+                <SubjectWiseAttendance user={user} />
 
                 {/* 5. Test Results (Now at the bottom) */}
                 <StudentTestResults user={user} />

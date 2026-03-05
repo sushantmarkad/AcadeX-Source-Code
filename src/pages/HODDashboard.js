@@ -19,6 +19,8 @@ import ReactDOM from 'react-dom';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { getCountFromServer } from 'firebase/firestore';
+
 
 
 import ManageTimetable from './ManageTimetable';
@@ -986,6 +988,188 @@ export default function HODDashboard() {
         } catch (e) { toast.error("Failed", { id: toastId }); }
     };
 
+const TeacherUsageReport = ({ user }) => {
+    const [reportData, setReportData] = useState({});
+    const [loading, setLoading] = useState(true);
+    const [expandedTeacherId, setExpandedTeacherId] = useState(null);
+    const [attendanceStats, setAttendanceStats] = useState({});
+    const [loadingStats, setLoadingStats] = useState({});
+
+    useEffect(() => {
+        if (!user?.instituteId || !user?.department) return;
+
+        const fetchSessions = async () => {
+            try {
+                // 1. Fetch all sessions for this department
+                const q = query(
+                    collection(db, 'live_sessions'),
+                    where('instituteId', '==', user.instituteId),
+                    where('department', '==', user.department),
+                    where('academicYear', '==', user.academicYear || '2025-2026')
+                );
+                const snap = await getDocs(q);
+
+                const grouped = {};
+
+                snap.docs.forEach(doc => {
+                    const data = doc.data();
+
+                    // 🚨 FIX 1: Ignore Deleted, Cancelled, or Test sessions to match Teacher Dashboard perfectly!
+                    if (data.isDeleted === true || data.status === 'deleted' || data.status === 'cancelled') return;
+                    if (data.type !== 'theory' && data.type !== 'practical') return;
+
+                    // Original Perfect Grouping Logic you liked
+                    const tName = data.teacherName || 'Unknown Teacher';
+                    const div = data.division || 'All';
+                    const sub = data.subject || 'Unknown Subject';
+
+                    if (!grouped[tName]) grouped[tName] = {};
+                    if (!grouped[tName][div]) grouped[tName][div] = {};
+                    if (!grouped[tName][div][sub]) {
+                        grouped[tName][div][sub] = { theoryCount: 0, practicalCount: 0, sessionIds: [] };
+                    }
+
+                    if (data.type === 'theory') grouped[tName][div][sub].theoryCount++;
+                    if (data.type === 'practical') grouped[tName][div][sub].practicalCount++;
+                    
+                    grouped[tName][div][sub].sessionIds.push(doc.id);
+                });
+
+                setReportData(grouped);
+                setLoading(false);
+            } catch (error) {
+                console.error("Error fetching usage report:", error);
+                setLoading(false);
+            }
+        };
+
+        fetchSessions();
+    }, [user]);
+
+    // 3. OPTIMIZED: Fetch Count
+    const fetchAttendanceCountForGroup = async (teacherName, division, subject, sessionIds) => {
+        const cacheKey = `${teacherName}_${division}_${subject}`;
+        if (attendanceStats[cacheKey] !== undefined) return; 
+
+        setLoadingStats(prev => ({ ...prev, [cacheKey]: true }));
+
+        try {
+            let totalStudents = 0;
+            // Firestore 'in' query supports max 10 items. We chunk the session IDs.
+            for (let i = 0; i < sessionIds.length; i += 10) {
+                const chunk = sessionIds.slice(i, i + 10);
+                const attQ = query(
+                    collection(db, 'attendance'),
+                    where('instituteId', '==', user.instituteId), // 🚨 FIX 2: Solves the Firebase Permission Error!
+                    where('sessionId', 'in', chunk),
+                    where('status', '==', 'Present')
+                );
+                
+                const snapshot = await getCountFromServer(attQ);
+                totalStudents += snapshot.data().count;
+            }
+
+            setAttendanceStats(prev => ({ ...prev, [cacheKey]: totalStudents }));
+        } catch (err) {
+            console.error("Error fetching count:", err);
+            toast.error("Failed to load attendance count");
+        } finally {
+            setLoadingStats(prev => ({ ...prev, [cacheKey]: false }));
+        }
+    };
+
+    if (loading) return <div className="card" style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}><i className="fas fa-spinner fa-spin"></i> Loading Analytics...</div>;
+
+    return (
+        <div className="content-section">
+            <h2 className="content-title">Teacher App Usage & Analytics</h2>
+            <p className="content-subtitle">Track session creation and student engagement by division.</p>
+
+            <div className="cards-grid" style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                {Object.keys(reportData).length === 0 ? (
+                    <div className="card" style={{ textAlign: 'center', color: '#64748b' }}>No sessions created yet.</div>
+                ) : (
+                    Object.keys(reportData).map(teacherName => {
+                        const isExpanded = expandedTeacherId === teacherName;
+                        const divisions = reportData[teacherName];
+                        
+                        let totalTeacherSessions = 0;
+                        Object.values(divisions).forEach(subs => Object.values(subs).forEach(stats => {
+                            totalTeacherSessions += (stats.theoryCount + stats.practicalCount);
+                        }));
+
+                        return (
+                            <div key={teacherName} className="card" style={{ padding: '15px', cursor: 'pointer', borderLeft: '4px solid #3b82f6', transition: 'all 0.2s' }}>
+                                <div onClick={() => setExpandedTeacherId(isExpanded ? null : teacherName)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div>
+                                        <h3 style={{ margin: 0, fontSize: '18px', color: '#1e293b' }}>{teacherName}</h3>
+                                        <p style={{ margin: '5px 0 0 0', fontSize: '13px', color: '#64748b' }}>
+                                            Total Sessions Created: <strong style={{ color: '#3b82f6' }}>{totalTeacherSessions}</strong>
+                                        </p>
+                                    </div>
+                                    <div style={{ background: '#f1f5f9', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <i className={`fas fa-chevron-${isExpanded ? 'up' : 'down'}`} style={{ color: '#64748b' }}></i>
+                                    </div>
+                                </div>
+
+                                {isExpanded && (
+                                    <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '15px', borderTop: '1px solid #e2e8f0', paddingTop: '15px' }}>
+                                        {Object.entries(divisions).map(([division, subjects]) => (
+                                            <div key={division} style={{ background: '#f8fafc', padding: '15px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                                                <h4 style={{ margin: '0 0 12px 0', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <span style={{ background: '#dbeafe', color: '#1e40af', padding: '4px 10px', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold' }}>
+                                                        {division === 'All' ? 'Combined (All Divs)' : `Div ${division}`}
+                                                    </span>
+                                                </h4>
+                                                
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                                    {Object.entries(subjects).map(([subject, stats]) => {
+                                                        const cacheKey = `${teacherName}_${division}_${subject}`;
+                                                        const attCount = attendanceStats[cacheKey];
+                                                        const isLoadingCount = loadingStats[cacheKey];
+
+                                                        return (
+                                                            <div key={subject} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white', padding: '12px 15px', borderRadius: '8px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '10px' }}>
+                                                                <div>
+                                                                    <strong style={{ fontSize: '14px', color: '#334155' }}>{subject}</strong>
+                                                                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', display: 'flex', gap: '10px' }}>
+                                                                        <span><i className="fas fa-book" style={{color: '#94a3b8'}}></i> {stats.theoryCount} Theory</span>
+                                                                        <span><i className="fas fa-flask" style={{color: '#94a3b8'}}></i> {stats.practicalCount} Practical</span>
+                                                                    </div>
+                                                                </div>
+                                                                
+                                                                <div>
+                                                                    {attCount !== undefined ? (
+                                                                        <span style={{ background: '#dcfce7', color: '#166534', padding: '6px 12px', borderRadius: '20px', fontSize: '13px', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '6px', border: '1px solid #bbf7d0' }}>
+                                                                            <i className="fas fa-users"></i> {attCount} Students Present
+                                                                        </span>
+                                                                    ) : (
+                                                                        <button 
+                                                                            onClick={(e) => { e.stopPropagation(); fetchAttendanceCountForGroup(teacherName, division, subject, stats.sessionIds); }}
+                                                                            disabled={isLoadingCount}
+                                                                            style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', padding: '8px 14px', borderRadius: '8px', fontSize: '12px', cursor: 'pointer', fontWeight: '600', transition: '0.2s' }}
+                                                                        >
+                                                                            {isLoadingCount ? <><i className="fas fa-spinner fa-spin"></i> Loading...</> : <><i className="fas fa-chart-bar"></i> Check Attendance</>}
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        )
+                                                    })}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )
+                    })
+                )}
+            </div>
+        </div>
+    );
+};
+
    // 📄 DOWNLOAD DEFAULTERS (CRITICAL LIST) PDF
     const downloadDefaultersPDF = () => {
         if (!analyticsData || !analyticsData.defaulters || analyticsData.defaulters.length === 0) {
@@ -1280,6 +1464,7 @@ export default function HODDashboard() {
                 <ul className="menu">
                     <NavLink page="dashboard" iconClass="fa-th-large" label="Dashboard" />
                     <NavLink page="analytics" iconClass="fa-chart-pie" label="Analytics" />
+                    <NavLink page="teacherUsage" iconClass="fa-chalkboard-teacher" label="Teacher Usage" />
                     <NavLink page="announcements" iconClass="fa-bullhorn" label="Announcements" />
                     <NavLink page="leaves" iconClass="fa-calendar-check" label="Leave Requests" count={leaves.length} />
                     <NavLink page="requests" iconClass="fa-user-clock" label="Applications" count={studentRequests.length} />
@@ -2250,6 +2435,10 @@ export default function HODDashboard() {
                             </div>
                         </div>
                     </div>
+                )}
+
+                {activeTab === 'teacherUsage' && (
+                    <TeacherUsageReport user={hodInfo} />
                 )}
                 {activeTab === 'profile' && (
                     <div className="content-section">
