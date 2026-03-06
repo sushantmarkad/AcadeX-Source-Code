@@ -995,6 +995,128 @@ const TeacherUsageReport = ({ user }) => {
     const [attendanceStats, setAttendanceStats] = useState({});
     const [loadingStats, setLoadingStats] = useState({});
 
+    // ✅ NEW: Function to generate the Professional PDF Report
+    const downloadUsagePDF = () => {
+        if (Object.keys(reportData).length === 0) {
+            return toast.error("No data available to download.");
+        }
+
+        const doc = new jsPDF();
+        const pageWidth = doc.internal.pageSize.getWidth();
+
+        // 1. 🎓 Centered College / Institute Name
+        doc.setFontSize(20);
+        doc.setTextColor(15, 23, 42); // Dark bold slate
+        const collegeName = user?.instituteName || "Institute Name";
+        doc.text(collegeName, pageWidth / 2, 22, { align: 'center' });
+
+        // 2. Report Title & Subtitle
+        doc.setFontSize(14);
+        doc.setTextColor(37, 99, 235); // Blue
+        doc.text("Faculty Session Usage Report", pageWidth / 2, 32, { align: 'center' });
+
+        doc.setFontSize(10);
+        doc.setTextColor(100, 116, 139); // Gray
+        doc.text(`Department: ${user?.department || 'N/A'}`, pageWidth / 2, 38, { align: 'center' });
+        doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, pageWidth / 2, 43, { align: 'center' });
+        doc.text(`Academic Year: ${user?.academicYear || 'Current'}`, pageWidth / 2, 48, { align: 'center' });
+
+        // Explanation Text
+        doc.setFontSize(9);
+        doc.setTextColor(71, 85, 105);
+        doc.text("This report summarizes the total number of Theory and Practical sessions created", 14, 60);
+        doc.text("by each faculty member within the trackee application.", 14, 65);
+
+        // 3. Prepare Table Data
+        const tableColumn = ["Teacher Name", "Subject", "Class/Div", "Theory", "Practical", "Total"];
+        const tableRows = [];
+
+        Object.keys(reportData).forEach(teacherName => {
+            const divisions = reportData[teacherName].divisions;
+            
+            Object.entries(divisions).forEach(([division, subjects]) => {
+                Object.entries(subjects).forEach(([subject, stats]) => {
+                    const total = stats.theoryCount + stats.practicalCount;
+                    tableRows.push([
+                        teacherName,
+                        subject,
+                        division,
+                        stats.theoryCount.toString(),
+                        stats.practicalCount.toString(),
+                        total.toString()
+                    ]);
+                });
+            });
+        });
+
+        // Sort alphabetically by Teacher Name
+        tableRows.sort((a, b) => a[0].localeCompare(b[0]));
+
+        // 4. Generate Table
+        autoTable(doc, {
+            startY: 70,
+            head: [tableColumn],
+            body: tableRows,
+            theme: 'grid',
+            headStyles: { fillColor: [59, 130, 246], textColor: 255, fontStyle: 'bold' },
+            styles: { fontSize: 9, cellPadding: 3 },
+            columnStyles: {
+                0: { fontStyle: 'bold', textColor: [30, 41, 59] }, // Teacher Name
+                3: { halign: 'center' }, // Theory
+                4: { halign: 'center' }, // Practical
+                5: { halign: 'center', fontStyle: 'bold', textColor: [22, 163, 74] } // Total (Green)
+            }
+        });
+
+        // 5. Signatures Footer
+        const finalY = doc.lastAutoTable.finalY + 30;
+        doc.setFontSize(10);
+        doc.setTextColor(15, 23, 42);
+        doc.text("_______________________", 20, finalY);
+        doc.text(`Dr. ${user.firstName} ${user.lastName}`, 20, finalY + 6);
+        doc.text("Head of Department", 20, finalY + 12);
+
+        doc.text("_______________________", pageWidth - 60, finalY);
+        doc.text("Principal / Director", pageWidth - 60, finalY + 6);
+
+        // Save PDF
+        doc.save(`${user?.department}_Faculty_Usage_Report.pdf`);
+        toast.success("PDF Downloaded!");
+    };
+
+    const handleSendUsageWarning = async (teacherName, email, division, subject, theoryCount, practicalCount) => {
+        if (!email) return toast.error("Teacher email not found!");
+        
+        const toastId = toast.loading(`Sending email to ${teacherName}...`);
+
+        try {
+            const response = await fetch(`${BACKEND_URL}/sendTeacherUsageWarning`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email,
+                    teacherName,
+                    division,
+                    subject,
+                    theoryCount,
+                    practicalCount,
+                    hodName: `Dr. ${user.firstName} ${user.lastName}` // ✅ Dr. added here
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                toast.success("Report Emailed Successfully!", { id: toastId });
+            } else {
+                throw new Error(data.error || "Failed to send email");
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error("Failed to send email.", { id: toastId });
+        }
+    };
+
     useEffect(() => {
         if (!user?.instituteId || !user?.department) return;
 
@@ -1019,6 +1141,7 @@ const TeacherUsageReport = ({ user }) => {
                     
                     teacherAssignments[tId] = {
                         name: `${t.firstName} ${t.lastName}`,
+                        email: t.email,
                         validClasses: []
                     };
 
@@ -1030,7 +1153,6 @@ const TeacherUsageReport = ({ user }) => {
 
                             if (year === 'FE') {
                                 if (cls.divisions && cls.divisions.toLowerCase() !== 'all') {
-                                    // Parse "A, B" into ['A', 'B'] safely
                                     divisions = cls.divisions.split(',').map(d => d.trim().toUpperCase());
                                 } else {
                                     divisions = ['ALL'];
@@ -1049,13 +1171,9 @@ const TeacherUsageReport = ({ user }) => {
                 snap.docs.forEach(doc => {
                     const data = doc.data();
 
-                    // 🚨 FILTER 1: Skip Deleted/Cancelled Sessions
                     if (data.isDeleted === true || data.status === 'deleted' || data.status === 'cancelled') return;
-
-                    // 🚨 FILTER 2: Handle missing Academic Year on old sessions
                     if (data.academicYear && data.academicYear !== currentAcademicYear) return;
 
-                    // 🚨 FILTER 3: Default missing types to 'theory' so they don't get lost
                     const sType = data.type || 'theory';
                     if (sType !== 'theory' && sType !== 'practical') return;
 
@@ -1067,7 +1185,6 @@ const TeacherUsageReport = ({ user }) => {
                     const sessionSubject = data.subject || '';
                     const sessionDiv = data.division || 'All';
 
-                    // 🚨 FILTER 4: The "Fuzzy Match" Ghost Filter (Ignores spaces and capitalization)
                     const isAssigned = teacherAssignments[tId].validClasses.some(validCls => {
                         const vYear = String(validCls.year).trim().toUpperCase();
                         const sYear = String(sessionYear).trim().toUpperCase();
@@ -1075,7 +1192,7 @@ const TeacherUsageReport = ({ user }) => {
 
                         const vSub = String(validCls.subject).trim().toLowerCase();
                         const sSub = String(sessionSubject).trim().toLowerCase();
-                        if (vSub !== sSub) return false; // Fixes "Math " !== "Math" bug!
+                        if (vSub !== sSub) return false;
                         
                         if (vYear === 'FE' || vYear === 'FIRST YEAR') {
                             const sDiv = String(sessionDiv).trim().toUpperCase();
@@ -1088,10 +1205,8 @@ const TeacherUsageReport = ({ user }) => {
                         return true; 
                     });
 
-                    // Drop the session if they are no longer assigned to it!
                     if (!isAssigned) return; 
 
-                    // Format the Division Label beautifully
                     let divLabel = sessionDiv;
                     if (!sessionDiv || String(sessionDiv).trim().toUpperCase() === 'ALL') {
                         if (sessionYear === 'FE' || sessionYear === 'First Year') divLabel = 'Combined FE Lecture'; 
@@ -1100,14 +1215,12 @@ const TeacherUsageReport = ({ user }) => {
                         divLabel = `Div ${sessionDiv}`; 
                     }
 
-                    // Initialize grouping
-                    if (!grouped[tName]) grouped[tName] = { name: tName, divisions: {} };
+                    if (!grouped[tName]) grouped[tName] = { name: tName, email: teacherAssignments[tId].email, divisions: {} };
                     if (!grouped[tName].divisions[divLabel]) grouped[tName].divisions[divLabel] = {};
                     if (!grouped[tName].divisions[divLabel][sessionSubject]) {
                         grouped[tName].divisions[divLabel][sessionSubject] = { theoryCount: 0, practicalCount: 0, sessionIds: [] };
                     }
 
-                    // Count it
                     if (sType === 'theory') grouped[tName].divisions[divLabel][sessionSubject].theoryCount++;
                     if (sType === 'practical') grouped[tName].divisions[divLabel][sessionSubject].practicalCount++;
                     
@@ -1125,7 +1238,6 @@ const TeacherUsageReport = ({ user }) => {
         fetchSessions();
     }, [user, teachersList, currentAcademicYear]); 
 
-    // 3. OPTIMIZED: Fetch Count
     const fetchAttendanceCountForGroup = async (teacherName, division, subject, sessionIds) => {
         const cacheKey = `${teacherName}_${division}_${subject}`;
         if (attendanceStats[cacheKey] !== undefined) return; 
@@ -1138,7 +1250,7 @@ const TeacherUsageReport = ({ user }) => {
                 const chunk = sessionIds.slice(i, i + 10);
                 const attQ = query(
                     collection(db, 'attendance'),
-                    where('instituteId', '==', user.instituteId), // 🚨 Stops the 403 Forbidden Error
+                    where('instituteId', '==', user.instituteId), 
                     where('sessionId', 'in', chunk),
                     where('status', '==', 'Present')
                 );
@@ -1160,8 +1272,29 @@ const TeacherUsageReport = ({ user }) => {
 
     return (
         <div className="content-section">
-            <h2 className="content-title">Teacher App Usage & Analytics</h2>
-            <p className="content-subtitle">Track session creation and student engagement by division.</p>
+            {/* ✅ UPDATED HEADER WITH PDF BUTTON */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '15px', marginBottom: '20px' }}>
+                <div>
+                    <h2 className="content-title" style={{ margin: 0 }}>Teacher App Usage</h2>
+                    <p className="content-subtitle" style={{ marginTop: '5px' }}>Track session creation and student engagement.</p>
+                </div>
+                
+                {Object.keys(reportData).length > 0 && (
+                    <button 
+                        onClick={downloadUsagePDF}
+                        style={{ 
+                            background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0', 
+                            padding: '10px 16px', borderRadius: '10px', fontSize: '13px', fontWeight: '700', 
+                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', 
+                            transition: 'all 0.2s', boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                        }}
+                        onMouseOver={e => e.currentTarget.style.background = '#d1fae5'}
+                        onMouseOut={e => e.currentTarget.style.background = '#ecfdf5'}
+                    >
+                        <i className="fas fa-file-pdf"></i> Download PDF Report
+                    </button>
+                )}
+            </div>
 
             <div className="cards-grid" style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
                 {Object.keys(reportData).length === 0 ? (
@@ -1170,6 +1303,7 @@ const TeacherUsageReport = ({ user }) => {
                     Object.keys(reportData).map(teacherName => {
                         const isExpanded = expandedTeacherId === teacherName;
                         const divisions = reportData[teacherName].divisions;
+                        const teacherEmail = reportData[teacherName].email; 
                         
                         let totalTeacherSessions = 0;
                         Object.values(divisions).forEach(subs => Object.values(subs).forEach(stats => {
@@ -1216,7 +1350,7 @@ const TeacherUsageReport = ({ user }) => {
                                                                     </div>
                                                                 </div>
                                                                 
-                                                                <div>
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                                                     {attCount !== undefined ? (
                                                                         <span style={{ background: '#dcfce7', color: '#166534', padding: '6px 12px', borderRadius: '20px', fontSize: '13px', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '6px', border: '1px solid #bbf7d0' }}>
                                                                             <i className="fas fa-users"></i> {attCount} Students Present
@@ -1230,6 +1364,14 @@ const TeacherUsageReport = ({ user }) => {
                                                                             {isLoadingCount ? <><i className="fas fa-spinner fa-spin"></i> Loading...</> : <><i className="fas fa-chart-bar"></i> Check Attendance</>}
                                                                         </button>
                                                                     )}
+                                                                    
+                                                                    <button 
+                                                                        onClick={(e) => { e.stopPropagation(); handleSendUsageWarning(teacherName, teacherEmail, division, subject, stats.theoryCount, stats.practicalCount); }}
+                                                                        style={{ background: '#fef2f2', color: '#ef4444', border: '1px solid #fecaca', padding: '8px 14px', borderRadius: '8px', fontSize: '12px', cursor: 'pointer', fontWeight: '600', transition: '0.2s', display: 'flex', alignItems: 'center', gap: '6px' }}
+                                                                        title="Send usage warning email to teacher"
+                                                                    >
+                                                                        <i className="fas fa-envelope"></i> Email Report
+                                                                    </button>
                                                                 </div>
                                                             </div>
                                                         )

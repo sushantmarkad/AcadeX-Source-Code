@@ -974,12 +974,10 @@ const DashboardHome = ({
         }
     };
 
- // 👇 BULLETPROOF BATCH FILTER LOGIC 👇
-    const filteredHistorySessions = historySessions.filter(session => {
+ const filteredHistorySessions = historySessions.filter(session => {
         if (reportFilter !== 'All' && session.type !== reportFilter.toLowerCase()) return false;
         
         if (reportFilter === 'Practical' && reportBatchFilter !== 'All') {
-            // Trim spaces and lowercase to ensure a perfect match every time
             const sBatch = String(session.batch || '').trim().toLowerCase();
             const rFilter = String(reportBatchFilter || '').trim().toLowerCase();
             if (sBatch !== rFilter) return false;
@@ -1001,8 +999,11 @@ const DashboardHome = ({
                 const r = parseInt(st.rollNo);
                 return r >= s && r <= e;
             });
+            
+            if (studentsForReport.length === 0) {
+                studentsForReport = allStudentsReport;
+            }
         } else {
-            // Fallback: Infer from actual sessions if settings missing
             const ranges = filteredHistorySessions.map(s => s.rollRange).filter(Boolean);
             if (ranges.length > 0) {
                 const min = Math.min(...ranges.map(r => parseInt(r.start)));
@@ -3088,15 +3089,19 @@ export default function TeacherDashboard() {
         return () => { if (unsubscribe) unsubscribe(); };
     }, [activeSession?.sessionId, teacherInfo?.instituteId]);
 
-    // ✅ ULTIMATE HISTORY FETCH (GUARANTEED TO WORK FOR ALL DIVISIONS)
+    // ✅ ULTIMATE HISTORY FETCH (Inside DashboardHome where it belongs!)
     useEffect(() => {
         const fetchHistory = async () => {
             if (!teacherInfo?.instituteId || !selectedYear) return;
 
             setHistoryLoading(true); 
 
-            // 🚨 Use the exact subject selected in the initial popup! (Same as Analytics)
-            const targetSubject = selectedSubject || teacherInfo.subject || '';
+            const targetSubject = getSubjectForHistory();
+            if (!targetSubject) {
+                setHistorySessions([]);
+                setHistoryLoading(false);
+                return;
+            }
 
             const start = new Date(startDate); start.setHours(0, 0, 0, 0);
             const end = new Date(endDate); end.setHours(23, 59, 59, 999);
@@ -3119,12 +3124,13 @@ export default function TeacherDashboard() {
                 }));
 
                 if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
-                    allStudents = allStudents.filter(s => String(s.division || '').trim().toUpperCase() === String(selectedDiv).trim().toUpperCase());
+                    const targetDiv = String(selectedDiv).trim().toUpperCase();
+                    allStudents = allStudents.filter(s => String(s.division || '').trim().toUpperCase() === targetDiv);
                 }
 
                 setAllStudentsReport(allStudents);
 
-                // 2. 🚨 FETCH ALL SESSIONS BY TEACHER
+                // 2. FETCH SESSIONS
                 const qSessions = query(
                     collection(db, 'live_sessions'),
                     where('teacherId', '==', auth.currentUser.uid)
@@ -3137,32 +3143,28 @@ export default function TeacherDashboard() {
                 sessionSnap.docs.forEach(doc => {
                     const data = doc.data();
                     
-                    // Match Year
+                    const sessionAcadYear = data.academicYear || currentAcademicYear;
+                    if (sessionAcadYear !== currentAcademicYear) return;
+                    
+                    const dataSubj = String(data.subject || '').trim().toLowerCase();
+                    const targetSubj = String(targetSubject).trim().toLowerCase();
+                    if (dataSubj !== targetSubj) return;
+                    
                     const sessionYear = String(data.targetYear || data.year || '').trim().toUpperCase();
                     const targetYr = String(selectedYear).trim().toUpperCase();
                     if (sessionYear !== 'ALL' && sessionYear !== targetYr) return;
 
-                    // Match Division (CRITICAL FIX: Split correctly and handle uppercase)
                     if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
                         const sessionDiv = String(data.division || 'ALL').trim().toUpperCase();
                         const targetDiv = String(selectedDiv).trim().toUpperCase();
-                        if (sessionDiv !== 'ALL') {
+                        if (sessionDiv !== 'ALL' && sessionDiv !== targetDiv) {
                             const divsArray = sessionDiv.split(',').map(d => d.trim());
                             if (!divsArray.includes(targetDiv)) return; 
                         }
                     }
 
-                    // Match Subject (Fuzzy Match - Ignores spaces and casing)
-                    if (targetSubject && targetSubject !== "Subject") {
-                        const dataSubj = String(data.subject || '').trim().toLowerCase();
-                        const targetSubj = String(targetSubject).trim().toLowerCase();
-                        if (dataSubj !== targetSubj) return;
-                    }
-
-                    // Skip deleted sessions
                     if (data.isDeleted === true || data.status === 'deleted' || data.status === 'cancelled') return;
 
-                    // Match Date
                     let sessionDate = data.createdAt?.toDate ? data.createdAt.toDate() : (data.timestamp?.toDate ? data.timestamp.toDate() : new Date());
 
                     if (sessionDate >= start && sessionDate <= end) {
@@ -3209,11 +3211,14 @@ export default function TeacherDashboard() {
                 const finalSessions = Object.values(sessionsMap).map(session => {
                     let targetStudents = allStudents;
                     
-                    // 🚨 SAFE PRACTICAL BATCH FILTERING
+                    // 🚨 SAFE PRACTICAL BATCH FILTERING (Fallback applied)
                     if (session.type === 'practical' && session.rollRange && session.rollRange.start && session.rollRange.end) {
                         const sNum = parseInt(session.rollRange.start);
                         const eNum = parseInt(session.rollRange.end);
-                        targetStudents = allStudents.filter(s => s.rollNo >= sNum && s.rollNo <= eNum);
+                        const filtered = allStudents.filter(s => s.rollNo >= sNum && s.rollNo <= eNum);
+                        if (filtered.length > 0) {
+                            targetStudents = filtered;
+                        }
                     }
 
                     const studentsWithStatus = targetStudents.map(student => {
@@ -3254,7 +3259,6 @@ export default function TeacherDashboard() {
         if (viewMode === 'history') fetchHistory();
 
     }, [viewMode, startDate, endDate, teacherInfo, selectedYear, historySemester, selectedDiv, refreshTrigger, currentAcademicYear, selectedSubject]);
-
 
 
     const handleSession = async () => {
