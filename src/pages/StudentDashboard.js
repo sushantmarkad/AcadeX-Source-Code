@@ -1719,9 +1719,10 @@ const handleFaceRegistration = async () => {
             }
 
             toast.loading("Loading AI Models...", { id: toastId });
-            await faceapi.nets.tinyFaceDetector.loadFromUri('./models');
-            await faceapi.nets.faceLandmark68Net.loadFromUri('./models');
-            await faceapi.nets.faceRecognitionNet.loadFromUri('./models');
+          const MODEL_URL = process.env.PUBLIC_URL + '/models'; 
+            await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+            await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+            await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
             
             toast.loading("Starting Camera...", { id: toastId });
             
@@ -1872,10 +1873,10 @@ const handleFaceRegistration = async () => {
 
             toast.loading("Initializing Security Camera...", { id: toastId });
             
-            // Load models silently
-            await faceapi.nets.tinyFaceDetector.loadFromUri('./models');
-            await faceapi.nets.faceLandmark68Net.loadFromUri('./models');
-            await faceapi.nets.faceRecognitionNet.loadFromUri('./models');
+           const MODEL_URL = process.env.PUBLIC_URL + '/models'; 
+            await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+            await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+            await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
 
             // 🚨 EXPLICITLY set audio: false
             const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
