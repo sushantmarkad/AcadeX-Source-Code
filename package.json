@@ -2,6 +2,11 @@
   "name": "schedu-plan",
   "version": "0.1.0",
   "private": true,
+  "browser": {
+    "fs": false,
+    "path": false,
+    "os": false
+  },
   "dependencies": {
     "@bcyesil/capacitor-plugin-printer": "^0.0.6",
     "@capacitor-community/file-opener": "^8.0.0",
@@ -25,6 +30,7 @@
     "cloudinary": "^2.8.0",
     "cordova-plugin-request-location-accuracy": "^2.3.0",
     "crypto-js": "^4.2.0",
+    "face-api.js": "^0.22.2",
     "firebase": "^12.2.1",
     "framer-motion": "^12.23.24",
     "html5-qrcode": "^2.3.8",

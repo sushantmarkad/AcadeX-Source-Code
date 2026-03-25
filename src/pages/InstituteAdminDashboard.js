@@ -226,6 +226,157 @@ export default function InstituteAdminDashboard() {
         }
     };
 
+    // --- COMPONENT: Admin Face ID Requests & Stats View ---
+const FaceRequestsManager = ({ user }) => {
+    const [requests, setRequests] = useState([]);
+    const [registrationStats, setRegistrationStats] = useState({ total: 0, registered: 0, pending: 0, percentage: 0 });
+
+    useEffect(() => {
+        if (!user?.instituteId) return;
+        
+        // Try a simpler query first to verify data is reaching Firestore
+        const q = query(
+            collection(db, 'face_update_requests'), 
+            where('instituteId', '==', user.instituteId)
+        );
+        
+        const unsub = onSnapshot(q, (snapshot) => {
+            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            console.log("Admin received requests:", data); // Check your browser console!
+            setRequests(data);
+        }, (err) => {
+            console.error("Firestore Listen Error:", err);
+        });
+        return () => unsub();
+    }, [user]);
+
+    // 2. Fetch Global Face Registration Stats
+    useEffect(() => {
+        if (!user?.instituteId) return;
+        
+        // Query ALL students in this institute
+        const q = query(
+            collection(db, 'users'),
+            where('instituteId', '==', user.instituteId),
+            where('role', '==', 'student')
+        );
+
+        const unsub = onSnapshot(q, (snapshot) => {
+            let totalCount = 0;
+            let registeredCount = 0;
+
+            snapshot.docs.forEach(doc => {
+                totalCount++;
+                const studentData = doc.data();
+                // Check if the 128-number math array exists
+                if (studentData.registeredFace && Array.isArray(studentData.registeredFace) && studentData.registeredFace.length === 128) {
+                    registeredCount++;
+                }
+            });
+
+            setRegistrationStats({
+                total: totalCount,
+                registered: registeredCount,
+                pending: totalCount - registeredCount,
+                percentage: totalCount === 0 ? 0 : Math.round((registeredCount / totalCount) * 100)
+            });
+        });
+
+        return () => unsub();
+    }, [user]);
+
+    const handleAction = async (requestId, studentId, action) => {
+        const toastId = toast.loading(`Marking as ${action}...`);
+        try {
+            const token = await auth.currentUser.getIdToken();
+            const res = await fetch(`${BACKEND_URL}/handleFaceUpdate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ requestId, studentId, action })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+            toast.success(data.message, { id: toastId });
+        } catch (err) {
+            toast.error(err.message, { id: toastId });
+        }
+    };
+
+    return (
+        <div className="admin-content">
+            <h2 className="admin-page-title">Face ID Management</h2>
+            <p style={{ color: '#64748b', marginBottom: '20px' }}>Monitor rollout progress and manage reset requests.</p>
+
+            {/* --- NEW: REAL-TIME STATS TRACKER --- */}
+            <div className="admin-card" style={{ padding: '25px', marginBottom: '30px', background: 'linear-gradient(to right, #ffffff, #f8fafc)' }}>
+                <h3 style={{ margin: '0 0 15px 0', fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <i className="fas fa-chart-pie" style={{ color: '#3b82f6' }}></i> Rollout Progress
+                </h3>
+                
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '10px' }}>
+                    <div>
+                        <span style={{ fontSize: '32px', fontWeight: '800', color: '#1e293b' }}>{registrationStats.registered}</span>
+                        <span style={{ fontSize: '16px', color: '#64748b', fontWeight: '600' }}> / {registrationStats.total} Students</span>
+                    </div>
+                    <span style={{ fontSize: '20px', fontWeight: 'bold', color: registrationStats.percentage === 100 ? '#10b981' : '#3b82f6' }}>
+                        {registrationStats.percentage}%
+                    </span>
+                </div>
+
+                {/* Progress Bar */}
+                <div style={{ width: '100%', height: '12px', background: '#e2e8f0', borderRadius: '10px', overflow: 'hidden' }}>
+                    <div style={{ 
+                        width: `${registrationStats.percentage}%`, 
+                        height: '100%', 
+                        background: registrationStats.percentage === 100 ? '#10b981' : '#3b82f6',
+                        transition: 'width 1s cubic-bezier(0.4, 0, 0.2, 1)'
+                    }}></div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '20px', marginTop: '15px', fontSize: '14px' }}>
+                    <span style={{ color: '#10b981', fontWeight: '600' }}><i className="fas fa-check-circle"></i> {registrationStats.registered} Secured</span>
+                    <span style={{ color: '#f59e0b', fontWeight: '600' }}><i className="fas fa-clock"></i> {registrationStats.pending} Pending Setup</span>
+                </div>
+            </div>
+
+            {/* --- EXISTING: PENDING REQUESTS --- */}
+            <h3 style={{ margin: '0 0 15px 0', fontSize: '18px', color: '#1e293b' }}>Pending Reset Requests</h3>
+            <div className="cards-grid">
+                {requests.map(req => (
+                    <div key={req.id} className="admin-card" style={{ padding: '20px', borderLeft: '5px solid #db2777' }}>
+                        <h3 style={{ margin: '0 0 5px 0' }}>{req.studentName}</h3>
+                        <p style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#64748b' }}>Roll No: {req.rollNo} | {req.department}</p>
+                        
+                        <div style={{ background: '#fef2f2', padding: '10px', borderRadius: '8px', marginBottom: '15px', border: '1px solid #fee2e2' }}>
+                            <strong style={{ fontSize: '12px', color: '#ef4444' }}>Reason Provided:</strong>
+                            <p style={{ margin: '4px 0 0 0', fontSize: '14px', color: '#7f1d1d' }}>"{req.reason}"</p>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button 
+                                onClick={() => handleAction(req.id, req.studentId, 'approved')}
+                                style={{ flex: 1, padding: '10px', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', transition: '0.2s' }}>
+                                Approve Reset
+                            </button>
+                            <button 
+                                onClick={() => handleAction(req.id, req.studentId, 'rejected')}
+                                style={{ flex: 1, padding: '10px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold', transition: '0.2s' }}>
+                                Reject
+                            </button>
+                        </div>
+                    </div>
+                ))}
+                {requests.length === 0 && (
+                    <div style={{ padding: '20px', textAlign: 'center', background: '#f8fafc', borderRadius: '12px', border: '1px dashed #cbd5e1' }}>
+                        <i className="fas fa-check-double" style={{ fontSize: '24px', color: '#94a3b8', marginBottom: '10px' }}></i>
+                        <p style={{ margin: 0, color: '#64748b', fontWeight: '500' }}>No pending face reset requests.</p>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
     const handleUpdatePassword = async (e) => {
         e.preventDefault();
         if (passData.newPass.length < 6) return toast.error("Password too short (min 6 chars)");
@@ -306,6 +457,7 @@ export default function InstituteAdminDashboard() {
             
             case 'bulkStudents': return <BulkAddStudents instituteId={instituteId} instituteName={instituteName} />;
             case 'manageUsers': return <ManageInstituteUsers instituteId={instituteId} showModal={showModal} />;
+            case 'faceRequests': return <FaceRequestsManager user={adminInfo} />;
 
             // ✅ MODERN, ANIMATED PROMOTE PAGE
             case 'promote': return (
@@ -750,6 +902,7 @@ export default function InstituteAdminDashboard() {
                     <NavLink page="bulkStudents" iconClass="fa-file-upload" label="Bulk Upload" />
                     <NavLink page="manageUsers" iconClass="fa-users" label="Manage Users" />
                     <NavLink page="promote" iconClass="fa-level-up-alt" label="Promote Students" />
+                    <NavLink page="faceRequests" iconClass="fa-user-shield" label="Face ID Resets" />
                     <NavLink page="security" iconClass="fa-user-circle" label="Profile & Security" />
                 </ul>
                 

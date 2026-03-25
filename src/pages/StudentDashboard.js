@@ -16,6 +16,7 @@ import { BarcodeScanner } from '@capacitor-mlkit/barcode-scanning'; // ✅ NATIV
 import NativeFriendlyDateInput from '../components/NativeFriendlyDateInput';
 import { useFileDownloader } from '../hooks/useFileDownloader';
 import { Geolocation } from '@capacitor/geolocation';
+import * as faceapi from 'face-api.js';
 
 // ✅ NEW IMPORTS FOR SECURITY
 import { Device } from '@capacitor/device';
@@ -574,7 +575,7 @@ const AttendanceOverview = ({ user }) => {
                 );
 
                 const sessionsSnap = await getDocs(sessionsQ);
-                
+
                 let tTotal = 0, tPresent = 0;
                 let pTotal = 0, pPresent = 0;
 
@@ -605,7 +606,7 @@ const AttendanceOverview = ({ user }) => {
                         tTotal++;
                         if (myPresentSessionIds.has(sessionId)) tPresent++;
                     }
-                    
+
                     if (data.type === 'practical') {
                         pTotal++;
                         if (myPresentSessionIds.has(sessionId)) pPresent++;
@@ -692,12 +693,12 @@ const SubjectWiseAttendance = ({ user }) => {
                     where('academicYear', '==', user.academicYear || '2025-2026')
                 );
                 const snap = await getDocs(sessionsQ);
-                
+
                 let stats = {};
 
                 snap.docs.forEach(doc => {
                     const data = doc.data();
-                    
+
                     // 🚨 THE FIX: Ignore Deleted and Cancelled sessions!
                     if (data.isDeleted === true || data.status === 'deleted' || data.status === 'cancelled') return;
                     if (data.type !== 'theory' && data.type !== 'practical') return;
@@ -712,7 +713,7 @@ const SubjectWiseAttendance = ({ user }) => {
 
                     const subject = data.subject || 'Unknown Subject';
                     if (!stats[subject]) stats[subject] = { tTotal: 0, tPresent: 0, pTotal: 0, pPresent: 0 };
-                    
+
                     const isPresent = myPresentSessionIds.has(doc.id);
 
                     if (data.type === 'practical') {
@@ -720,7 +721,7 @@ const SubjectWiseAttendance = ({ user }) => {
                             const r = parseInt(user.rollNo);
                             if (r >= data.rollRange.start && r <= data.rollRange.end) {
                                 stats[subject].pTotal++;
-                                if (isPresent) stats[subject].pPresent++; 
+                                if (isPresent) stats[subject].pPresent++;
                             }
                         } else {
                             stats[subject].pTotal++;
@@ -753,11 +754,11 @@ const SubjectWiseAttendance = ({ user }) => {
                 {subjectsArray.length > 0 ? subjectsArray.map(([subject, stat]) => {
                     const tPct = stat.tTotal > 0 ? Math.round((stat.tPresent / stat.tTotal) * 100) : 0;
                     const pPct = stat.pTotal > 0 ? Math.round((stat.pPresent / stat.pTotal) * 100) : 0;
-                    
+
                     return (
                         <div key={subject} style={{ background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                             <h4 style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#334155' }}>{subject}</h4>
-                            
+
                             {stat.tTotal > 0 && (
                                 <div style={{ marginBottom: stat.pTotal > 0 ? '10px' : '0' }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>
@@ -976,7 +977,7 @@ const StudentAssignmentResults = ({ user }) => {
 };
 
 // --- DASHBOARD HOME (Updated with Biometrics & Reordered Cards) ---
-const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession, recentAttendance, setShowScanner, currentSlot, onBiometricAttendance, bioLoading, openNativeCameraForQR, setShowPinModal }) => {
+const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession, recentAttendance, setShowScanner, currentSlot, onBiometricAttendance, bioLoading, openNativeCameraForQR, setShowPinModal, setShowFaceScanner, handleFaceAttendance }) => {
 
     const displayName = user?.lastName ? user.lastName.split(' ')[0] : user?.firstName;
 
@@ -1075,6 +1076,7 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                                     </div>
                                 </div>
 
+                                {/* Primary QR Scanner Button */}
                                 <button
                                     onClick={() => {
                                         if (Capacitor.isNativePlatform()) openNativeCameraForQR();
@@ -1095,26 +1097,39 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                                     {Capacitor.isNativePlatform() ? "Scan Now" : "Open Scanner"}
                                 </button>
 
-                                <div style={{ textAlign: 'center', marginTop: '20px' }}>
+                                {/* NEW: Side-by-Side Face ID & PIN Buttons */}
+                                <div style={{ display: 'flex', gap: '12px', marginTop: '15px' }}>
+                                    <button
+                                        onClick={() => {
+                                            setShowFaceScanner(true);
+                                            setTimeout(handleFaceAttendance, 500); // Trigger the camera after modal opens
+                                        }}
+                                        style={{
+                                            flex: 1, background: 'rgba(255, 255, 255, 0.2)', border: '1px solid rgba(255, 255, 255, 0.4)',
+                                            borderRadius: '16px', padding: '14px', color: 'white', fontSize: '14px',
+                                            fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                                            backdropFilter: 'blur(10px)', transition: 'all 0.2s', boxShadow: '0 4px 15px rgba(0,0,0,0.1)'
+                                        }}
+                                        onMouseDown={e => e.currentTarget.style.transform = 'scale(0.96)'}
+                                        onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
+                                        onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+                                    >
+                                        <i className="fas fa-user-check"></i> Face ID
+                                    </button>
+
                                     <button
                                         onClick={() => setShowPinModal(true)}
                                         style={{
-                                            background: 'rgba(255, 255, 255, 0.15)', border: '1px solid rgba(255, 255, 255, 0.3)',
-                                            borderRadius: '30px', padding: '10px 20px', color: 'white', fontSize: '13px',
-                                            fontWeight: '600', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '8px',
-                                            backdropFilter: 'blur(5px)', transition: 'all 0.2s ease', boxShadow: '0 4px 15px rgba(0, 0, 0, 0.1)'
+                                            flex: 1, background: 'rgba(255, 255, 255, 0.15)', border: '1px solid rgba(255, 255, 255, 0.3)',
+                                            borderRadius: '16px', padding: '14px', color: 'white', fontSize: '14px',
+                                            fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                                            backdropFilter: 'blur(5px)', transition: 'all 0.2s ease'
                                         }}
-                                        onMouseEnter={e => {
-                                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.25)';
-                                            e.currentTarget.style.transform = 'translateY(-2px)';
-                                        }}
-                                        onMouseLeave={e => {
-                                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
-                                            e.currentTarget.style.transform = 'translateY(0)';
-                                        }}
+                                        onMouseDown={e => e.currentTarget.style.transform = 'scale(0.96)'}
+                                        onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
+                                        onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
                                     >
-                                        <i className="fas fa-keyboard"></i>
-                                        Enter Dynamic PIN
+                                        <i className="fas fa-keyboard"></i> PIN Code
                                     </button>
                                 </div>
                             </div>
@@ -1672,6 +1687,256 @@ export default function StudentDashboard() {
     const [enteredPin, setEnteredPin] = useState('');
     const [loading, setLoading] = useState(false);
 
+    const [showFaceSetup, setShowFaceSetup] = useState(false);
+    const [isScanningSetup, setIsScanningSetup] = useState(false);
+    const videoSetupRef = useRef(null);
+    // 📸 DAILY FACE ATTENDANCE STATE
+    const [showFaceScanner, setShowFaceScanner] = useState(false);
+    const [isScanningFace, setIsScanningFace] = useState(false);
+    const faceVideoRef = useRef(null);
+    const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
+
+    // Check if they need to setup their face (assuming 'user' is your fetched user data state)
+    useEffect(() => {
+        if (user && !user.registeredFace) {
+            setShowFaceSetup(true);
+        }
+    }, [user]);
+const handleFaceRegistration = async () => {
+        setIsScanningSetup(true);
+        const toastId = toast.loading("Requesting Camera Access...");
+
+        try {
+            // 🚨 NEW: Force Native Android/iOS Permission Popup!
+            if (Capacitor.isNativePlatform()) {
+                const permissions = await Camera.requestPermissions();
+                if (permissions.camera !== 'granted' && permissions.camera !== 'limited') {
+                    toast.dismiss(toastId);
+                    toast.error("You must allow camera access to set up Face ID.");
+                    setIsScanningSetup(false);
+                    return;
+                }
+            }
+
+            toast.loading("Loading AI Models...", { id: toastId });
+            await faceapi.nets.tinyFaceDetector.loadFromUri('./models');
+            await faceapi.nets.faceLandmark68Net.loadFromUri('./models');
+            await faceapi.nets.faceRecognitionNet.loadFromUri('./models');
+            
+            toast.loading("Starting Camera...", { id: toastId });
+            
+            // 🚨 EXPLICITLY set audio: false to prevent mic errors
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+            videoSetupRef.current.srcObject = stream;
+
+            toast("Please look straight into the camera...", { icon: '📸', id: toastId, duration: 3000 });
+
+            // Wait 3 seconds for focus, then snap
+            setTimeout(async () => {
+                if (!videoSetupRef.current) return;
+                const detection = await faceapi.detectSingleFace(
+                    videoSetupRef.current, 
+                    new faceapi.TinyFaceDetectorOptions()
+                ).withFaceLandmarks().withFaceDescriptor();
+
+                stream.getTracks().forEach(track => track.stop());
+                setIsScanningSetup(false);
+
+                if (detection) {
+                    toast.loading("Saving Face ID...");
+                    const descriptorArray = Array.from(detection.descriptor);
+                    
+                    const token = await auth.currentUser.getIdToken();
+                    const response = await fetch(`${BACKEND_URL}/registerFace`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({ descriptor: descriptorArray })
+                    });
+
+                    if (response.ok) {
+                        toast.dismiss();
+                        toast.success("Face ID Registered! You can now mark attendance.");
+                        setShowFaceSetup(false);
+                    } else {
+                        toast.dismiss();
+                        toast.error("Registration failed. Please try again.");
+                    }
+                } else {
+                    toast.error("No face detected. Please move to a well-lit area.");
+                }
+            }, 3000);
+
+        } catch (err) {
+            console.error("NATIVE ERROR:", err);
+            toast.dismiss(toastId);
+            // 🚨 FIX: Show the EXACT error message so we know what Android is blocking!
+            toast.error(`Blocked: ${err.message || err}`, { duration: 6000 });
+            setIsScanningSetup(false);
+        }
+    };
+
+    // --- COMPONENT: Face ID Manager (Student View) ---
+    const FaceIdManager = ({ user }) => {
+        const [reason, setReason] = useState('');
+        const [myRequests, setMyRequests] = useState([]);
+        const [loading, setLoading] = useState(false);
+
+        useEffect(() => {
+            if (!user?.uid) return;
+            const q = query(collection(db, 'face_update_requests'), where('studentId', '==', user.uid));
+            const unsub = onSnapshot(q, (snapshot) => {
+                const reqs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                reqs.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+                setMyRequests(reqs);
+            });
+            return () => unsub();
+        }, [user]);
+
+        const handleSubmit = async (e) => {
+            e.preventDefault();
+            setLoading(true);
+            const toastId = toast.loading("Sending Request...");
+            try {
+                const token = await auth.currentUser.getIdToken();
+                const res = await fetch(`${BACKEND_URL}/requestFaceUpdate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ reason })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+
+                toast.success(data.message, { id: toastId });
+                setReason('');
+            } catch (err) {
+                toast.error(err.message, { id: toastId });
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        return (
+            <div className="content-section">
+                <h2 className="content-title">Face ID Settings</h2>
+
+                <div className="card" style={{ marginBottom: '30px' }}>
+                    <h3 style={{ marginTop: 0 }}>Request Face ID Reset</h3>
+                    <p style={{ color: '#64748b', fontSize: '14px' }}>If you got a new device, changed your appearance, or your scanner isn't working, request a reset from your Institute Admin.</p>
+
+                    <form onSubmit={handleSubmit}>
+                        <div className="input-group">
+                            <label>Reason for Update</label>
+                            <input type="text" required value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g., I got a new phone with a better camera" />
+                        </div>
+                        <button className="btn-primary" disabled={loading} style={{ background: '#db2777' }}>
+                            {loading ? 'Sending...' : 'Submit Request'}
+                        </button>
+                    </form>
+                </div>
+
+                <h3 style={{ color: '#1e293b', fontSize: '18px' }}>My Requests</h3>
+                <div className="cards-grid">
+                    {myRequests.map(req => (
+                        <div key={req.id} className="card" style={{ borderLeft: `5px solid ${req.status === 'approved' ? '#10b981' : req.status === 'rejected' ? '#ef4444' : '#f59e0b'}`, padding: '15px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+                                <div>
+                                    <h4 style={{ margin: '0 0 5px 0' }}>{req.reason}</h4>
+                                    <p style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>{req.createdAt?.toDate().toLocaleDateString()}</p>
+                                </div>
+                                <span className={`status-badge status-${req.status}`} style={{ textTransform: 'uppercase', fontSize: '11px' }}>{req.status}</span>
+                            </div>
+                        </div>
+                    ))}
+                    {myRequests.length === 0 && <p style={{ color: '#94a3b8' }}>No requests made yet.</p>}
+                </div>
+            </div>
+        );
+    };
+
+   const handleFaceAttendance = async () => {
+        setIsScanningFace(true);
+        const toastId = toast.loading("Checking Security Permissions...");
+
+        try {
+            // 🚨 NEW: Force Native Android/iOS Permission Popup!
+            if (Capacitor.isNativePlatform()) {
+                const permissions = await Camera.requestPermissions();
+                if (permissions.camera !== 'granted' && permissions.camera !== 'limited') {
+                    toast.dismiss(toastId);
+                    toast.error("Camera access is required to scan your face.");
+                    setIsScanningFace(false);
+                    setShowFaceScanner(false);
+                    return;
+                }
+            }
+
+            toast.loading("Initializing Security Camera...", { id: toastId });
+            
+            // Load models silently
+            await faceapi.nets.tinyFaceDetector.loadFromUri('./models');
+            await faceapi.nets.faceLandmark68Net.loadFromUri('./models');
+            await faceapi.nets.faceRecognitionNet.loadFromUri('./models');
+
+            // 🚨 EXPLICITLY set audio: false
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+            if (faceVideoRef.current) faceVideoRef.current.srcObject = stream;
+
+            toast.loading("Analyzing Face... Please look straight.", { id: toastId });
+
+            // Wait 3 seconds for the camera to focus
+            setTimeout(async () => {
+                if (!faceVideoRef.current) return;
+                const detection = await faceapi.detectSingleFace(
+                    faceVideoRef.current, 
+                    new faceapi.TinyFaceDetectorOptions()
+                ).withFaceLandmarks().withFaceDescriptor();
+
+                // Stop the camera
+                stream.getTracks().forEach(track => track.stop());
+                setIsScanningFace(false);
+                setShowFaceScanner(false); // Close modal
+
+                if (detection) {
+                    toast.loading("Verifying Identity & GPS Location...", { id: toastId });
+                    const descriptorArray = Array.from(detection.descriptor);
+                    
+                    // Securely grab Device ID and Location
+                    const currentDeviceId = await getUniqueDeviceId();
+                    const position = await getLocation();
+                    const token = await auth.currentUser.getIdToken();
+
+                    // Send everything to the optimized backend route
+                    const response = await fetch(`${BACKEND_URL}/markAttendance`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({
+                            sessionId: liveSession.id, // Using the active session ID
+                            studentLocation: { latitude: position.coords.latitude, longitude: position.coords.longitude },
+                            deviceId: currentDeviceId,
+                            faceDescriptor: descriptorArray, // Send the math array
+                            verificationMethod: 'face'
+                        })
+                    });
+
+                    const data = await response.json();
+                    if (response.ok) {
+                        toast.success(data.message, { id: toastId, duration: 4000 });
+                    } else {
+                        toast.error(data.error || "Attendance Failed", { id: toastId, duration: 5000 });
+                    }
+                } else {
+                    toast.error("Face not recognized. Move to brighter lighting.", { id: toastId });
+                }
+            }, 3000); 
+
+        } catch (err) {
+            console.error("NATIVE ERROR:", err);
+            // 🚨 FIX: Show the EXACT error message here too!
+            toast.error(`Blocked: ${err.message || err}`, { id: toastId, duration: 6000 });
+            setIsScanningFace(false);
+            setShowFaceScanner(false);
+        }
+    };
 
 
 
@@ -2364,6 +2629,8 @@ export default function StudentDashboard() {
                 bioLoading={bioLoading}
                 openNativeCameraForQR={openNativeCameraForQR}
                 setShowPinModal={setShowPinModal}
+                setShowFaceScanner={setShowFaceScanner}
+                handleFaceAttendance={handleFaceAttendance}
             />;
             case 'tasks': return <FreePeriodTasks user={user} isFreePeriod={isFreePeriod} onOpenAIWithPrompt={handleOpenAiWithPrompt} />;
             case 'profile': return <Profile user={user} />;
@@ -2372,6 +2639,7 @@ export default function StudentDashboard() {
             case 'leave': return <LeaveRequestForm user={user} />;
             case 'notices': return <NoticesView notices={notices} />;
             case 'feedback': return <FeedbackView user={user} />;
+            case 'security': return <FaceIdManager user={user} />;
             default: return <DashboardHome
                 user={user}
                 currentSlot={currentSlot}
@@ -2385,6 +2653,8 @@ export default function StudentDashboard() {
                 bioLoading={bioLoading}
                 openNativeCameraForQR={openNativeCameraForQR}
                 setShowPinModal={setShowPinModal}
+                setShowFaceScanner={setShowFaceScanner}
+                handleFaceAttendance={handleFaceAttendance}
             />;
         }
     };
@@ -2481,6 +2751,12 @@ export default function StudentDashboard() {
                         <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '15px' }}>
                             <i className="fas fa-comment-dots" style={{ width: '24px', textAlign: 'center' }}></i>
                             <span>Teacher Feedback</span>
+                        </div>
+                    </li>
+                    <li className={activePage === 'security' ? 'active' : ''} onClick={() => { setActivePage('security'); setIsMobileNavOpen(false); }}>
+                        <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '15px' }}>
+                            <i className="fas fa-user-shield" style={{ width: '24px', textAlign: 'center' }}></i>
+                            <span>Face ID Reset</span>
                         </div>
                     </li>
                 </ul>
@@ -2598,6 +2874,75 @@ export default function StudentDashboard() {
 
             {/* Hidden QR Reader for image decoding */}
             <div id="qr-reader-temp" style={{ display: 'none' }}></div>
+            {/* 📸 MANDATORY FACE SETUP MODAL */}
+            {showFaceSetup && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(15, 23, 42, 0.95)', zIndex: 9999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '20px', backdropFilter: 'blur(5px)' }}>
+                    <div style={{ background: 'white', padding: '40px 30px', borderRadius: '24px', textAlign: 'center', maxWidth: '400px', width: '100%', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}>
+                        <div style={{ background: '#fce7f3', color: '#db2777', width: '60px', height: '60px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px auto', fontSize: '24px' }}>
+                            <i className="fas fa-user-shield"></i>
+                        </div>
+                        <h2 style={{ margin: '0 0 10px 0', color: '#1e293b' }}>Mandatory Security Update</h2>
+                        <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '20px', lineHeight: '1.5' }}>To prevent proxy attendance, you must register your face. This is a one-time setup and takes 5 seconds.</p>
+
+                        <div style={{ width: '100%', height: '250px', background: '#e2e8f0', borderRadius: '16px', margin: '20px 0', overflow: 'hidden', border: '4px solid #f8fafc' }}>
+                            <video ref={videoSetupRef} autoPlay muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
+                        </div>
+
+                        <button
+                            onClick={handleFaceRegistration}
+                            disabled={isScanningSetup}
+                            style={{ background: isScanningSetup ? '#94a3b8' : '#db2777', color: 'white', padding: '16px', width: '100%', borderRadius: '12px', border: 'none', fontWeight: 'bold', fontSize: '16px', cursor: isScanningSetup ? 'not-allowed' : 'pointer', transition: 'all 0.2s' }}>
+                            {isScanningSetup ? "Scanning..." : "Start Face Scan"}
+                        </button>
+                    </div>
+                </div>
+            )}
+            {/* 📸 DAILY SECURE FACE ATTENDANCE MODAL */}
+            {showFaceScanner && ReactDOM.createPortal(
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundColor: 'rgba(15, 23, 42, 0.95)', zIndex: 999999,
+                    display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', backdropFilter: 'blur(10px)'
+                }}>
+                    <h2 style={{ color: 'white', marginBottom: '30px', fontWeight: '800' }}>Secure Face Check</h2>
+
+                    {/* Circle Video Frame */}
+                    <div style={{ position: 'relative', width: '280px', height: '280px', borderRadius: '50%', overflow: 'hidden', border: '5px solid #10b981', boxShadow: '0 0 40px rgba(16, 185, 129, 0.4)' }}>
+                        <video ref={faceVideoRef} autoPlay muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
+
+                        {/* Cool Scanning Laser Effect */}
+                        {isScanningFace && (
+                            <div style={{
+                                position: 'absolute', top: 0, left: 0, width: '100%', height: '4px', background: '#10b981',
+                                boxShadow: '0 0 15px 5px rgba(16, 185, 129, 0.6)', animation: 'scanFace 2s infinite linear'
+                            }}>
+                                <style>{`@keyframes scanFace { 0% { top: -10% } 50% { top: 110% } 100% { top: -10% } }`}</style>
+                            </div>
+                        )}
+                    </div>
+
+                    <p style={{ color: '#94a3b8', marginTop: '25px', fontSize: '16px', fontWeight: '500' }}>
+                        {isScanningFace ? "Hold still, analyzing..." : "Starting camera..."}
+                    </p>
+
+                    <button
+                        onClick={() => {
+                            setShowFaceScanner(false);
+                            setIsScanningFace(false);
+                            if (faceVideoRef.current && faceVideoRef.current.srcObject) {
+                                faceVideoRef.current.srcObject.getTracks().forEach(t => t.stop());
+                            }
+                        }}
+                        style={{
+                            marginTop: '40px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)',
+                            color: 'white', padding: '14px 40px', borderRadius: '30px', fontWeight: '700', fontSize: '16px', backdropFilter: 'blur(5px)', cursor: 'pointer'
+                        }}
+                    >
+                        Cancel
+                    </button>
+                </div>,
+                document.body
+            )}
         </div>
     );
 }
