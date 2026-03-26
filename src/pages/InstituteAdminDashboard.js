@@ -3,7 +3,7 @@ import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
 import { doc, getDoc, setDoc, updateDoc, collection, query, where, onSnapshot } from "firebase/firestore";
-import toast, { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import './Dashboard.css';
 import logo from "../assets/logo.png";
 import TwoFactorSetup from '../components/TwoFactorSetup';
@@ -267,15 +267,16 @@ const FaceRequestsManager = ({ user }) => {
     useEffect(() => {
         if (!user?.instituteId) return;
         
-        // Try a simpler query first to verify data is reaching Firestore
+        // 🔥 FIX: Added where('status', '==', 'pending') to filter out processed requests
         const q = query(
             collection(db, 'face_update_requests'), 
-            where('instituteId', '==', user.instituteId)
+            where('instituteId', '==', user.instituteId),
+            where('status', '==', 'pending') 
         );
         
         const unsub = onSnapshot(q, (snapshot) => {
             const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            console.log("Admin received requests:", data); // Check your browser console!
+            console.log("Admin received requests:", data); 
             setRequests(data);
         }, (err) => {
             console.error("Firestore Listen Error:", err);
@@ -920,7 +921,7 @@ const FaceRequestsManager = ({ user }) => {
 
     return (
         <div className="dashboard-container">
-            <Toaster position="center" reverseOrder={false} />
+           
 
             {modal.isOpen && (
                 <div className="custom-modal-overlay">

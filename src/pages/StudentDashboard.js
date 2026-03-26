@@ -34,6 +34,15 @@ import FreePeriodQuiz from '../components/FreePeriodQuiz';
 
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
+
+// --- MATH HELPER FOR BLINK DETECTION ---
+const calculateEAR = (eye) => {
+    const v1 = Math.hypot(eye[1].x - eye[5].x, eye[1].y - eye[5].y);
+    const v2 = Math.hypot(eye[2].x - eye[4].x, eye[2].y - eye[4].y);
+    const h = Math.hypot(eye[0].x - eye[3].x, eye[0].y - eye[3].y);
+    return (v1 + v2) / (2.0 * h);
+};
+
 let cachedFeedbackForms = null;
 let cachedDeptTeachers = null;
 
@@ -977,7 +986,7 @@ const StudentAssignmentResults = ({ user }) => {
 };
 
 // --- DASHBOARD HOME (Updated with Biometrics & Reordered Cards) ---
-const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession, recentAttendance, setShowScanner, currentSlot, onBiometricAttendance, bioLoading, openNativeCameraForQR, setShowPinModal, setShowFaceScanner, handleFaceAttendance }) => {
+const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession, recentAttendance, setShowScanner, currentSlot, onBiometricAttendance, bioLoading, openNativeCameraForQR, setShowPinModal, setShowFaceScanner, handleFaceAttendance,setShowFaceSetup }) => {
 
     const displayName = user?.lastName ? user.lastName.split(' ')[0] : user?.firstName;
 
@@ -1101,8 +1110,14 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                                 <div style={{ display: 'flex', gap: '12px', marginTop: '15px' }}>
                                     <button
                                         onClick={() => {
-                                            setShowFaceScanner(true);
-                                            setTimeout(handleFaceAttendance, 500); // Trigger the camera after modal opens
+                                            // 🔥 NEW LOGIC: Only force setup if they click Face ID and aren't registered
+                                            if (!user.registeredFace) {
+                                                setShowFaceSetup(true);
+                                                toast("Please register your face first to use Face ID", { icon: '📸' });
+                                            } else {
+                                                setShowFaceScanner(true);
+                                                setTimeout(handleFaceAttendance, 500);
+                                            }
                                         }}
                                         style={{
                                             flex: 1, background: 'rgba(255, 255, 255, 0.2)', border: '1px solid rgba(255, 255, 255, 0.4)',
@@ -1685,6 +1700,7 @@ export default function StudentDashboard() {
     const [zoomCap, setZoomCap] = useState(null);
     const [showPinModal, setShowPinModal] = useState(false);
     const [enteredPin, setEnteredPin] = useState('');
+    const [livenessPrompt, setLivenessPrompt] = useState("");
     const [loading, setLoading] = useState(false);
 
     const [showFaceSetup, setShowFaceSetup] = useState(false);
@@ -1696,13 +1712,8 @@ export default function StudentDashboard() {
     const faceVideoRef = useRef(null);
     const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
-    // Check if they need to setup their face (assuming 'user' is your fetched user data state)
-    useEffect(() => {
-        if (user && !user.registeredFace) {
-            setShowFaceSetup(true);
-        }
-    }, [user]);
-const handleFaceRegistration = async () => {
+    
+    const handleFaceRegistration = async () => {
         setIsScanningSetup(true);
         const toastId = toast.loading("Requesting Camera Access...");
 
@@ -1722,61 +1733,75 @@ const handleFaceRegistration = async () => {
             await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
             await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
             await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
-            
+
             toast.loading("Starting Camera...", { id: toastId });
-            
-            // 🚨 FIX 1: Force Front Camera and stable resolution!
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, 
-                audio: false 
+
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+                audio: false
             });
-            videoSetupRef.current.srcObject = stream;
+            if (videoSetupRef.current) {
+                videoSetupRef.current.srcObject = stream;
+            }
 
             toast("Please look straight into the camera...", { icon: '📸', id: toastId, duration: 3000 });
 
             let attempts = 0;
-            const maxAttempts = 15; // Gave it a few more attempts
+            const maxAttempts = 50; // ~10-15 seconds to get a perfect frame
 
+            // 🔥 LAG FIX: Recursive async loop instead of setInterval
             const scanLoop = async () => {
                 if (!videoSetupRef.current) return;
 
-                const detection = await faceapi.detectSingleFace(
-                    videoSetupRef.current, 
-                    new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 })
-                ).withFaceLandmarks().withFaceDescriptor();
+                try {
+                    const detection = await faceapi.detectSingleFace(
+                        videoSetupRef.current,
+                        new faceapi.TinyFaceDetectorOptions({ inputSize: 224 })
+                    ).withFaceLandmarks().withFaceDescriptor();
 
-                // 🚨 FIX 2: Require 85% Confidence to ensure the camera is in focus and well-lit!
-                if (detection && detection.detection.score > 0.85) {
-                    stream.getTracks().forEach(track => track.stop());
-                    setIsScanningSetup(false);
-                    
-                    toast.loading("Saving High-Quality Face ID...", { id: toastId });
-                    const descriptorArray = Array.from(detection.descriptor);
-                    
-                    const token = await auth.currentUser.getIdToken();
-                    const response = await fetch(`${BACKEND_URL}/registerFace`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                        body: JSON.stringify({ descriptor: descriptorArray })
-                    });
+                    // 🚨 Require 85% Confidence for a perfectly clear, neutral face
+                    if (detection && detection.detection.score > 0.85) {
+                        
+                        // Grab the math array BEFORE stopping the camera
+                        const descriptorArray = Array.from(detection.descriptor);
 
-                    if (response.ok) {
-                        toast.success("Face ID Registered! You can now mark attendance.", { id: toastId });
-                        setShowFaceSetup(false);
-                    } else {
-                        toast.error("Registration failed. Please try again.", { id: toastId });
-                    }
-                } else if (attempts < maxAttempts) {
+                        // Stop the camera so it freezes exactly on the good frame
+                        stream.getTracks().forEach(track => track.stop());
+                        setIsScanningSetup(false);
+
+                        toast.loading("Saving High-Quality Face ID...", { id: toastId });
+
+                        const token = await auth.currentUser.getIdToken();
+                        const response = await fetch(`${BACKEND_URL}/registerFace`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                            body: JSON.stringify({ descriptor: descriptorArray })
+                        });
+
+                        if (response.ok) {
+                            toast.success("Face ID Registered! You can now mark attendance.", { id: toastId });
+                            setShowFaceSetup(false);
+                        } else {
+                            toast.error("Registration failed. Please try again.", { id: toastId });
+                        }
+                        return; // 🛑 STOP LOOP
+                    } 
+                    
+                    // If no clear face, wait 200ms and try again (Prevents Lag)
                     attempts++;
-                    setTimeout(scanLoop, 400); // Check faster
-                } else {
-                    stream.getTracks().forEach(track => track.stop());
-                    setIsScanningSetup(false);
-                    toast.error("Face not clear. Please wipe your lens and face a bright light.", { id: toastId, duration: 5000 });
+                    if (attempts < maxAttempts) {
+                        setTimeout(scanLoop, 200); 
+                    } else {
+                        stream.getTracks().forEach(track => track.stop());
+                        setIsScanningSetup(false);
+                        toast.error("Face not clear. Please wipe your lens and face a bright light.", { id: toastId, duration: 5000 });
+                    }
+                } catch (e) {
+                    setTimeout(scanLoop, 200);
                 }
             };
 
-            // 🚨 FIX 3: Wait 1.5 seconds before scanning so the mobile camera auto-exposure can adjust
+            // Wait 1.5 seconds before scanning so the mobile camera auto-exposure can adjust
             setTimeout(scanLoop, 1500);
 
         } catch (err) {
@@ -1865,8 +1890,9 @@ const handleFaceRegistration = async () => {
         );
     };
 
- const handleFaceAttendance = async () => {
+   const handleFaceAttendance = async () => {
         setIsScanningFace(true);
+        setLivenessPrompt("Checking Security Permissions...");
         const toastId = toast.loading("Checking Security Permissions...");
 
         try {
@@ -1881,75 +1907,136 @@ const handleFaceRegistration = async () => {
                 }
             }
 
+            setLivenessPrompt("Loading AI Models...");
             toast.loading("Initializing Security Camera...", { id: toastId });
             const MODEL_URL = process.env.PUBLIC_URL ? process.env.PUBLIC_URL + '/models' : '/models';
             await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
             await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
             await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+            await faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL);
 
-            // 🚨 FIX 1: Force Front Camera
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, 
                 audio: false 
             });
             if (faceVideoRef.current) faceVideoRef.current.srcObject = stream;
 
-            toast.loading("Analyzing Face... Please look straight.", { id: toastId });
+            setLivenessPrompt("Looking for your face... 👀");
+            toast.loading("Analyzing Face...", { id: toastId });
 
             let attempts = 0;
-            const maxAttempts = 15;
+            const maxAttempts = 150; // ~20-30 seconds max
+            let currentChallenge = "detecting"; 
+            let finalDescriptor = null;
 
+            // 🔥 LAG FIX: We use a recursive async function instead of setInterval.
+            // This ensures the browser finishes one frame completely before starting the next.
             const scanLoop = async () => {
+                // If user closes the modal, stop the loop to save memory
                 if (!faceVideoRef.current) return;
 
-                const detection = await faceapi.detectSingleFace(
-                    faceVideoRef.current, 
-                    new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 })
-                ).withFaceLandmarks().withFaceDescriptor();
+                try {
+                    // 📸 PHASE 1: Capture the high-quality face FIRST (before they blink/smile)
+                    if (currentChallenge === "detecting") {
+                        const detection = await faceapi.detectSingleFace(
+                            faceVideoRef.current, 
+                            new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.85 })
+                        ).withFaceLandmarks().withFaceDescriptor();
 
-                // 🚨 FIX 2: Require 85% Confidence
-                if (detection && detection.detection.score > 0.85) {
-                    stream.getTracks().forEach(track => track.stop());
-                    setIsScanningFace(false);
-                    setShowFaceScanner(false); 
+                        if (detection && detection.detection.score > 0.85) {
+                            // Save the face data now while it's neutral and clear!
+                            finalDescriptor = Array.from(detection.descriptor);
+                            currentChallenge = "smile";
+                            setLivenessPrompt("Face locked! Now SMILE 😊");
+                        }
+                    } 
+                    // 🏃‍♂️ PHASE 2: Liveness Checks (No descriptor needed = WAY FASTER / NO LAG)
+                    else {
+                        const livenessDetection = await faceapi.detectSingleFace(
+                            faceVideoRef.current, 
+                            new faceapi.TinyFaceDetectorOptions({ inputSize: 224 })
+                        ).withFaceLandmarks().withFaceExpressions();
 
-                    toast.loading("Verifying Identity & GPS Location...", { id: toastId });
-                    const descriptorArray = Array.from(detection.descriptor);
-                    
-                    const currentDeviceId = await getUniqueDeviceId();
-                    const position = await getLocation();
-                    const token = await auth.currentUser.getIdToken();
+                        if (livenessDetection) {
+                            // --- CHALLENGE 1: SMILE ---
+                            if (currentChallenge === "smile") {
+                                if (livenessDetection.expressions.happy > 0.80) { 
+                                    currentChallenge = "blink";
+                                    setLivenessPrompt("Great! Now BLINK your eyes! 😑");
+                                }
+                            } 
+                            // --- CHALLENGE 2: BLINK ---
+                            else if (currentChallenge === "blink") {
+                                const landmarks = livenessDetection.landmarks.positions;
+                                const leftEye = landmarks.slice(36, 42);
+                                const rightEye = landmarks.slice(42, 48);
+                                const avgEAR = (calculateEAR(leftEye) + calculateEAR(rightEye)) / 2;
 
-                    const response = await fetch(`${BACKEND_URL}/markAttendance`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                        body: JSON.stringify({
-                            sessionId: liveSession.id, 
-                            studentLocation: { latitude: position.coords.latitude, longitude: position.coords.longitude },
-                            deviceId: currentDeviceId,
-                            faceDescriptor: descriptorArray, 
-                            verificationMethod: 'face'
-                        })
-                    });
-
-                    const data = await response.json();
-                    if (response.ok) {
-                        toast.success(data.message, { id: toastId, duration: 4000 });
-                    } else {
-                        toast.error(data.error || "Attendance Failed", { id: toastId, duration: 5000 });
+                                if (avgEAR < 0.25) { // Eyes closed
+                                    currentChallenge = "passed";
+                                }
+                            }
+                        }
                     }
-                } else if (attempts < maxAttempts) {
+
+                    // --- SUCCESS LOGIC ---
+                    if (currentChallenge === "passed") {
+                        setLivenessPrompt("Verifying Identity... 🔒");
+                        stream.getTracks().forEach(track => track.stop());
+                        setIsScanningFace(false);
+                        setShowFaceScanner(false); 
+
+                        toast.loading("Verifying Identity & GPS Location...", { id: toastId });
+                        
+                        try {
+                            const currentDeviceId = await getUniqueDeviceId();
+                            const position = await getLocation();
+                            const token = await auth.currentUser.getIdToken();
+
+                            const response = await fetch(`${BACKEND_URL}/markAttendance`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                                body: JSON.stringify({
+                                    sessionId: liveSession.id, 
+                                    studentLocation: { latitude: position.coords.latitude, longitude: position.coords.longitude },
+                                    deviceId: currentDeviceId,
+                                    faceDescriptor: finalDescriptor, // Send the NORMAL face we saved in Step 1
+                                    verificationMethod: 'face'
+                                })
+                            });
+
+                            const data = await response.json();
+                            if (response.ok) {
+                                toast.success(data.message, { id: toastId, duration: 4000 });
+                            } else {
+                                toast.error(data.error || "Attendance Failed", { id: toastId, duration: 5000 });
+                            }
+                        } catch (err) {
+                            toast.error("Verification failed.", { id: toastId });
+                        }
+                        return; // Stop the loop completely
+                    }
+
+                    // --- RETRY / TIMEOUT LOGIC ---
                     attempts++;
-                    setTimeout(scanLoop, 400);
-                } else {
-                    stream.getTracks().forEach(track => track.stop());
-                    setIsScanningFace(false);
-                    setShowFaceScanner(false);
-                    toast.error("Face not clear enough. Hold phone steady and move to brighter light.", { id: toastId, duration: 5000 });
+                    if (attempts >= maxAttempts) {
+                        stream.getTracks().forEach(track => track.stop());
+                        setIsScanningFace(false);
+                        setShowFaceScanner(false);
+                        toast.error("Liveness check timed out. Make sure you are in a bright area.", { id: toastId, duration: 5000 });
+                        return; // Stop loop
+                    }
+
+                    // Trigger next frame only AFTER this one is completely done processing
+                    setTimeout(scanLoop, 100); 
+
+                } catch (e) {
+                    // If a frame drops, ignore it and try the next one
+                    setTimeout(scanLoop, 100); 
                 }
             };
 
-            // 🚨 FIX 3: Wait 1.5 seconds for Auto-Exposure to settle
+            // Start the loop after giving the mobile camera 1.5 seconds to auto-focus
             setTimeout(scanLoop, 1500);
 
         } catch (err) {
@@ -2652,6 +2739,7 @@ const handleFaceRegistration = async () => {
                 openNativeCameraForQR={openNativeCameraForQR}
                 setShowPinModal={setShowPinModal}
                 setShowFaceScanner={setShowFaceScanner}
+                setShowFaceSetup={setShowFaceSetup}
                 handleFaceAttendance={handleFaceAttendance}
             />;
             case 'tasks': return <FreePeriodTasks user={user} isFreePeriod={isFreePeriod} onOpenAIWithPrompt={handleOpenAiWithPrompt} />;
@@ -2928,8 +3016,7 @@ const handleFaceRegistration = async () => {
                 }}>
                     <h2 style={{ color: 'white', marginBottom: '30px', fontWeight: '800' }}>Secure Face Check</h2>
 
-                    {/* Circle Video Frame */}
-                    <div style={{ position: 'relative', width: '280px', height: '280px', borderRadius: '50%', overflow: 'hidden', border: '5px solid #10b981', boxShadow: '0 0 40px rgba(16, 185, 129, 0.4)' }}>
+                   <div style={{ position: 'relative', width: '280px', height: '280px', borderRadius: '50%', overflow: 'hidden', border: '5px solid #10b981', boxShadow: '0 0 40px rgba(16, 185, 129, 0.4)' }}>
                         <video ref={faceVideoRef} autoPlay muted playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
 
                         {/* Cool Scanning Laser Effect */}
@@ -2941,6 +3028,13 @@ const handleFaceRegistration = async () => {
                                 <style>{`@keyframes scanFace { 0% { top: -10% } 50% { top: 110% } 100% { top: -10% } }`}</style>
                             </div>
                         )}
+                    </div>
+
+                    {/* 🔥 NEW: Dynamic Liveness Instructions */}
+                    <div style={{ background: 'rgba(0,0,0,0.6)', padding: '10px 25px', borderRadius: '20px', marginTop: '25px', backdropFilter: 'blur(5px)' }}>
+                         <p style={{ color: '#10b981', margin: 0, fontSize: '18px', fontWeight: '800', textAlign: 'center', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                             {livenessPrompt || "Starting camera..."}
+                         </p>
                     </div>
 
                     <p style={{ color: '#94a3b8', marginTop: '25px', fontSize: '16px', fontWeight: '500' }}>
