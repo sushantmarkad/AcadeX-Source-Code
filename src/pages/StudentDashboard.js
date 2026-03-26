@@ -1707,7 +1707,6 @@ const handleFaceRegistration = async () => {
         const toastId = toast.loading("Requesting Camera Access...");
 
         try {
-            // 🚨 NEW: Force Native Android/iOS Permission Popup!
             if (Capacitor.isNativePlatform()) {
                 const permissions = await Camera.requestPermissions();
                 if (permissions.camera !== 'granted' && permissions.camera !== 'limited') {
@@ -1719,32 +1718,39 @@ const handleFaceRegistration = async () => {
             }
 
             toast.loading("Loading AI Models...", { id: toastId });
-          const MODEL_URL = process.env.PUBLIC_URL + '/models'; 
+            const MODEL_URL = process.env.PUBLIC_URL ? process.env.PUBLIC_URL + '/models' : '/models';
             await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
             await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
             await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
             
             toast.loading("Starting Camera...", { id: toastId });
             
-            // 🚨 EXPLICITLY set audio: false to prevent mic errors
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+            // 🚨 FIX 1: Force Front Camera and stable resolution!
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, 
+                audio: false 
+            });
             videoSetupRef.current.srcObject = stream;
 
             toast("Please look straight into the camera...", { icon: '📸', id: toastId, duration: 3000 });
 
-            // Wait 3 seconds for focus, then snap
-            setTimeout(async () => {
+            let attempts = 0;
+            const maxAttempts = 15; // Gave it a few more attempts
+
+            const scanLoop = async () => {
                 if (!videoSetupRef.current) return;
+
                 const detection = await faceapi.detectSingleFace(
                     videoSetupRef.current, 
-                    new faceapi.TinyFaceDetectorOptions()
+                    new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 })
                 ).withFaceLandmarks().withFaceDescriptor();
 
-                stream.getTracks().forEach(track => track.stop());
-                setIsScanningSetup(false);
-
-                if (detection) {
-                    toast.loading("Saving Face ID...");
+                // 🚨 FIX 2: Require 85% Confidence to ensure the camera is in focus and well-lit!
+                if (detection && detection.detection.score > 0.85) {
+                    stream.getTracks().forEach(track => track.stop());
+                    setIsScanningSetup(false);
+                    
+                    toast.loading("Saving High-Quality Face ID...", { id: toastId });
                     const descriptorArray = Array.from(detection.descriptor);
                     
                     const token = await auth.currentUser.getIdToken();
@@ -1755,22 +1761,27 @@ const handleFaceRegistration = async () => {
                     });
 
                     if (response.ok) {
-                        toast.dismiss();
-                        toast.success("Face ID Registered! You can now mark attendance.");
+                        toast.success("Face ID Registered! You can now mark attendance.", { id: toastId });
                         setShowFaceSetup(false);
                     } else {
-                        toast.dismiss();
-                        toast.error("Registration failed. Please try again.");
+                        toast.error("Registration failed. Please try again.", { id: toastId });
                     }
+                } else if (attempts < maxAttempts) {
+                    attempts++;
+                    setTimeout(scanLoop, 400); // Check faster
                 } else {
-                    toast.error("No face detected. Please move to a well-lit area.");
+                    stream.getTracks().forEach(track => track.stop());
+                    setIsScanningSetup(false);
+                    toast.error("Face not clear. Please wipe your lens and face a bright light.", { id: toastId, duration: 5000 });
                 }
-            }, 3000);
+            };
+
+            // 🚨 FIX 3: Wait 1.5 seconds before scanning so the mobile camera auto-exposure can adjust
+            setTimeout(scanLoop, 1500);
 
         } catch (err) {
             console.error("NATIVE ERROR:", err);
             toast.dismiss(toastId);
-            // 🚨 FIX: Show the EXACT error message so we know what Android is blocking!
             toast.error(`Blocked: ${err.message || err}`, { duration: 6000 });
             setIsScanningSetup(false);
         }
@@ -1854,12 +1865,11 @@ const handleFaceRegistration = async () => {
         );
     };
 
-   const handleFaceAttendance = async () => {
+ const handleFaceAttendance = async () => {
         setIsScanningFace(true);
         const toastId = toast.loading("Checking Security Permissions...");
 
         try {
-            // 🚨 NEW: Force Native Android/iOS Permission Popup!
             if (Capacitor.isNativePlatform()) {
                 const permissions = await Camera.requestPermissions();
                 if (permissions.camera !== 'granted' && permissions.camera !== 'limited') {
@@ -1872,49 +1882,52 @@ const handleFaceRegistration = async () => {
             }
 
             toast.loading("Initializing Security Camera...", { id: toastId });
-            
-           const MODEL_URL = process.env.PUBLIC_URL + '/models'; 
+            const MODEL_URL = process.env.PUBLIC_URL ? process.env.PUBLIC_URL + '/models' : '/models';
             await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
             await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
             await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
 
-            // 🚨 EXPLICITLY set audio: false
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+            // 🚨 FIX 1: Force Front Camera
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, 
+                audio: false 
+            });
             if (faceVideoRef.current) faceVideoRef.current.srcObject = stream;
 
             toast.loading("Analyzing Face... Please look straight.", { id: toastId });
 
-            // Wait 3 seconds for the camera to focus
-            setTimeout(async () => {
+            let attempts = 0;
+            const maxAttempts = 15;
+
+            const scanLoop = async () => {
                 if (!faceVideoRef.current) return;
+
                 const detection = await faceapi.detectSingleFace(
                     faceVideoRef.current, 
-                    new faceapi.TinyFaceDetectorOptions()
+                    new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 })
                 ).withFaceLandmarks().withFaceDescriptor();
 
-                // Stop the camera
-                stream.getTracks().forEach(track => track.stop());
-                setIsScanningFace(false);
-                setShowFaceScanner(false); // Close modal
+                // 🚨 FIX 2: Require 85% Confidence
+                if (detection && detection.detection.score > 0.85) {
+                    stream.getTracks().forEach(track => track.stop());
+                    setIsScanningFace(false);
+                    setShowFaceScanner(false); 
 
-                if (detection) {
                     toast.loading("Verifying Identity & GPS Location...", { id: toastId });
                     const descriptorArray = Array.from(detection.descriptor);
                     
-                    // Securely grab Device ID and Location
                     const currentDeviceId = await getUniqueDeviceId();
                     const position = await getLocation();
                     const token = await auth.currentUser.getIdToken();
 
-                    // Send everything to the optimized backend route
                     const response = await fetch(`${BACKEND_URL}/markAttendance`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                         body: JSON.stringify({
-                            sessionId: liveSession.id, // Using the active session ID
+                            sessionId: liveSession.id, 
                             studentLocation: { latitude: position.coords.latitude, longitude: position.coords.longitude },
                             deviceId: currentDeviceId,
-                            faceDescriptor: descriptorArray, // Send the math array
+                            faceDescriptor: descriptorArray, 
                             verificationMethod: 'face'
                         })
                     });
@@ -1925,14 +1938,22 @@ const handleFaceRegistration = async () => {
                     } else {
                         toast.error(data.error || "Attendance Failed", { id: toastId, duration: 5000 });
                     }
+                } else if (attempts < maxAttempts) {
+                    attempts++;
+                    setTimeout(scanLoop, 400);
                 } else {
-                    toast.error("Face not recognized. Move to brighter lighting.", { id: toastId });
+                    stream.getTracks().forEach(track => track.stop());
+                    setIsScanningFace(false);
+                    setShowFaceScanner(false);
+                    toast.error("Face not clear enough. Hold phone steady and move to brighter light.", { id: toastId, duration: 5000 });
                 }
-            }, 3000); 
+            };
+
+            // 🚨 FIX 3: Wait 1.5 seconds for Auto-Exposure to settle
+            setTimeout(scanLoop, 1500);
 
         } catch (err) {
             console.error("NATIVE ERROR:", err);
-            // 🚨 FIX: Show the EXACT error message here too!
             toast.error(`Blocked: ${err.message || err}`, { id: toastId, duration: 6000 });
             setIsScanningFace(false);
             setShowFaceScanner(false);

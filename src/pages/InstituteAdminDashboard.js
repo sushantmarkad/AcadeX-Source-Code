@@ -230,6 +230,39 @@ export default function InstituteAdminDashboard() {
 const FaceRequestsManager = ({ user }) => {
     const [requests, setRequests] = useState([]);
     const [registrationStats, setRegistrationStats] = useState({ total: 0, registered: 0, pending: 0, percentage: 0 });
+    // Add this near your other state variables inside FaceRequestsManager
+    const [isMassResetting, setIsMassResetting] = useState(false);
+
+    // Add this function above your return() statement
+    const handleMassReset = async () => {
+        const confirmText = prompt(`WARNING: This will delete ALL face data for every student in ${user.instituteName}. They will be forced to re-register on their next login.\n\nType "RESET" to confirm:`);
+        
+        if (confirmText !== "RESET") {
+            toast.error("Mass reset cancelled.");
+            return;
+        }
+
+        setIsMassResetting(true);
+        const toastId = toast.loading("Wiping all student biometric data... Please wait.");
+
+        try {
+            const token = await auth.currentUser.getIdToken();
+            const res = await fetch(`${BACKEND_URL}/massResetFaces`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ instituteId: user.instituteId })
+            });
+            
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+
+            toast.success(data.message, { id: toastId, duration: 6000 });
+        } catch (err) {
+            toast.error(err.message, { id: toastId, duration: 5000 });
+        } finally {
+            setIsMassResetting(false);
+        }
+    };
 
     useEffect(() => {
         if (!user?.instituteId) return;
@@ -337,6 +370,37 @@ const FaceRequestsManager = ({ user }) => {
                     <span style={{ color: '#10b981', fontWeight: '600' }}><i className="fas fa-check-circle"></i> {registrationStats.registered} Secured</span>
                     <span style={{ color: '#f59e0b', fontWeight: '600' }}><i className="fas fa-clock"></i> {registrationStats.pending} Pending Setup</span>
                 </div>
+            </div>
+
+            {/* --- 🚨 DANGER ZONE: MASS RESET --- */}
+            <div className="admin-card" style={{ padding: '25px', marginBottom: '30px', border: '2px solid #fee2e2', background: '#fff5f5' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '15px' }}>
+                    <div style={{ background: '#ef4444', color: 'white', width: '45px', height: '45px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }}>
+                        <i className="fas fa-radiation"></i>
+                    </div>
+                    <div>
+                        <h3 style={{ margin: 0, color: '#991b1b', fontSize: '18px' }}>Danger Zone: Mass Reset</h3>
+                        <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#b91c1c' }}>Force all students to re-register their Face ID.</p>
+                    </div>
+                </div>
+                
+                <p style={{ fontSize: '14px', color: '#7f1d1d', lineHeight: '1.5', marginBottom: '20px' }}>
+                    Use this if you have deployed a new camera algorithm and need all students to take higher-quality scans. This will instantly delete all existing facial blueprints from your database.
+                </p>
+
+                <button 
+                    onClick={handleMassReset}
+                    disabled={isMassResetting}
+                    style={{
+                        background: '#ef4444', color: 'white', border: 'none', padding: '14px 24px',
+                        borderRadius: '10px', fontWeight: 'bold', cursor: isMassResetting ? 'not-allowed' : 'pointer',
+                        display: 'flex', alignItems: 'center', gap: '10px', opacity: isMassResetting ? 0.7 : 1,
+                        boxShadow: '0 4px 15px rgba(239, 68, 68, 0.4)'
+                    }}
+                >
+                    {isMassResetting ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-skull-crossbones"></i>}
+                    {isMassResetting ? 'Processing Mass Deletion...' : 'Wipe ALL Face Data'}
+                </button>
             </div>
 
             {/* --- EXISTING: PENDING REQUESTS --- */}
