@@ -19,7 +19,7 @@ function Attendance() {
     const toastId = toast.loading("Checking GPS Location...");
     
     try {
-      // 1. Fetch High-Accuracy GPS Coordinates First
+      // 1. Fetch High-Accuracy GPS Coordinates
       let userLocation;
       try {
         const position = await Geolocation.getCurrentPosition({
@@ -33,7 +33,7 @@ function Attendance() {
       } catch (geoError) {
         toast.error("GPS Error: Please enable location services.", { id: toastId });
         setIsScanning(false);
-        return; // Stop if we can't get their location
+        return; 
       }
 
       toast.loading("Starting Secure Scanner...", { id: toastId });
@@ -48,42 +48,60 @@ function Attendance() {
       videoRef.current.srcObject = stream;
       toast.loading("Analyzing Face...", { id: toastId });
 
-      // 4. Scan after 2 seconds to allow auto-focus
-      setTimeout(async () => {
-        const detection = await faceapi.detectSingleFace(
-          videoRef.current, 
-          new faceapi.TinyFaceDetectorOptions()
-        ).withFaceLandmarks().withFaceDescriptor();
+      // FIX: Wait for the video to actually load its metadata before scanning
+      videoRef.current.onloadedmetadata = async () => {
+        // Force the video to play
+        await videoRef.current.play();
 
-        stream.getTracks().forEach(track => track.stop());
-        setIsScanning(false);
+        // FIX: Explicitly set HTML dimensions so face-api/TensorFlow knows the tensor shape
+        videoRef.current.width = videoRef.current.videoWidth;
+        videoRef.current.height = videoRef.current.videoHeight;
 
-        if (detection) {
-          toast.loading("Verifying Identity & Location...", { id: toastId });
-          const descriptorArray = Array.from(detection.descriptor);
-          
-          // 5. Send both Face Math and Real GPS to Backend
-          const token = await auth.currentUser.getIdToken();
-          const response = await fetch(`${BACKEND_URL}/markAttendance`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-            body: JSON.stringify({
-              sessionId: sessionId,
-              studentLocation: userLocation, // <-- Sending the real GPS coordinates now
-              faceDescriptor: descriptorArray
-            })
-          });
+        // 4. Scan after a slight delay to ensure the GPU has painted the first frame
+        setTimeout(async () => {
+          try {
+            const detection = await faceapi.detectSingleFace(
+              videoRef.current, 
+              new faceapi.TinyFaceDetectorOptions()
+            ).withFaceLandmarks().withFaceDescriptor();
 
-          const data = await response.json();
-          if (response.ok) {
-            toast.success(data.message, { id: toastId, duration: 4000 });
-          } else {
-            toast.error(data.error, { id: toastId, duration: 5000 });
+            // Stop the camera
+            stream.getTracks().forEach(track => track.stop());
+            setIsScanning(false);
+
+            if (detection) {
+              toast.loading("Verifying Identity & Location...", { id: toastId });
+              const descriptorArray = Array.from(detection.descriptor);
+              
+              // 5. Send both Face Math and Real GPS to Backend
+              const token = await auth.currentUser.getIdToken();
+              const response = await fetch(`${BACKEND_URL}/markAttendance`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({
+                  sessionId: sessionId,
+                  studentLocation: userLocation,
+                  faceDescriptor: descriptorArray
+                })
+              });
+
+              const data = await response.json();
+              if (response.ok) {
+                toast.success(data.message, { id: toastId, duration: 4000 });
+              } else {
+                toast.error(data.error, { id: toastId, duration: 5000 });
+              }
+            } else {
+              toast.error("Face not recognized. Move to brighter lighting.", { id: toastId });
+            }
+          } catch (detectionError) {
+             console.error("Detection error:", detectionError);
+             stream.getTracks().forEach(track => track.stop());
+             setIsScanning(false);
+             toast.error("Face scanning failed. Please try again.", { id: toastId });
           }
-        } else {
-          toast.error("Face not recognized. Move to brighter lighting.", { id: toastId });
-        }
-      }, 2000);
+        }, 1000); // 1 second is usually enough once metadata is loaded
+      };
 
     } catch (err) {
       toast.error("Camera or Location access denied.", { id: toastId });

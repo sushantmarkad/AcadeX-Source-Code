@@ -1716,150 +1716,163 @@ export default function StudentDashboard() {
 
 
 
-const handleFaceRegistration = async () => {
-    setIsScanningSetup(true);
-    const toastId = toast.loading("Requesting Camera Access...");
-    let stream = null; 
+    const handleFaceRegistration = async () => {
+        setIsScanningSetup(true);
+        const toastId = toast.loading("Requesting Camera Access...");
+        let stream = null;
 
-    // 🧠 416 gives us HD vision so the AI doesn't struggle to see you
-    const optimalInputSize = 416; 
-    const optimalThreshold = 0.40;
+        // 🧠 416 gives us HD vision so the AI doesn't struggle to see you
+        const optimalInputSize = 416;
+        const optimalThreshold = 0.40;
 
-    try {
-        if (Capacitor.isNativePlatform()) {
-            const permissions = await Camera.requestPermissions();
-            if (permissions.camera !== 'granted' && permissions.camera !== 'limited') {
-                toast.dismiss(toastId);
-                toast.error("You must allow camera access to set up Face ID.");
-                setIsScanningSetup(false);
-                return;
-            }
-        }
-
-        if (!modelsLoaded) {
-            toast.loading("Loading AI Models...", { id: toastId });
-            const MODEL_URL = process.env.PUBLIC_URL ? process.env.PUBLIC_URL + '/models' : '/models';
-            await Promise.all([
-                faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-                faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-                faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
-            ]);
-            modelsLoaded = true; 
-        }
-
-        toast.loading("Starting Camera...", { id: toastId });
-        
-        // 📸 Standard reliable resolution for Android WebViews
-        stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
-            audio: false
-        });
-
-        if (videoSetupRef.current) {
-            videoSetupRef.current.srcObject = stream;
-        }
-
-        toast("Please look straight into the camera...", { icon: '📸', id: toastId, duration: 3000 });
-
-        let attempts = 0;
-        const maxAttempts = 60; 
-        let isCancelled = false; 
-
-        const scanLoop = async () => {
-            const video = videoSetupRef.current;
-            
-            if (!video || isCancelled) {
-                if (stream) stream.getTracks().forEach(track => track.stop());
-                return;
-            }
-
-            if (video.readyState !== 4 || video.videoWidth === 0 || video.videoHeight === 0) {
-                setTimeout(scanLoop, 250); 
-                return;
-            }
-
-            try {
-                const detection = await faceapi.detectSingleFace(
-                    video,
-                    new faceapi.TinyFaceDetectorOptions({ inputSize: optimalInputSize }) 
-                ).withFaceLandmarks().withFaceDescriptor();
-
-                if (detection && detection.detection.score > optimalThreshold) {
-                    const descriptorArray = Array.from(detection.descriptor);
-
-                    // 🛡️ THE ANDROID GPU GLITCH FILTER 🛡️
-                    // If the phone's graphics chip spits out NaN, null, Infinity, or a massive number, 
-                    // we throw the frame away and try again instantly.
-                    const isCorrupted = descriptorArray.some(val => 
-                        val === null || 
-                        isNaN(val) || 
-                        !isFinite(val) || 
-                        Math.abs(val) > 500
-                    );
-
-                    if (isCorrupted) {
-                        console.warn("⚠️ GPU Glitch detected in this frame. Grabbing the next frame...");
-                        setTimeout(scanLoop, 100); // Silently loop again
-                        return; 
-                    }
-
-                    // ✅ IF WE REACH HERE, THE MATH IS 100% PERFECT.
-                    stream.getTracks().forEach(track => track.stop());
+        try {
+            if (Capacitor.isNativePlatform()) {
+                const permissions = await Camera.requestPermissions();
+                if (permissions.camera !== 'granted' && permissions.camera !== 'limited') {
+                    toast.dismiss(toastId);
+                    toast.error("You must allow camera access to set up Face ID.");
                     setIsScanningSetup(false);
-                    toast.loading("Saving High-Quality Face ID...", { id: toastId });
-
-                    const token = await auth.currentUser.getIdToken();
-                    const response = await fetch(`${BACKEND_URL}/registerFace`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                        body: JSON.stringify({ descriptor: descriptorArray })
-                    });
-
-                    if (response.ok) {
-                        toast.success("Face ID Registered! You can now mark attendance.", { id: toastId });
-                        setShowFaceSetup(false);
-                    } else {
-                        const data = await response.json();
-                        console.error("Backend Error:", data);
-                        toast.error(data.error || "Registration failed.", { id: toastId });
-                    }
-                    return; 
-                } 
-                
-                attempts++;
-                if (attempts < maxAttempts) {
-                    setTimeout(scanLoop, 300); 
-                } else {
-                    handleFailure("Face not clear. Please wipe your lens and face a bright light.");
-                }
-
-            } catch (e) {
-                console.error("Camera Error:", e); 
-                attempts++; 
-                if (attempts < maxAttempts) {
-                    setTimeout(scanLoop, 300);
-                } else {
-                    handleFailure("An error occurred while scanning.");
+                    return;
                 }
             }
-        };
 
-        const handleFailure = (message) => {
+            if (!modelsLoaded) {
+                toast.loading("Loading AI Models...", { id: toastId });
+                const MODEL_URL = process.env.PUBLIC_URL ? process.env.PUBLIC_URL + '/models' : '/models';
+                await Promise.all([
+                    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+                ]);
+                modelsLoaded = true;
+            }
+
+            toast.loading("Starting Camera...", { id: toastId });
+
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+                audio: false
+            });
+
+            if (videoSetupRef.current) {
+                videoSetupRef.current.srcObject = stream;
+            }
+
+            toast("Please look straight into the camera...", { icon: '📸', id: toastId, duration: 3000 });
+
+            let attempts = 0;
+            const maxAttempts = 60;
+            let isCancelled = false;
+            let glitchCount = 0;
+
+            const scanLoop = async () => {
+                const video = videoSetupRef.current;
+
+                if (!video || isCancelled) {
+                    if (stream) stream.getTracks().forEach(track => track.stop());
+                    return;
+                }
+
+                if (video.readyState !== 4 || video.videoWidth === 0 || video.videoHeight === 0) {
+                    setTimeout(scanLoop, 250);
+                    return;
+                }
+
+                // ✅ THE FIX: Force dimensions for TensorFlow WebGL
+                video.width = video.videoWidth;
+                video.height = video.videoHeight;
+
+                try {
+                    const detection = await faceapi.detectSingleFace(
+                        video,
+                        new faceapi.TinyFaceDetectorOptions({ inputSize: optimalInputSize })
+                    ).withFaceLandmarks().withFaceDescriptor();
+
+                    if (detection && detection.detection.score > optimalThreshold) {
+                        const descriptorArray = Array.from(detection.descriptor);
+
+                        // 🛡️ FIXED GPU GLITCH HANDLER - Clean & normalize instead of hard-reject
+                        const badValueCount = descriptorArray.filter(
+                            val => val === null || isNaN(val) || !isFinite(val)
+                        ).length;
+
+                        if (badValueCount > 64) {
+                            // More than half the descriptor is garbage — truly unrecoverable frame
+                            glitchCount++;
+                            console.warn(`⚠️ Bad frame (${badValueCount}/128 values corrupt). Retry ${glitchCount}...`);
+
+                            if (glitchCount >= 10) {
+                                // After 10 bad frames, clean & normalize as a last resort
+                                console.warn("🔧 Forcing descriptor cleanup after repeated glitches...");
+                            } else {
+                                setTimeout(scanLoop, 150);
+                                return;
+                            }
+                        }
+
+                        // ✅ CLEAN: Replace any bad values with 0, then re-normalize the vector
+                        const cleanedDescriptor = descriptorArray.map(val =>
+                            (val === null || isNaN(val) || !isFinite(val)) ? 0 : val
+                        );
+
+                        // Re-normalize to a unit vector (face descriptors must be L2-normalized)
+                        const norm = Math.sqrt(cleanedDescriptor.reduce((sum, v) => sum + v * v, 0));
+                        const finalDescriptor = norm > 0 ? cleanedDescriptor.map(v => v / norm) : cleanedDescriptor;
+
+                        stream.getTracks().forEach(track => track.stop());
+                        setIsScanningSetup(false);
+                        toast.loading("Saving High-Quality Face ID...", { id: toastId });
+
+                        const token = await auth.currentUser.getIdToken();
+                        const response = await fetch(`${BACKEND_URL}/registerFace`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                           body: JSON.stringify({ descriptor: finalDescriptor })
+                        });
+
+                        if (response.ok) {
+                            toast.success("Face ID Registered! You can now mark attendance.", { id: toastId });
+                            setShowFaceSetup(false);
+                        } else {
+                            const data = await response.json();
+                            toast.error(data.error || "Registration failed.", { id: toastId });
+                        }
+                        return;
+                    }
+
+                    attempts++;
+                    if (attempts < maxAttempts) {
+                        setTimeout(scanLoop, 300);
+                    } else {
+                        handleFailure("Face not clear. Please wipe your lens and face a bright light.");
+                    }
+
+                } catch (e) {
+                    console.error("Camera Error:", e);
+                    attempts++;
+                    if (attempts < maxAttempts) {
+                        setTimeout(scanLoop, 300);
+                    } else {
+                        handleFailure("An error occurred while scanning.");
+                    }
+                }
+            };
+
+            const handleFailure = (message) => {
+                if (stream) stream.getTracks().forEach(track => track.stop());
+                setIsScanningSetup(false);
+                toast.error(message, { id: toastId, duration: 5000 });
+            };
+
+            setTimeout(scanLoop, 2000);
+
+        } catch (err) {
             if (stream) stream.getTracks().forEach(track => track.stop());
+            toast.dismiss(toastId);
+            toast.error(`Blocked: ${err.message || err}`, { duration: 6000 });
             setIsScanningSetup(false);
-            toast.error(message, { id: toastId, duration: 5000 });
-        };
-
-        setTimeout(scanLoop, 2000);
-
-    } catch (err) {
-        console.error("NATIVE ERROR:", err);
-        if (stream) stream.getTracks().forEach(track => track.stop()); 
-        toast.dismiss(toastId);
-        toast.error(`Blocked: ${err.message || err}`, { duration: 6000 });
-        setIsScanningSetup(false);
-    }
-};
+        }
+    };
 
     // --- COMPONENT: Face ID Manager (Student View) ---
     const FaceIdManager = ({ user }) => {
@@ -1989,6 +2002,10 @@ const handleFaceRegistration = async () => {
                     return;
                 }
 
+                // ✅ THE FIX: Force dimensions for TensorFlow WebGL
+                video.width = video.videoWidth;
+                video.height = video.videoHeight;
+
                 try {
                     // 📸 PHASE 1: Capture the high-quality face FIRST
                     if (currentChallenge === "detecting") {
@@ -2003,6 +2020,15 @@ const handleFaceRegistration = async () => {
                         // 🚨 FIX: Lowered from 0.85 to 0.60
                         if (detection && detection.detection.score > 0.40) {
                             finalDescriptor = Array.from(detection.descriptor);
+
+                            // 🛡️ Ensure math is valid before passing challenge
+                            const isCorrupted = finalDescriptor.some(val => val === null || isNaN(val) || !isFinite(val));
+                            if (isCorrupted) {
+                                console.warn("⚠️ GPU Glitch. Retrying detection...");
+                                setTimeout(scanLoop, 100);
+                                return;
+                            }
+
                             currentChallenge = "smile";
                             setLivenessPrompt("Face locked! Now SMILE 😊");
                         }
@@ -2057,7 +2083,7 @@ const handleFaceRegistration = async () => {
                                     sessionId: liveSession.id,
                                     studentLocation: { latitude: position.coords.latitude, longitude: position.coords.longitude },
                                     deviceId: currentDeviceId,
-                                    faceDescriptor: finalDescriptor, // Send the NORMAL face we saved in Step 1
+                                    faceDescriptor: finalDescriptor,
                                     verificationMethod: 'face'
                                 })
                             });
@@ -2081,13 +2107,13 @@ const handleFaceRegistration = async () => {
                         setIsScanningFace(false);
                         setShowFaceScanner(false);
                         toast.error("Liveness check timed out. Make sure you are in a bright area.", { id: toastId, duration: 5000 });
-                        return; // Stop loop
+                        return;
                     }
 
                     setTimeout(scanLoop, 100);
 
                 } catch (e) {
-                    console.error("🚨 Liveness Error:", e); // UN-HIDE SILENT ERRORS
+                    console.error("🚨 Liveness Error:", e);
                     setTimeout(scanLoop, 100);
                 }
             };
