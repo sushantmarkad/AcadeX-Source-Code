@@ -1749,23 +1749,41 @@ export default function StudentDashboard() {
             let attempts = 0;
             const maxAttempts = 50; // ~10-15 seconds to get a perfect frame
 
-            // 🔥 LAG FIX: Recursive async loop instead of setInterval
+          // 🔥 LAG FIX: Recursive async loop instead of setInterval
             const scanLoop = async () => {
-                if (!videoSetupRef.current) return;
+                const video = videoSetupRef.current;
+                
+                // If user closed the modal, stop
+                if (!video) return;
+
+                // 🛑 THE IRONCLAD WARM-UP CHECK
+                if (video.readyState !== 4 || video.videoWidth === 0 || video.videoHeight === 0) {
+                    setTimeout(scanLoop, 250); 
+                    return;
+                }
 
                 try {
                     const detection = await faceapi.detectSingleFace(
-                        videoSetupRef.current,
+                        video,
                         new faceapi.TinyFaceDetectorOptions({ inputSize: 224 })
                     ).withFaceLandmarks().withFaceDescriptor();
 
-                    // 🚨 Require 85% Confidence for a perfectly clear, neutral face
-                    if (detection && detection.detection.score > 0.85) {
+                    // 🔍 DEBUG: Show us the score in the browser console!
+                    if (detection) console.log("📸 Reg Camera Score:", detection.detection.score);
+
+                    // 🚨 FIX: Lowered from 0.85 to 0.60 (TinyFaceDetector rarely hits 0.85)
+                    if (detection && detection.detection.score > 0.60) {
                         
-                        // Grab the math array BEFORE stopping the camera
                         const descriptorArray = Array.from(detection.descriptor);
 
-                        // Stop the camera so it freezes exactly on the good frame
+                        // 🛡️ FRONTEND SAFEGUARD
+                        const isGlitching = descriptorArray.some(val => Math.abs(val) > 5);
+                        if (isGlitching) {
+                            setTimeout(scanLoop, 250); 
+                            return;
+                        }
+
+                        // Stop the camera
                         stream.getTracks().forEach(track => track.stop());
                         setIsScanningSetup(false);
 
@@ -1787,7 +1805,6 @@ export default function StudentDashboard() {
                         return; // 🛑 STOP LOOP
                     } 
                     
-                    // If no clear face, wait 200ms and try again (Prevents Lag)
                     attempts++;
                     if (attempts < maxAttempts) {
                         setTimeout(scanLoop, 200); 
@@ -1797,6 +1814,7 @@ export default function StudentDashboard() {
                         toast.error("Face not clear. Please wipe your lens and face a bright light.", { id: toastId, duration: 5000 });
                     }
                 } catch (e) {
+                    console.error("🚨 Camera Error:", e); // UN-HIDE SILENT ERRORS
                     setTimeout(scanLoop, 200);
                 }
             };
@@ -1929,31 +1947,39 @@ export default function StudentDashboard() {
             let currentChallenge = "detecting"; 
             let finalDescriptor = null;
 
-            // 🔥 LAG FIX: We use a recursive async function instead of setInterval.
-            // This ensures the browser finishes one frame completely before starting the next.
+            // 🔥 LAG FIX: Recursive async function
             const scanLoop = async () => {
-                // If user closes the modal, stop the loop to save memory
-                if (!faceVideoRef.current) return;
+                const video = faceVideoRef.current;
+                if (!video) return;
+
+                // 🛑 THE IRONCLAD WARM-UP CHECK
+                if (video.readyState !== 4 || video.videoWidth === 0 || video.videoHeight === 0) {
+                    setTimeout(scanLoop, 100); 
+                    return;
+                }
 
                 try {
-                    // 📸 PHASE 1: Capture the high-quality face FIRST (before they blink/smile)
+                    // 📸 PHASE 1: Capture the high-quality face FIRST
                     if (currentChallenge === "detecting") {
                         const detection = await faceapi.detectSingleFace(
-                            faceVideoRef.current, 
-                            new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.85 })
+                            video, 
+                            new faceapi.TinyFaceDetectorOptions({ inputSize: 224 })
                         ).withFaceLandmarks().withFaceDescriptor();
 
-                        if (detection && detection.detection.score > 0.85) {
-                            // Save the face data now while it's neutral and clear!
+                        // 🔍 DEBUG
+                        if (detection) console.log("👁️ Att Camera Score:", detection.detection.score);
+
+                        // 🚨 FIX: Lowered from 0.85 to 0.60
+                        if (detection && detection.detection.score > 0.60) {
                             finalDescriptor = Array.from(detection.descriptor);
                             currentChallenge = "smile";
                             setLivenessPrompt("Face locked! Now SMILE 😊");
                         }
                     } 
-                    // 🏃‍♂️ PHASE 2: Liveness Checks (No descriptor needed = WAY FASTER / NO LAG)
+                    // 🏃‍♂️ PHASE 2: Liveness Checks (Smile & Blink)
                     else {
                         const livenessDetection = await faceapi.detectSingleFace(
-                            faceVideoRef.current, 
+                            video, 
                             new faceapi.TinyFaceDetectorOptions({ inputSize: 224 })
                         ).withFaceLandmarks().withFaceExpressions();
 
@@ -2027,26 +2053,25 @@ export default function StudentDashboard() {
                         return; // Stop loop
                     }
 
-                    // Trigger next frame only AFTER this one is completely done processing
                     setTimeout(scanLoop, 100); 
 
                 } catch (e) {
-                    // If a frame drops, ignore it and try the next one
+                    console.error("🚨 Liveness Error:", e); // UN-HIDE SILENT ERRORS
                     setTimeout(scanLoop, 100); 
                 }
             };
 
-            // Start the loop after giving the mobile camera 1.5 seconds to auto-focus
+            // 👇 THIS IS WHAT WAS MISSING! Start the loop after a 1.5 second warmup
             setTimeout(scanLoop, 1500);
 
         } catch (err) {
+            // 👇 AND THIS IS THE END OF THE MISSING TRY/CATCH BLOCK!
             console.error("NATIVE ERROR:", err);
             toast.error(`Blocked: ${err.message || err}`, { id: toastId, duration: 6000 });
             setIsScanningFace(false);
             setShowFaceScanner(false);
         }
     };
-
 
 
     // ✅ GLOBAL SCHEDULE STATE
