@@ -1716,21 +1716,17 @@ export default function StudentDashboard() {
 
 
 
-
-    const handleFaceRegistration = async () => {
+const handleFaceRegistration = async () => {
     setIsScanningSetup(true);
     const toastId = toast.loading("Requesting Camera Access...");
     let stream = null; 
 
-    // 📱 SMART DETECTION: Check if we are inside the Android/iOS App
-    const isNativeApp = Capacitor.isNativePlatform();
-    
-    // 🧠 THE APK DIET: Use 160px for APKs (saves RAM) and 416px for Web
-    const optimalInputSize = isNativeApp ? 160 : 416; 
-    const optimalThreshold = isNativeApp ? 0.30 : 0.40;
+    // 🧠 416 gives us HD vision so the AI doesn't struggle to see you
+    const optimalInputSize = 416; 
+    const optimalThreshold = 0.40;
 
     try {
-        if (isNativeApp) {
+        if (Capacitor.isNativePlatform()) {
             const permissions = await Camera.requestPermissions();
             if (permissions.camera !== 'granted' && permissions.camera !== 'limited') {
                 toast.dismiss(toastId);
@@ -1753,13 +1749,9 @@ export default function StudentDashboard() {
 
         toast.loading("Starting Camera...", { id: toastId });
         
-        // 📉 Lower camera resolution for the APK to prevent WebView crashes
+        // 📸 Standard reliable resolution for Android WebViews
         stream = await navigator.mediaDevices.getUserMedia({
-            video: { 
-                facingMode: "user", 
-                width: { ideal: isNativeApp ? 320 : 640 }, 
-                height: { ideal: isNativeApp ? 240 : 480 } 
-            },
+            video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
             audio: false
         });
 
@@ -1787,7 +1779,6 @@ export default function StudentDashboard() {
             }
 
             try {
-                // 🚀 USING THE MOBILE-SAFE SETTINGS HERE
                 const detection = await faceapi.detectSingleFace(
                     video,
                     new faceapi.TinyFaceDetectorOptions({ inputSize: optimalInputSize }) 
@@ -1796,7 +1787,23 @@ export default function StudentDashboard() {
                 if (detection && detection.detection.score > optimalThreshold) {
                     const descriptorArray = Array.from(detection.descriptor);
 
-                    // Stop camera immediately to free up phone RAM
+                    // 🛡️ THE ANDROID GPU GLITCH FILTER 🛡️
+                    // If the phone's graphics chip spits out NaN, null, Infinity, or a massive number, 
+                    // we throw the frame away and try again instantly.
+                    const isCorrupted = descriptorArray.some(val => 
+                        val === null || 
+                        isNaN(val) || 
+                        !isFinite(val) || 
+                        Math.abs(val) > 500
+                    );
+
+                    if (isCorrupted) {
+                        console.warn("⚠️ GPU Glitch detected in this frame. Grabbing the next frame...");
+                        setTimeout(scanLoop, 100); // Silently loop again
+                        return; 
+                    }
+
+                    // ✅ IF WE REACH HERE, THE MATH IS 100% PERFECT.
                     stream.getTracks().forEach(track => track.stop());
                     setIsScanningSetup(false);
                     toast.loading("Saving High-Quality Face ID...", { id: toastId });
@@ -1821,7 +1828,7 @@ export default function StudentDashboard() {
                 
                 attempts++;
                 if (attempts < maxAttempts) {
-                    setTimeout(scanLoop, 300); // ⏱️ Slower loop for APK so it doesn't overheat
+                    setTimeout(scanLoop, 300); 
                 } else {
                     handleFailure("Face not clear. Please wipe your lens and face a bright light.");
                 }
@@ -1843,7 +1850,6 @@ export default function StudentDashboard() {
             toast.error(message, { id: toastId, duration: 5000 });
         };
 
-        // Give the WebView extra time to load the video stream
         setTimeout(scanLoop, 2000);
 
     } catch (err) {
