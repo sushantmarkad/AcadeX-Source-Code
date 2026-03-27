@@ -1721,7 +1721,7 @@ export default function StudentDashboard() {
         const toastId = toast.loading("Requesting Camera Access...");
         let stream = null;
 
-        // 🧠 416 gives us HD vision so the AI doesn't struggle to see you
+       
         const optimalInputSize = 416;
         const optimalThreshold = 0.40;
 
@@ -1778,7 +1778,7 @@ export default function StudentDashboard() {
                     return;
                 }
 
-                // ✅ THE FIX: Force dimensions for TensorFlow WebGL
+               
                 video.width = video.videoWidth;
                 video.height = video.videoHeight;
 
@@ -1791,13 +1791,13 @@ export default function StudentDashboard() {
                     if (detection && detection.detection.score > optimalThreshold) {
                         const descriptorArray = Array.from(detection.descriptor);
 
-                        // 🛡️ FIXED GPU GLITCH HANDLER - Clean & normalize instead of hard-reject
+                        
                         const badValueCount = descriptorArray.filter(
                             val => val === null || isNaN(val) || !isFinite(val)
                         ).length;
 
                         if (badValueCount > 64) {
-                            // More than half the descriptor is garbage — truly unrecoverable frame
+                            
                             glitchCount++;
                             console.warn(`⚠️ Bad frame (${badValueCount}/128 values corrupt). Retry ${glitchCount}...`);
 
@@ -1810,7 +1810,7 @@ export default function StudentDashboard() {
                             }
                         }
 
-                        // ✅ CLEAN: Replace any bad values with 0, then re-normalize the vector
+                        
                         const cleanedDescriptor = descriptorArray.map(val =>
                             (val === null || isNaN(val) || !isFinite(val)) ? 0 : val
                         );
@@ -1987,82 +1987,134 @@ export default function StudentDashboard() {
             toast.loading("Analyzing Face...", { id: toastId });
 
             let attempts = 0;
-            const maxAttempts = 150; // ~20-30 seconds max
+            const maxAttempts = 150;
             let currentChallenge = "detecting";
-            let finalDescriptor = null;
 
-            // 🔥 LAG FIX: Recursive async function
+            // PRE-liveness descriptor (captured when face is first detected)
+            let preDescriptor = null;
+            // POST-liveness descriptor (captured AFTER blink, proves same person did liveness)
+            let postDescriptor = null;
+
+            const stopAndFail = (message) => {
+                stream.getTracks().forEach(track => track.stop());
+                setIsScanningFace(false);
+                setShowFaceScanner(false);
+                toast.error(message, { id: toastId, duration: 5000 });
+            };
+
+            const captureDescriptor = async (video, inputSize) => {
+                const det = await faceapi.detectSingleFace(
+                    video,
+                    new faceapi.TinyFaceDetectorOptions({ inputSize })
+                ).withFaceLandmarks().withFaceDescriptor();
+
+                if (!det) return null;
+
+                const arr = Array.from(det.descriptor);
+                // Reject corrupted GPU frames
+                if (arr.some(v => v === null || isNaN(v) || !isFinite(v))) return null;
+
+                // Normalize to unit vector (matches registration normalization)
+                const norm = Math.sqrt(arr.reduce((s, v) => s + v * v, 0));
+                return norm > 0 ? arr.map(v => v / norm) : arr;
+            };
+
             const scanLoop = async () => {
                 const video = faceVideoRef.current;
                 if (!video) return;
 
-                // 🛑 THE IRONCLAD WARM-UP CHECK
                 if (video.readyState !== 4 || video.videoWidth === 0 || video.videoHeight === 0) {
                     setTimeout(scanLoop, 100);
                     return;
                 }
 
-                // ✅ THE FIX: Force dimensions for TensorFlow WebGL
                 video.width = video.videoWidth;
                 video.height = video.videoHeight;
 
                 try {
-                    // 📸 PHASE 1: Capture the high-quality face FIRST
+                    // ═══════════════════════════════════════════════════════
+                    // PHASE 1 — Initial face detection & descriptor capture
+                    // High inputSize (416) for accurate descriptor
+                    // ═══════════════════════════════════════════════════════
                     if (currentChallenge === "detecting") {
-                        const detection = await faceapi.detectSingleFace(
-                            video,
-                            new faceapi.TinyFaceDetectorOptions({ inputSize: 416 })
-                        ).withFaceLandmarks().withFaceDescriptor();
-
-                        // 🔍 DEBUG
-                        if (detection) console.log("👁️ Att Camera Score:", detection.detection.score);
-
-                        // 🚨 FIX: Lowered from 0.85 to 0.60
-                        if (detection && detection.detection.score > 0.40) {
-                            finalDescriptor = Array.from(detection.descriptor);
-
-                            // 🛡️ Ensure math is valid before passing challenge
-                            const isCorrupted = finalDescriptor.some(val => val === null || isNaN(val) || !isFinite(val));
-                            if (isCorrupted) {
-                                console.warn("⚠️ GPU Glitch. Retrying detection...");
-                                setTimeout(scanLoop, 100);
-                                return;
-                            }
-
+                        const desc = await captureDescriptor(video, 416);
+                        if (desc) {
+                            preDescriptor = desc;
                             currentChallenge = "smile";
                             setLivenessPrompt("Face locked! Now SMILE 😊");
                         }
                     }
-                    // 🏃‍♂️ PHASE 2: Liveness Checks (Smile & Blink)
-                    else {
+
+                    // ═══════════════════════════════════════════════════════
+                    // PHASE 2 — Liveness challenges (Smile → Blink)
+                    // Uses lower inputSize for speed during liveness
+                    // ═══════════════════════════════════════════════════════
+                    else if (currentChallenge === "smile" || currentChallenge === "blink") {
                         const livenessDetection = await faceapi.detectSingleFace(
                             video,
                             new faceapi.TinyFaceDetectorOptions({ inputSize: 224 })
                         ).withFaceLandmarks().withFaceExpressions();
 
                         if (livenessDetection) {
-                            // --- CHALLENGE 1: SMILE ---
                             if (currentChallenge === "smile") {
-                                if (livenessDetection.expressions.happy > 0.80) {
+                                // Require a strong smile — 0.85 threshold rejects subtle expressions
+                                if (livenessDetection.expressions.happy > 0.85) {
                                     currentChallenge = "blink";
                                     setLivenessPrompt("Great! Now BLINK your eyes! 😑");
                                 }
-                            }
-                            // --- CHALLENGE 2: BLINK ---
-                            else if (currentChallenge === "blink") {
+                            } else if (currentChallenge === "blink") {
                                 const landmarks = livenessDetection.landmarks.positions;
                                 const leftEye = landmarks.slice(36, 42);
                                 const rightEye = landmarks.slice(42, 48);
                                 const avgEAR = (calculateEAR(leftEye) + calculateEAR(rightEye)) / 2;
 
-                                if (avgEAR < 0.25) { // Eyes closed
-                                    currentChallenge = "passed";
+                                // EAR < 0.22 = eyes clearly closed (stricter than 0.25)
+                                if (avgEAR < 0.22) {
+                                    currentChallenge = "recapture";
+                                    setLivenessPrompt("Hold still... Re-verifying identity 🔒");
                                 }
                             }
                         }
                     }
 
-                    // --- SUCCESS LOGIC ---
+                    // ═══════════════════════════════════════════════════════
+                    // PHASE 3 — Post-liveness re-capture
+                    // The CRITICAL anti-spoof step:
+                    // Capture a SECOND descriptor after liveness passes.
+                    // Compare pre vs post — if different faces, it's a spoof.
+                    // ═══════════════════════════════════════════════════════
+                    else if (currentChallenge === "recapture") {
+                        const desc = await captureDescriptor(video, 416);
+                        if (desc) {
+                            postDescriptor = desc;
+
+                            // Calculate Euclidean distance between pre and post descriptors
+                            // If two captures of the SAME face, distance should be < 0.35
+                            // If different faces (photo held up then removed), distance will be > 0.50
+                            let prePostSum = 0;
+                            for (let i = 0; i < 128; i++) {
+                                prePostSum += Math.pow(postDescriptor[i] - preDescriptor[i], 2);
+                            }
+                            const prePostDistance = Math.sqrt(prePostSum);
+
+                            console.log(`[Anti-Spoof] Pre vs Post descriptor distance: ${prePostDistance.toFixed(4)}`);
+
+                            if (prePostDistance > 0.50) {
+                                // The face changed between detection and post-liveness.
+                                // This is the classic "show a photo, then move it" spoof attack.
+                                stopAndFail("⚠️ Security Alert: Face inconsistency detected. Please try again without any obstructions.");
+                                return;
+                            }
+
+                            // Pre and post match — use the post-liveness descriptor for backend
+                            // (post is taken after the person has proven they are live)
+                            currentChallenge = "passed";
+                        }
+                    }
+
+                    // ═══════════════════════════════════════════════════════
+                    // PHASE 4 — Submit to backend
+                    // ═══════════════════════════════════════════════════════
                     if (currentChallenge === "passed") {
                         setLivenessPrompt("Verifying Identity... 🔒");
                         stream.getTracks().forEach(track => track.stop());
@@ -2076,6 +2128,8 @@ export default function StudentDashboard() {
                             const position = await getLocation();
                             const token = await auth.currentUser.getIdToken();
 
+                            // Send the POST-liveness descriptor to backend
+                            // This is the final proof that the live person matches the registered face
                             const response = await fetch(`${BACKEND_URL}/markAttendance`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -2083,7 +2137,8 @@ export default function StudentDashboard() {
                                     sessionId: liveSession.id,
                                     studentLocation: { latitude: position.coords.latitude, longitude: position.coords.longitude },
                                     deviceId: currentDeviceId,
-                                    faceDescriptor: finalDescriptor,
+                                    faceDescriptor: postDescriptor, // ← POST-liveness descriptor
+                                    preDescriptor: preDescriptor,   // ← PRE-liveness (for backend dual-check)
                                     verificationMethod: 'face'
                                 })
                             });
@@ -2095,18 +2150,15 @@ export default function StudentDashboard() {
                                 toast.error(data.error || "Attendance Failed", { id: toastId, duration: 5000 });
                             }
                         } catch (err) {
-                            toast.error("Verification failed.", { id: toastId });
+                            toast.error("Verification failed. Please check your connection.", { id: toastId });
                         }
-                        return; // Stop the loop completely
+                        return;
                     }
 
-                    // --- RETRY / TIMEOUT LOGIC ---
+                    // Timeout guard
                     attempts++;
                     if (attempts >= maxAttempts) {
-                        stream.getTracks().forEach(track => track.stop());
-                        setIsScanningFace(false);
-                        setShowFaceScanner(false);
-                        toast.error("Liveness check timed out. Make sure you are in a bright area.", { id: toastId, duration: 5000 });
+                        stopAndFail("Liveness check timed out. Make sure you are in a bright area.");
                         return;
                     }
 
@@ -2118,11 +2170,9 @@ export default function StudentDashboard() {
                 }
             };
 
-            // 👇 THIS IS WHAT WAS MISSING! Start the loop after a 1.5 second warmup
             setTimeout(scanLoop, 1500);
 
         } catch (err) {
-            // 👇 AND THIS IS THE END OF THE MISSING TRY/CATCH BLOCK!
             console.error("NATIVE ERROR:", err);
             toast.error(`Blocked: ${err.message || err}`, { id: toastId, duration: 6000 });
             setIsScanningFace(false);
