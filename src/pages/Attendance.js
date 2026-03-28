@@ -7,6 +7,21 @@ import { Geolocation } from '@capacitor/geolocation';
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
+// ==========================================
+// 🧮 LIVENESS MATH HELPERS
+// ==========================================
+const getDistance = (point1, point2) => {
+  return Math.sqrt(Math.pow(point1.x - point2.x, 2) + Math.pow(point1.y - point2.y, 2));
+};
+
+const getEyeAspectRatio = (eyePoints) => {
+  const v1 = getDistance(eyePoints[1], eyePoints[5]);
+  const v2 = getDistance(eyePoints[2], eyePoints[4]);
+  const h = getDistance(eyePoints[0], eyePoints[3]);
+  return (v1 + v2) / (2.0 * h);
+};
+// ==========================================
+
 function Attendance() {
   const videoRef = useRef(null);
   const [isScanning, setIsScanning] = useState(false);
@@ -19,88 +34,101 @@ function Attendance() {
     const toastId = toast.loading("Checking GPS Location...");
     
     try {
-      // 1. Fetch High-Accuracy GPS Coordinates
+      // 1. Fetch GPS
       let userLocation;
       try {
-        const position = await Geolocation.getCurrentPosition({
-            enableHighAccuracy: true,
-            timeout: 10000
-        });
-        userLocation = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude
-        };
+        const position = await Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 10000 });
+        userLocation = { latitude: position.coords.latitude, longitude: position.coords.longitude };
       } catch (geoError) {
         toast.error("GPS Error: Please enable location services.", { id: toastId });
         setIsScanning(false);
         return; 
       }
 
-      toast.loading("Starting Secure Scanner...", { id: toastId });
+      toast.loading("Starting High-Security Scanner...", { id: toastId });
 
-      // 2. Load Models silently
-      await faceapi.nets.tinyFaceDetector.loadFromUri('/models');
+      // 2. Load Models (USING SSD MOBILENET FOR HIGH ACCURACY)
+      await faceapi.nets.ssdMobilenetv1.loadFromUri('/models');
       await faceapi.nets.faceLandmark68Net.loadFromUri('/models');
       await faceapi.nets.faceRecognitionNet.loadFromUri('/models');
 
       // 3. Start Camera
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
       videoRef.current.srcObject = stream;
-      toast.loading("Analyzing Face...", { id: toastId });
 
-      // FIX: Wait for the video to actually load its metadata before scanning
       videoRef.current.onloadedmetadata = async () => {
-        // Force the video to play
         await videoRef.current.play();
-
-        // FIX: Explicitly set HTML dimensions so face-api/TensorFlow knows the tensor shape
         videoRef.current.width = videoRef.current.videoWidth;
         videoRef.current.height = videoRef.current.videoHeight;
 
-        // 4. Scan after a slight delay to ensure the GPU has painted the first frame
-        setTimeout(async () => {
+        toast.loading("Please BLINK to verify you are human...", { id: toastId });
+
+        let blinkDetected = false;
+        
+        // 4. Start Liveness Loop
+        const scanInterval = setInterval(async () => {
           try {
+            // Use SSD Mobilenet with High Confidence threshold (0.85)
             const detection = await faceapi.detectSingleFace(
               videoRef.current, 
-              new faceapi.TinyFaceDetectorOptions()
+              new faceapi.SsdMobilenetv1Options({ minConfidence: 0.85 }) 
             ).withFaceLandmarks().withFaceDescriptor();
 
-            // Stop the camera
+            if (detection) {
+              const landmarks = detection.landmarks;
+              const leftEye = landmarks.getLeftEye();
+              const rightEye = landmarks.getRightEye();
+
+              const leftEAR = getEyeAspectRatio(leftEye);
+              const rightEAR = getEyeAspectRatio(rightEye);
+              const avgEAR = (leftEAR + rightEAR) / 2.0;
+
+              // Detect Blink
+              if (avgEAR < 0.25) {
+                  blinkDetected = true;
+              }
+
+              // Capture when eyes reopen
+              if (blinkDetected && avgEAR > 0.28) {
+                  clearInterval(scanInterval);
+                  clearTimeout(timeoutFailsafe);
+                  stream.getTracks().forEach(track => track.stop());
+                  setIsScanning(false);
+
+                  toast.loading("Human Verified! Sending to Server...", { id: toastId });
+                  const descriptorArray = Array.from(detection.descriptor);
+                  
+                  const token = await auth.currentUser.getIdToken();
+                  const response = await fetch(`${BACKEND_URL}/markAttendance`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({
+                      sessionId: sessionId,
+                      studentLocation: userLocation,
+                      faceDescriptor: descriptorArray
+                    })
+                  });
+
+                  const data = await response.json();
+                  if (response.ok) {
+                    toast.success(data.message, { id: toastId, duration: 4000 });
+                  } else {
+                    toast.error(data.error, { id: toastId, duration: 5000 });
+                  }
+              }
+            }
+          } catch (error) {
+             console.error("Detection error:", error);
+          }
+        }, 200); 
+
+        // 5. Failsafe Timeout
+        const timeoutFailsafe = setTimeout(() => {
+            clearInterval(scanInterval);
             stream.getTracks().forEach(track => track.stop());
             setIsScanning(false);
-
-            if (detection) {
-              toast.loading("Verifying Identity & Location...", { id: toastId });
-              const descriptorArray = Array.from(detection.descriptor);
-              
-              // 5. Send both Face Math and Real GPS to Backend
-              const token = await auth.currentUser.getIdToken();
-              const response = await fetch(`${BACKEND_URL}/markAttendance`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({
-                  sessionId: sessionId,
-                  studentLocation: userLocation,
-                  faceDescriptor: descriptorArray
-                })
-              });
-
-              const data = await response.json();
-              if (response.ok) {
-                toast.success(data.message, { id: toastId, duration: 4000 });
-              } else {
-                toast.error(data.error, { id: toastId, duration: 5000 });
-              }
-            } else {
-              toast.error("Face not recognized. Move to brighter lighting.", { id: toastId });
-            }
-          } catch (detectionError) {
-             console.error("Detection error:", detectionError);
-             stream.getTracks().forEach(track => track.stop());
-             setIsScanning(false);
-             toast.error("Face scanning failed. Please try again.", { id: toastId });
-          }
-        }, 1000); // 1 second is usually enough once metadata is loaded
+            toast.error("Verification timeout. Make sure you blink clearly into the camera.", { id: toastId, duration: 4000 });
+        }, 15000);
       };
 
     } catch (err) {

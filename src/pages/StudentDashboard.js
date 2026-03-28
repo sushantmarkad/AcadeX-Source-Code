@@ -1740,7 +1740,7 @@ export default function StudentDashboard() {
                 toast.loading("Loading AI Models...", { id: toastId });
                 const MODEL_URL = process.env.PUBLIC_URL ? process.env.PUBLIC_URL + '/models' : '/models';
                 await Promise.all([
-                    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+                    faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
                     faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
                     faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
                 ]);
@@ -1785,7 +1785,7 @@ export default function StudentDashboard() {
                 try {
                     const detection = await faceapi.detectSingleFace(
                         video,
-                        new faceapi.TinyFaceDetectorOptions({ inputSize: optimalInputSize })
+                       new faceapi.SsdMobilenetv1Options({ minConfidence: 0.85 })
                     ).withFaceLandmarks().withFaceDescriptor();
 
                     if (detection && detection.detection.score > optimalThreshold) {
@@ -1972,7 +1972,7 @@ export default function StudentDashboard() {
             setLivenessPrompt("Loading AI Models...");
             toast.loading("Initializing Security Camera...", { id: toastId });
             const MODEL_URL = process.env.PUBLIC_URL ? process.env.PUBLIC_URL + '/models' : '/models';
-            await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+           await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
             await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
             await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
             await faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL);
@@ -2002,10 +2002,10 @@ export default function StudentDashboard() {
                 toast.error(message, { id: toastId, duration: 5000 });
             };
 
-            const captureDescriptor = async (video, inputSize) => {
+           const captureDescriptor = async (video) => { 
                 const det = await faceapi.detectSingleFace(
                     video,
-                    new faceapi.TinyFaceDetectorOptions({ inputSize })
+                    new faceapi.SsdMobilenetv1Options({ minConfidence: 0.85 }) // ✅ NEW
                 ).withFaceLandmarks().withFaceDescriptor();
 
                 if (!det) return null;
@@ -2052,7 +2052,7 @@ export default function StudentDashboard() {
                     else if (currentChallenge === "smile" || currentChallenge === "blink") {
                         const livenessDetection = await faceapi.detectSingleFace(
                             video,
-                            new faceapi.TinyFaceDetectorOptions({ inputSize: 224 })
+                            new faceapi.SsdMobilenetv1Options({ minConfidence: 0.50 }) // ✅ NEW (0.50 is fine here for fast blink detection)
                         ).withFaceLandmarks().withFaceExpressions();
 
                         if (livenessDetection) {
