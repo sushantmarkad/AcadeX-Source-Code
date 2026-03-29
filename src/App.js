@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useState, useEffect } from "react";
-import { Routes, Route, useLocation, Navigate, useNavigate } from "react-router-dom"; // ✅ Added useNavigate
+import { Routes, Route, useLocation, Navigate, useNavigate } from "react-router-dom"; 
 import { AnimatePresence } from "framer-motion";
 import { Toaster, toast } from 'react-hot-toast';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -11,6 +11,8 @@ import logo from "./assets/logo.png";
 import DashboardSkeleton from "./components/DashboardSkeleton";
 import { App as CapApp } from '@capacitor/app';
 
+// ✅ ADDED: Import the InstitutionProvider you created
+import { InstitutionProvider } from './contexts/InstitutionContext'; 
 
 // ✅ OPTIMIZATION: Lazy load heavy components not needed for First Paint
 const Onboarding = lazy(() => import('./pages/Onboarding')); 
@@ -206,6 +208,7 @@ function App() {
         },
     }}
 />
+
       
       {/* 🔐 GLOBAL 2FA LOCK SCREEN - RESTORED & LAZY LOADED */}
       {is2FARequired && (
@@ -221,40 +224,44 @@ function App() {
 
       {/* ✅ ONLY RENDER ROUTES IF 2FA IS NOT REQUIRED (OR VERIFIED) */}
       {!is2FARequired && (
-        <AnimatePresence mode="wait">
-            <Routes location={location} key={location.pathname}>
-            
-            <Route path="/" element={
-                user ? <Navigate to={getDashboardRoute()} /> : (!hasSeenOnboarding ? <Onboarding /> : <Navigate to="/login" />)
-            } />
+        // 👇 ✅ ADDED: Wrapped the routing inside InstitutionProvider 👇
+        <InstitutionProvider>
+            <AnimatePresence mode="wait">
+                <Routes location={location} key={location.pathname}>
+                
+                <Route path="/" element={
+                    user ? <Navigate to={getDashboardRoute()} /> : (!hasSeenOnboarding ? <Onboarding /> : <Navigate to="/login" />)
+                } />
 
-            <Route path="/login" element={
-                !user ? <Login /> : <Navigate to={getDashboardRoute()} />
-            } />
+                <Route path="/login" element={
+                    !user ? <Login /> : <Navigate to={getDashboardRoute()} />
+                } />
 
-            <Route path="/signup" element={<Signup />} />
-            <Route path="/apply" element={<InstituteApplication />} />
-            <Route path="/check-status" element={<CheckStatus />} />
-            <Route path="/student-register" element={<StudentRegister />} />
-            
-            {/* ROLE-BASED DASHBOARDS */}
-            <Route path="/student-dashboard" element={user ? <StudentDashboard /> : <Navigate to="/" />} />
-            <Route path="/teacher-dashboard" element={user ? <TeacherDashboard /> : <Navigate to="/" />} />
-            <Route path="/admin-dashboard" element={user ? <InstituteAdminDashboard /> : <Navigate to="/" />} />
-            <Route path="/super-admin" element={user ? <SuperAdminDashboard /> : <Navigate to="/" />} />
-            <Route path="/bulk-add-students" element={user ? <BulkAddStudents /> : <Navigate to="/" />} />
+                <Route path="/signup" element={<Signup />} />
+                <Route path="/apply" element={<InstituteApplication />} />
+                <Route path="/check-status" element={<CheckStatus />} />
+                <Route path="/student-register" element={<StudentRegister />} />
+                
+                {/* ROLE-BASED DASHBOARDS */}
+                <Route path="/student-dashboard" element={user ? <StudentDashboard /> : <Navigate to="/" />} />
+                <Route path="/teacher-dashboard" element={user ? <TeacherDashboard /> : <Navigate to="/" />} />
+                <Route path="/admin-dashboard" element={user ? <InstituteAdminDashboard /> : <Navigate to="/" />} />
+                <Route path="/super-admin" element={user ? <SuperAdminDashboard /> : <Navigate to="/" />} />
+                <Route path="/bulk-add-students" element={user ? <BulkAddStudents /> : <Navigate to="/" />} />
 
-            {/* Legacy/Shared Routes */}
-            <Route path="/dashboard" element={user ? <Dashboard /> : <Navigate to="/" />} />
-            <Route path="/attendance" element={user ? <Attendance /> : <Navigate to="/" />} />
-            <Route path="/free-time" element={user ? <FreeTime /> : <Navigate to="/" />} />
-            <Route path="/goals" element={user ? <Goals /> : <Navigate to="/" />} />
-            <Route path="/ai-chatbot" element={user ? <AiChatbot /> : <Navigate to="/" />} />
-            
-            <Route path="*" element={<Navigate to={user ? getDashboardRoute() : "/"} />} />
+                {/* Legacy/Shared Routes */}
+                <Route path="/dashboard" element={user ? <Dashboard /> : <Navigate to="/" />} />
+                <Route path="/attendance" element={user ? <Attendance /> : <Navigate to="/" />} />
+                <Route path="/free-time" element={user ? <FreeTime /> : <Navigate to="/" />} />
+                <Route path="/goals" element={user ? <Goals /> : <Navigate to="/" />} />
+                <Route path="/ai-chatbot" element={user ? <AiChatbot /> : <Navigate to="/" />} />
+                
+                <Route path="*" element={<Navigate to={user ? getDashboardRoute() : "/"} />} />
 
-            </Routes>
-        </AnimatePresence>
+                </Routes>
+            </AnimatePresence>
+        </InstitutionProvider>
+        // ☝️ ✅ END WRAPPER ☝️
       )}
     </Suspense>
   );

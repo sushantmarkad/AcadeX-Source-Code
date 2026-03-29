@@ -1,10 +1,12 @@
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
 
 /* --- Universal Reset --- */
-* { box-sizing: border-box; }
+.inst-app-wrapper * { 
+    box-sizing: border-box; 
+}
 
-/* ✅ CHANGED: Removed 'body'. Use this specific wrapper instead. */
-.application-wrapper {
+/* ✅ Unique wrapper prevents CSS bleed */
+.inst-app-wrapper {
   background: #f0f2f5;
   font-family: "Poppins", sans-serif;
   min-height: 100vh;
@@ -15,7 +17,7 @@
   padding: 20px;
 }
 
-.application-container {
+.inst-app-container {
   width: 100%;
   max-width: 500px;
   background: white;
@@ -25,40 +27,105 @@
   text-align: center;
 }
 
-.application-header { margin-bottom: 24px; }
-.application-logo { width: 150px; display: block; margin: 0 auto 10px; }
-.application-header h1 { font-size: 24px; font-weight: 700; color: #1d2a32; margin: 0; margin-bottom: 8px; }
-.subtitle { font-size: 14px; color: #666; }
+.inst-app-header { margin-bottom: 24px; }
+.inst-app-logo { width: 150px; display: block; margin: 0 auto 10px; }
+.inst-app-header h1 { font-size: 24px; font-weight: 700; color: #1d2a32; margin: 0; margin-bottom: 8px; }
+.inst-app-header p { font-size: 14px; color: #5f6368; margin: 0; }
 
-.application-form { text-align: left; }
-.input-group { margin-bottom: 16px; }
-.input-group label { font-size: 14px; font-weight: 600; color: #222; margin-bottom: 6px; display: block; }
+.inst-app-form { text-align: left; }
 
-.input-group input, .input-group textarea {
-    width: 100%; border: 1px solid #c9d3db; border-radius: 12px;
-    padding: 0 16px; font-size: 15px; color: #222; transition: border-color 0.2s;
-    height: 48px; font-family: "Poppins", sans-serif; background: #fff;
+.inst-app-input-group { margin-bottom: 16px; }
+.inst-app-input-group label { font-size: 14px; font-weight: 600; color: #222; margin-bottom: 6px; display: block; }
+
+.inst-app-input-group input, 
+.inst-app-input-group textarea,
+.inst-app-input-group select {
+    width: 100%; 
+    border: 1px solid #c9d3db; 
+    border-radius: 12px;
+    padding: 0 16px; 
+    font-size: 15px; 
+    color: #222; 
+    transition: border-color 0.2s;
+    height: 48px; 
+    font-family: "Poppins", sans-serif; 
+    background: #fff;
+    appearance: none; /* Helps style the select dropdown consistently */
 }
-.input-group textarea { height: auto; padding-top: 14px; padding-bottom: 14px; resize: vertical; }
-.input-group input:focus, .input-group textarea:focus { outline: none; border-color: #075eec; }
 
-.btn-primary {
-  width: 100%; background: #075eec; color: #fff; border: none;
-  padding: 14px; font-size: 16px; font-weight: 600; border-radius: 12px;
-  cursor: pointer; transition: 0.3s;
+/* Custom dropdown arrow for the select element */
+.inst-app-select-wrapper {
+    position: relative;
 }
-.btn-primary:hover { background: #0647b9; }
-
-.error-message { color: #d93025; background-color: #fbe9e7; border-radius: 8px; padding: 12px; margin-bottom: 16px; font-size: 14px; text-align: center; }
-.success-message { color: #10B981; background-color: rgba(16, 185, 129, 0.1); border-radius: 8px; padding: 12px; margin-bottom: 16px; font-size: 14px; text-align: center; }
-
-/* ✅ Media query */
-@media (max-width: 540px) {
-  .application-wrapper { padding: 0; background: white; }
-  
-  .application-container {
-    margin: 0; padding: 40px 25px; border-radius: 0;
-    box-shadow: none; min-height: 100vh; display: flex;
-    flex-direction: column; justify-content: center;
-  }
+.inst-app-select-wrapper::after {
+    content: '▼';
+    font-size: 12px;
+    color: #5f6368;
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
 }
+
+.inst-app-input-group textarea { 
+    height: auto; 
+    padding-top: 14px; 
+    padding-bottom: 14px; 
+    resize: vertical; 
+}
+
+.inst-app-input-group input:focus, 
+.inst-app-input-group textarea:focus,
+.inst-app-input-group select:focus { 
+    outline: none; 
+    border-color: #075eec; 
+}
+
+/* File Upload Styles */
+.inst-app-file-upload {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    border: 2px dashed #075eec;
+    border-radius: 12px;
+    background: #f8faff;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    text-align: center;
+}
+.inst-app-file-upload:hover {
+    background: #eef3ff;
+}
+.inst-app-file-upload i {
+    font-size: 24px;
+    color: #075eec;
+    margin-bottom: 8px;
+}
+.inst-app-file-upload span {
+    font-size: 14px;
+    color: #075eec;
+    font-weight: 500;
+}
+
+/* Button Styles */
+.inst-app-btn-primary {
+  width: 100%; 
+  background: #075eec; 
+  color: #fff; 
+  border: none;
+  padding: 14px; 
+  font-size: 16px; 
+  font-weight: 600; 
+  border-radius: 12px;
+  cursor: pointer; 
+  transition: 0.3s;
+}
+.inst-app-btn-primary:hover { background: #0647b9; }
+.inst-app-btn-primary:disabled { background: #a0c1f7; cursor: not-allowed; }
+
+/* Status Messages */
+.inst-app-error { color: #d93025; background-color: #fce8e6; padding: 10px; border-radius: 8px; font-size: 14px; text-align: center; margin-bottom: 15px; }
+.inst-app-success { color: #188038; background-color: #e6f4ea; padding: 10px; border-radius: 8px; font-size: 14px; text-align: center; margin-bottom: 15px; }

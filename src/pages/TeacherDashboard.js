@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { auth, db, storage } from '../firebase';
@@ -20,6 +20,8 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import MarksManager from './MarksManager';
 import AssignmentMarksManager from './AssignmentMarksManager';
+import { useInstitution } from '../contexts/InstitutionContext';
+import FeatureGuard from '../components/FeatureGuard';
 
 
 // Component Imports
@@ -869,7 +871,7 @@ const DashboardHome = ({
     sessionType, setSessionType, selectedBatch, setSelectedBatch,
     rollStart, setRollStart, rollEnd, setRollEnd,
     historySemester, setHistorySemester, getSubjectForHistory, historyLoading,
-    selectedDiv, setRefreshTrigger, currentAcademicYear, selectedSubject,setHistoryLoading, setHistorySessions, refreshTrigger
+    selectedDiv, setRefreshTrigger, currentAcademicYear, selectedSubject, setHistoryLoading, setHistorySessions, refreshTrigger
 }) => {
     const [qrCodeValue, setQrCodeValue] = useState('');
     const [timer, setTimer] = useState(25);
@@ -887,7 +889,10 @@ const DashboardHome = ({
     const [pastAbsent, setPastAbsent] = useState("");
     const [pastLoading, setPastLoading] = useState(false);
     const [reportBatchFilter, setReportBatchFilter] = useState('All');
-    // ✅ FIX 1: Auto-reset the Batch Filter when switching Divisions so it doesn't get stuck!
+    const { config } = useInstitution();
+    const theoryLabel = config?.terminology?.theory || "Theory";
+    const practicalLabel = config?.terminology?.practical || "Practical";
+    
     useEffect(() => {
         setReportBatchFilter('All');
     }, [selectedDiv, selectedYear]);
@@ -974,15 +979,15 @@ const DashboardHome = ({
         }
     };
 
- const filteredHistorySessions = historySessions.filter(session => {
+    const filteredHistorySessions = historySessions.filter(session => {
         if (reportFilter !== 'All' && session.type !== reportFilter.toLowerCase()) return false;
-        
+
         if (reportFilter === 'Practical' && reportBatchFilter !== 'All') {
             const sBatch = String(session.batch || '').trim().toLowerCase();
             const rFilter = String(reportBatchFilter || '').trim().toLowerCase();
             if (sBatch !== rFilter) return false;
         }
-        
+
         return true;
     });
 
@@ -999,7 +1004,7 @@ const DashboardHome = ({
                 const r = parseInt(st.rollNo);
                 return r >= s && r <= e;
             });
-            
+
             if (studentsForReport.length === 0) {
                 studentsForReport = allStudentsReport;
             }
@@ -1664,8 +1669,26 @@ const DashboardHome = ({
                                 <div style={{ marginBottom: '15px' }}>
                                     {/* Session Type Toggle (Theory / Practical) */}
                                     <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
-                                        <button onClick={() => setSessionType('theory')} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: sessionType === 'theory' ? '#2563eb' : 'white', color: sessionType === 'theory' ? 'white' : '#64748b', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold', boxShadow: sessionType === 'theory' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none' }}>Theory</button>
-                                        <button onClick={() => setSessionType('practical')} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: sessionType === 'practical' ? '#2563eb' : 'white', color: sessionType === 'practical' ? 'white' : '#64748b', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold', boxShadow: sessionType === 'practical' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none' }}>Practical</button>
+
+                                        <FeatureGuard requiredModule="theory">
+                                            <button onClick={() => setSessionType('theory')} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: sessionType === 'theory' ? '#2563eb' : 'white', color: sessionType === 'theory' ? 'white' : '#64748b', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold', boxShadow: sessionType === 'theory' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none' }}>
+                                                {theoryLabel}
+                                            </button>
+                                        </FeatureGuard>
+
+                                        <FeatureGuard requiredModule="practical">
+                                            <button onClick={() => setSessionType('practical')} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: sessionType === 'practical' ? '#2563eb' : 'white', color: sessionType === 'practical' ? 'white' : '#64748b', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold', boxShadow: sessionType === 'practical' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none' }}>
+                                                {practicalLabel}
+                                            </button>
+                                        </FeatureGuard>
+
+                                        {/* Example of how you will add future generic modules! */}
+                                        <FeatureGuard requiredModule="clinical_posting">
+                                            <button onClick={() => setSessionType('clinical_posting')} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: sessionType === 'clinical_posting' ? '#2563eb' : 'white', color: sessionType === 'clinical_posting' ? 'white' : '#64748b', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold', boxShadow: sessionType === 'clinical_posting' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none' }}>
+                                                {config?.terminology?.clinical_posting || "Clinicals"}
+                                            </button>
+                                        </FeatureGuard>
+
                                     </div>
 
                                     {/* Practical Config (Restored Roll Nos) */}
@@ -2871,14 +2894,14 @@ export default function TeacherDashboard() {
     const [historyLoading, setHistoryLoading] = useState(false);
     const navigate = useNavigate();
     const [refreshTrigger, setRefreshTrigger] = useState(0);
-   // ✅ 3. PROPER SEMESTER & DIVISION FILTERING IN REPORTS TAB
+    // ✅ 3. PROPER SEMESTER & DIVISION FILTERING IN REPORTS TAB
     const getSubjectForHistory = () => {
         if (!teacherInfo?.assignedClasses) return selectedSubject || teacherInfo?.subject || "Subject";
 
         // Find the class that matches Year, Semester, AND the specifically selected Division!
         const semClass = teacherInfo.assignedClasses.find(c => {
             const isYearSemMatch = c.year === selectedYear && Number(c.semester) === Number(historySemester);
-            
+
             // 🚨 THE FIX: Make sure we grab the subject for the CORRECT division!
             if (isYearSemMatch && selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
                 if (c.divisions && c.divisions.toLowerCase() !== 'all') {
@@ -2962,7 +2985,7 @@ export default function TeacherDashboard() {
         return () => unsubscribe();
     }, [teacherInfo?.instituteId, teacherInfo?.department]);
 
-   // ✅ 2. SET HOD'S SEMESTER AS DEFAULT IN REPORTS
+    // ✅ 2. SET HOD'S SEMESTER AS DEFAULT IN REPORTS
     useEffect(() => {
         if (!selectedYear) return;
 
@@ -3094,7 +3117,7 @@ export default function TeacherDashboard() {
         const fetchHistory = async () => {
             if (!teacherInfo?.instituteId || !selectedYear) return;
 
-            setHistoryLoading(true); 
+            setHistoryLoading(true);
 
             const targetSubject = getSubjectForHistory();
             if (!targetSubject) {
@@ -3136,20 +3159,20 @@ export default function TeacherDashboard() {
                     where('teacherId', '==', auth.currentUser.uid)
                 );
                 const sessionSnap = await getDocs(qSessions);
-                
+
                 const sessionsMap = {};
                 const sessionIds = [];
 
                 sessionSnap.docs.forEach(doc => {
                     const data = doc.data();
-                    
+
                     const sessionAcadYear = data.academicYear || currentAcademicYear;
                     if (sessionAcadYear !== currentAcademicYear) return;
-                    
+
                     const dataSubj = String(data.subject || '').trim().toLowerCase();
                     const targetSubj = String(targetSubject).trim().toLowerCase();
                     if (dataSubj !== targetSubj) return;
-                    
+
                     const sessionYear = String(data.targetYear || data.year || '').trim().toUpperCase();
                     const targetYr = String(selectedYear).trim().toUpperCase();
                     if (sessionYear !== 'ALL' && sessionYear !== targetYr) return;
@@ -3159,7 +3182,7 @@ export default function TeacherDashboard() {
                         const targetDiv = String(selectedDiv).trim().toUpperCase();
                         if (sessionDiv !== 'ALL' && sessionDiv !== targetDiv) {
                             const divsArray = sessionDiv.split(',').map(d => d.trim());
-                            if (!divsArray.includes(targetDiv)) return; 
+                            if (!divsArray.includes(targetDiv)) return;
                         }
                     }
 
@@ -3194,7 +3217,7 @@ export default function TeacherDashboard() {
                     const chunk = sessionIds.slice(i, i + 10);
                     const qAtt = query(
                         collection(db, 'attendance'),
-                        where('instituteId', '==', teacherInfo.instituteId), 
+                        where('instituteId', '==', teacherInfo.instituteId),
                         where('sessionId', 'in', chunk),
                         where('status', '==', 'Present')
                     );
@@ -3210,7 +3233,7 @@ export default function TeacherDashboard() {
 
                 const finalSessions = Object.values(sessionsMap).map(session => {
                     let targetStudents = allStudents;
-                    
+
                     // 🚨 SAFE PRACTICAL BATCH FILTERING (Fallback applied)
                     if (session.type === 'practical' && session.rollRange && session.rollRange.start && session.rollRange.end) {
                         const sNum = parseInt(session.rollRange.start);
@@ -3683,7 +3706,7 @@ export default function TeacherDashboard() {
                                 // 2. Default for SE/TE/BE (✅ FIX: Subject added to uniqueKey)
                                 return [{ ...cls, displayDiv: null, uniqueKey: `${cls.year}-${cls.subject}` }];
                             }).map(cls => (
-                               <button
+                                <button
                                     key={cls.uniqueKey}
                                     onClick={() => {
                                         setSelectedYear(cls.year);
@@ -3796,9 +3819,17 @@ export default function TeacherDashboard() {
                     <NavLink page="analytics" iconClass="fa-chart-bar" label="Analytics" />
                     <NavLink page="announcements" iconClass="fa-bullhorn" label="Announcements" />
                     <NavLink page="addTasks" iconClass="fa-tasks" label="Add Tasks" />
-                    <NavLink page="marks" iconClass="fa-clipboard-check" label="Marks & Results" />
-                    <NavLink page="cce" iconClass="fa-calculator" label="CCE Manager" />
-                    <NavLink page="assignmentMarks" iconClass="fa-file-signature" label="Assignment Marks" />
+                    <FeatureGuard requiredModule="exam_marks">
+                        <NavLink page="marks" iconClass="fa-clipboard-check" label="Marks & Results" />
+                    </FeatureGuard>
+
+                    <FeatureGuard requiredModule="cce_automation">
+                        <NavLink page="cce" iconClass="fa-calculator" label="CCE Manager" />
+                    </FeatureGuard>
+
+                    <FeatureGuard requiredModule="assignment_marks">
+                        <NavLink page="assignmentMarks" iconClass="fa-file-signature" label="Assignment Marks" />
+                    </FeatureGuard>
 
                     {/* ✅ ADDED PROFILE TAB */}
                     <NavLink page="profile" iconClass="fa-user-circle" label="Profile" />
