@@ -73,12 +73,13 @@ body {
   font-size: 28px; font-weight: 800; color: #111827; margin-bottom: 10px;
 }
 
-.highlight { 
+/* ✅ SCOPED FIX: Only apply to Login/App wrappers so it doesn't break dashboard text */
+.login-wrapper .highlight, .application-wrapper .highlight { 
   background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%); 
   -webkit-background-clip: text; -webkit-text-fill-color: transparent; 
 }
 
-.subtitle {
+.login-wrapper .subtitle, .application-wrapper .subtitle {
   font-size: 15px; color: #6B7280; font-weight: 500;
 }
 
@@ -87,24 +88,33 @@ body {
   text-align: left; display: flex; flex-direction: column; gap: 20px;
 }
 
-.input-group { display: flex; flex-direction: column; gap: 8px; }
+/* ✅ SCOPED FIX: Only target input groups inside the login/app forms */
+.login-form .input-group, .application-form .input-group { 
+  display: flex; flex-direction: column; gap: 8px; 
+}
 
-.input-group label {
+.login-form .input-group label, .application-form .input-group label {
   font-size: 13px; font-weight: 700; color: #374151; text-transform: uppercase; margin-left: 4px;
 }
 
-.input-group input, .input-group select, .input-group textarea {
+.login-form .input-group input, 
+.login-form .input-group select, 
+.login-form .input-group textarea,
+.application-form .input-group input,
+.application-form .input-group select,
+.application-form .input-group textarea {
   width: 100%; height: 56px; border: 2px solid transparent; border-radius: 16px;
   padding: 0 20px; font-size: 16px; background: #F3F4F6; color: #1F2937;
   transition: all 0.2s;
 }
 
-.input-group input:focus { 
+.login-form .input-group input:focus,
+.application-form .input-group input:focus { 
   outline: none; background: #FFFFFF; border-color: #8B5CF6; box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.15); 
 }
 
 /* Buttons */
-.btn-primary {
+.login-wrapper .btn-primary, .application-wrapper .btn-primary {
   width: 100%; height: 56px;
   background: linear-gradient(135deg, #3B82F6 0%, #7C3AED 100%);
   color: white; border: none; border-radius: 16px;
@@ -112,22 +122,28 @@ body {
   display: flex; align-items: center; justify-content: center;
   box-shadow: 0 10px 20px -5px rgba(124, 58, 237, 0.4);
 }
-.btn-primary:active { transform: scale(0.98); }
+.login-wrapper .btn-primary:active, .application-wrapper .btn-primary:active { 
+  transform: scale(0.98); 
+}
 
-.separator { 
+.login-wrapper .separator, .application-wrapper .separator { 
   display: flex; align-items: center; text-align: center; color: #9CA3AF; 
   font-size: 12px; font-weight: 600; margin: 24px 0; 
 }
-.separator::before, .separator::after { content: ''; flex: 1; border-bottom: 1px solid #E5E7EB; }
-.separator::before { margin-right: 16px; } .separator::after { margin-left: 16px; }
+.login-wrapper .separator::before, .login-wrapper .separator::after,
+.application-wrapper .separator::before, .application-wrapper .separator::after { 
+  content: ''; flex: 1; border-bottom: 1px solid #E5E7EB; 
+}
+.login-wrapper .separator::before, .application-wrapper .separator::before { margin-right: 16px; } 
+.login-wrapper .separator::after, .application-wrapper .separator::after { margin-left: 16px; }
 
-.btn-google {
+.login-wrapper .btn-google, .application-wrapper .btn-google {
   width: 100%; height: 56px; background: #FFFFFF; color: #1F2937;
   border: 1px solid #E5E7EB; border-radius: 16px; font-weight: 600;
   display: flex; align-items: center; justify-content: center; gap: 12px; cursor: pointer;
 }
 
-.error-message { 
+.login-wrapper .error-message, .application-wrapper .error-message { 
   background: #FEF2F2; color: #DC2626; padding: 14px; border-radius: 12px; 
   font-size: 14px; font-weight: 600; border: 1px solid #FECACA; text-align: center; 
 }
@@ -171,6 +187,13 @@ body {
     padding-bottom: calc(60px + env(safe-area-inset-bottom)); 
   }
 
-  .login-header h1 { font-size: 32px; }
-  .input-group input, .btn-primary, .btn-google { height: 60px; font-size: 17px; }
+  .login-header h1, .application-header h1 { font-size: 32px; }
+  .login-form .input-group input, 
+  .application-form .input-group input, 
+  .login-wrapper .btn-primary, 
+  .application-wrapper .btn-primary, 
+  .login-wrapper .btn-google,
+  .application-wrapper .btn-google { 
+    height: 60px; font-size: 17px; 
+  }
 }

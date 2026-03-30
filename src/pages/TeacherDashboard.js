@@ -438,6 +438,8 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv, currentAcade
     const [graphType, setGraphType] = useState('theory');
     const [timeRange, setTimeRange] = useState('week');
     const [classStrength, setClassStrength] = useState(0);
+    const { config } = useInstitution();
+    const activeModules = config?.activeModules || ['theory', 'practical'];
 
     useEffect(() => {
         const fetchAnalytics = async () => {
@@ -627,9 +629,25 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv, currentAcade
                         <button onClick={() => setTimeRange('month')} style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', background: timeRange === 'month' ? 'white' : 'transparent', color: timeRange === 'month' ? '#0f172a' : '#64748b', boxShadow: timeRange === 'month' ? '0 2px 5px rgba(0,0,0,0.05)' : 'none' }}>Month</button>
                     </div>
 
-                    <div style={{ background: '#e2e8f0', padding: '4px', borderRadius: '8px', display: 'flex' }}>
-                        <button onClick={() => setGraphType('theory')} style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', background: graphType === 'theory' ? 'white' : 'transparent', color: graphType === 'theory' ? '#2563eb' : '#64748b', boxShadow: graphType === 'theory' ? '0 2px 5px rgba(0,0,0,0.1)' : 'none' }}>Theory</button>
-                        <button onClick={() => setGraphType('practical')} style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', background: graphType === 'practical' ? 'white' : 'transparent', color: graphType === 'practical' ? '#7c3aed' : '#64748b', boxShadow: graphType === 'practical' ? '0 2px 5px rgba(0,0,0,0.1)' : 'none' }}>Lab</button>
+                    
+                    <div style={{ background: '#e2e8f0', padding: '4px', borderRadius: '8px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                        {activeModules.map(mod => {
+                            const label = config?.terminology?.[mod] || mod.charAt(0).toUpperCase() + mod.slice(1).replace('_', ' ');
+                            return (
+                                <button
+                                    key={mod}
+                                    onClick={() => setGraphType(mod)}
+                                    style={{
+                                        padding: '6px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer',
+                                        fontSize: '12px', fontWeight: 'bold',
+                                        background: graphType === mod ? 'white' : 'transparent',
+                                        color: graphType === mod ? '#2563eb' : '#64748b',
+                                        boxShadow: graphType === mod ? '0 2px 5px rgba(0,0,0,0.1)' : 'none'
+                                    }}>
+                                    {label}
+                                </button>
+                            );
+                        })}
                     </div>
                 </div>
             </div>
@@ -701,7 +719,7 @@ const prepareReportData = (sessions, allStudents) => {
 
     // 2. Define Columns (Date headers with Batch Info)
     const dateColumns = sortedSessions.map((s) => ({
-        header: `${s.startTime.split(',')[0].slice(0, 5)}\n${s.type === 'practical' ? `(Pr-${s.batch})` : '(Th)'}`,
+        header: `${s.startTime.split(',')[0].slice(0, 5)}\n${s.type !== 'theory' ? `(${s.batch})` : '(Th)'}`,
         dataKey: s.sessionId
     }));
 
@@ -735,8 +753,7 @@ const prepareReportData = (sessions, allStudents) => {
 
         sortedSessions.forEach(session => {
             let isApplicable = true;
-            // Check applicability (e.g. Practical Batch)
-            if (session.type === 'practical' && session.rollRange) {
+            if (session.type !== 'theory' && session.rollRange) {
                 const r = parseInt(student.rollNo);
                 if (r < session.rollRange.start || r > session.rollRange.end) isApplicable = false;
             }
@@ -873,7 +890,7 @@ const DashboardHome = ({
     historySemester, setHistorySemester, getSubjectForHistory, historyLoading,
     selectedDiv, setRefreshTrigger, currentAcademicYear, selectedSubject, setHistoryLoading, setHistorySessions, refreshTrigger
 }) => {
-    
+
     const [qrCodeValue, setQrCodeValue] = useState('');
     const [timer, setTimer] = useState(25);
     const [manualRoll, setManualRoll] = useState("");
@@ -884,20 +901,19 @@ const DashboardHome = ({
     const [editingSession, setEditingSession] = useState(null);
     const [sessionToDelete, setSessionToDelete] = useState(null);
     const [allStudentsReport, setAllStudentsReport] = useState([]);
-    const [reportFilter, setReportFilter] = useState('All');
+    const [reportFilter, setReportFilter] = useState('all');
     const [pastDate, setPastDate] = useState(new Date().toISOString().split('T')[0]);
     const [pastType, setPastType] = useState('theory');
     const [pastAbsent, setPastAbsent] = useState("");
     const [pastLoading, setPastLoading] = useState(false);
     const [reportBatchFilter, setReportBatchFilter] = useState('All');
     const { config } = useInstitution();
-    console.log("Current Teacher's Config:", config);
 
-    
+
     const theoryLabel = config?.terminology?.theory || "Theory";
     const practicalLabel = config?.terminology?.practical || "Practical";
-    
-    
+
+
     useEffect(() => {
         setReportBatchFilter('All');
     }, [selectedDiv, selectedYear]);
@@ -984,21 +1000,38 @@ const DashboardHome = ({
         }
     };
 
-    const filteredHistorySessions = historySessions.filter(session => {
-        if (reportFilter !== 'All' && session.type !== reportFilter.toLowerCase()) return false;
+// --- 🟢 NEW: DYNAMIC REPORT FILTERS ---
+    const filterOptions = [{ id: 'all', label: 'All' }];
+    
+    // We safely check if config exists, otherwise we default to standard theory/practical
+    if (config && config.activeModules) {
+        config.activeModules.forEach(mod => {
+            filterOptions.push({
+                id: mod,
+                label: config.terminology?.[mod] || mod.charAt(0).toUpperCase() + mod.slice(1).replace('_', ' ')
+            });
+        });
+    } else {
+        filterOptions.push({ id: 'theory', label: 'Theory' });
+        filterOptions.push({ id: 'practical', label: 'Practical' });
+    }
 
-        if (reportFilter === 'Practical' && reportBatchFilter !== 'All') {
+    const filteredHistorySessions = historySessions.filter(session => {
+        // 1. Filter by Module Type
+        if (reportFilter !== 'all' && session.type !== reportFilter) return false;
+
+        // 2. Filter by Batch (if it's a non-theory session)
+        if (reportFilter !== 'theory' && reportFilter !== 'all' && reportBatchFilter !== 'All') {
             const sBatch = String(session.batch || '').trim().toLowerCase();
             const rFilter = String(reportBatchFilter || '').trim().toLowerCase();
             if (sBatch !== rFilter) return false;
         }
-
         return true;
     });
 
     // ✅ NEW: Filter Students for PDF/Excel Export safely
     let studentsForReport = allStudentsReport;
-    if (reportFilter === 'Practical' && reportBatchFilter !== 'All') {
+    if (reportFilter !== 'theory' && reportFilter !== 'all' && reportBatchFilter !== 'All') {
         const batchKey = `${selectedYear}_${reportBatchFilter}`;
         const bSettings = teacherInfo?.batchSettings?.[batchKey];
 
@@ -1009,10 +1042,7 @@ const DashboardHome = ({
                 const r = parseInt(st.rollNo);
                 return r >= s && r <= e;
             });
-
-            if (studentsForReport.length === 0) {
-                studentsForReport = allStudentsReport;
-            }
+            if (studentsForReport.length === 0) studentsForReport = allStudentsReport;
         } else {
             const ranges = filteredHistorySessions.map(s => s.rollRange).filter(Boolean);
             if (ranges.length > 0) {
@@ -1025,7 +1055,6 @@ const DashboardHome = ({
             }
         }
     }
-
 
     // --- 🟢 NEW: Batch Option Generator ---
     const getBatchOptions = () => {
@@ -2001,32 +2030,46 @@ const DashboardHome = ({
                             />
                         </div>
 
-                        {/* 👇 REPLACE FROM "Report Type Toggle" DOWN TO "export-actions" WITH THIS 👇 */}
                         {/* Report Type Toggle */}
                         <div style={{ flex: 1.5, minWidth: '200px' }}>
                             <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>Report Type</label>
-                            <div style={{ display: 'flex', gap: '5px', background: 'white', padding: '4px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-                                {['All', 'Theory', 'Practical'].map(type => (
+                            <div style={{ display: 'flex', gap: '5px', background: 'white', padding: '4px', borderRadius: '10px', border: '1px solid #e2e8f0', flexWrap: 'wrap' }}>
+                                {filterOptions.map(opt => (
                                     <button
-                                        key={type}
+                                        key={opt.id}
                                         onClick={() => {
-                                            setReportFilter(type);
-                                            // ✅ Reset batch filter if switching away from practical
-                                            if (type !== 'Practical') setReportBatchFilter('All');
+                                            setReportFilter(opt.id);
+                                            if (opt.id === 'theory' || opt.id === 'all') setReportBatchFilter('All');
                                         }}
                                         style={{
                                             flex: 1, padding: '8px', border: 'none',
-                                            background: reportFilter === type ? '#eff6ff' : 'transparent',
-                                            color: reportFilter === type ? '#2563eb' : '#64748b',
+                                            background: reportFilter === opt.id ? '#eff6ff' : 'transparent',
+                                            color: reportFilter === opt.id ? '#2563eb' : '#64748b',
                                             fontWeight: '700', borderRadius: '8px', cursor: 'pointer',
-                                            fontSize: '12px', transition: 'all 0.2s'
+                                            fontSize: '12px', transition: 'all 0.2s', minWidth: '80px'
                                         }}
                                     >
-                                        {type}
+                                        {opt.label}
                                     </button>
                                 ))}
                             </div>
                         </div>
+
+                        {/* ✅ NEW: Batch Filter for Non-Theory Reports */}
+                        {reportFilter !== 'theory' && reportFilter !== 'all' && (
+                            <div style={{ flex: 1, minWidth: '120px' }}>
+                                <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>Batch / Group</label>
+                                <CustomDropdown
+                                    value={reportBatchFilter}
+                                    onChange={(val) => setReportBatchFilter(val)}
+                                    options={[
+                                        { value: 'All', label: 'All Batches' },
+                                        ...getBatchOptions()
+                                    ]}
+                                    placeholder="Select Batch"
+                                />
+                            </div>
+                        )}
 
                         {/* ✅ NEW: Batch Filter for Practical Reports */}
                         {reportFilter === 'Practical' && (
@@ -2060,14 +2103,16 @@ const DashboardHome = ({
                             </div>
                         </div>
 
-                        {/* ✅ MODERN EXPORT BUTTONS (Now using studentsForReport) */}
+                       {/* ✅ MODERN EXPORT BUTTONS */}
                         <div className="export-actions">
                             <button
                                 onClick={() => {
                                     if (filteredHistorySessions.length === 0) return toast.error("No data matches current filter");
+                                    const activeLabel = filterOptions.find(o => o.id === reportFilter)?.label || 'Report';
+                                    const batchLabel = (reportFilter !== 'theory' && reportFilter !== 'all' && reportBatchFilter !== 'All') ? ` - Batch ${reportBatchFilter}` : '';
                                     generatePDFReport(
                                         teacherInfo, selectedYear, selectedDiv,
-                                        `${getSubjectForHistory()} (${reportFilter}${reportFilter === 'Practical' && reportBatchFilter !== 'All' ? ` - Batch ${reportBatchFilter}` : ''})`,
+                                        `${getSubjectForHistory()} (${activeLabel}${batchLabel})`,
                                         startDate, endDate, filteredHistorySessions, studentsForReport
                                     );
                                 }}
@@ -2087,7 +2132,7 @@ const DashboardHome = ({
                                         { label: "Attended", key: "totalAttended" },
                                         { label: "Percentage", key: "percentage" }
                                     ]}
-                                    filename={`Attendance_${reportFilter}${reportFilter === 'Practical' && reportBatchFilter !== 'All' ? `_Batch_${reportBatchFilter}` : ''}_${getSubjectForHistory()}.csv`}
+                                    filename={`Attendance_${reportFilter}${(reportFilter !== 'theory' && reportFilter !== 'all' && reportBatchFilter !== 'All') ? `_Batch_${reportBatchFilter}` : ''}_${getSubjectForHistory()}.csv`}
                                     className="btn-export btn-excel"
                                 >
                                     <i className="fas fa-file-excel"></i> Excel

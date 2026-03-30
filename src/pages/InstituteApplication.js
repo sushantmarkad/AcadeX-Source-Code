@@ -108,7 +108,7 @@ export default function InstituteApplication() {
               />
             </div>
 
-            {/* ✅ NEW DOMAIN SELECTION DROPDOWN */}
+          {/* ✅ NEW DOMAIN SELECTION DROPDOWN */}
             <div className="inst-app-input-group">
                 <label>Institute Type / Domain *</label>
                 <div className="inst-app-select-wrapper">
@@ -119,7 +119,8 @@ export default function InstituteApplication() {
                     >
                         <option value="ENGINEERING">Engineering & Technology</option>
                         <option value="MEDICAL">Medical (MBBS/MD)</option>
-                        <option value="PHARMACY">Pharmacy</option>
+                        <option value="PHARMACY">Pharmacy (B.Pharm/M.Pharm)</option>
+                        <option value="PHARM_D">Pharm.D (Doctor of Pharmacy)</option>
                         <option value="NURSING">Nursing</option>
                         <option value="AGRICULTURE">Agriculture</option>
                         <option value="ARTS_SCIENCE">Arts, Commerce & Science</option>

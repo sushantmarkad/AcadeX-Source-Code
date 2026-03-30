@@ -12,6 +12,8 @@ import AddHOD from './AddHOD';
 import AddDepartment from './AddDepartment';
 import ManageInstituteUsers from './ManageInstituteUsers';
 import BulkAddStudents from './BulkAddStudents'; 
+import ManageCurriculum from './ManageCurriculum'; // Add this with your other imports
+import { useInstitution } from '../contexts/InstitutionContext'; // Add this to get config
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
@@ -964,6 +966,7 @@ const FaceRequestsManager = ({ user }) => {
                     <NavLink page="dashboard" iconClass="fa-tachometer-alt" label="Dashboard" />
                     <NavLink page="addDepartment" iconClass="fa-building" label="Departments" />
                     <NavLink page="addHOD" iconClass="fa-user-tie" label="Add HOD" />
+                    <NavLink page="curriculum" iconClass="fa-book" label="Manage Curriculum" />
                     <NavLink page="bulkStudents" iconClass="fa-file-upload" label="Bulk Upload" />
                     <NavLink page="manageUsers" iconClass="fa-users" label="Manage Users" />
                     <NavLink page="promote" iconClass="fa-level-up-alt" label="Promote Students" />

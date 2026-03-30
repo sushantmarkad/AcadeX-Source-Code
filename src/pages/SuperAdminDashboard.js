@@ -185,36 +185,60 @@ export default function SuperAdminDashboard() {
 const generateDomainTemplate = (domain, instituteName) => {
     // This is where you define what different colleges get out of the box
     const templates = {
+        'ENGINEERING': {
+            activeModules: ["theory", "practical", "tutorial"],
+            terminology: { departmentHead: "HOD", practical: "Practical" },
+            academicYears: ["FE", "SE", "TE", "BE"],
+            hasFirstYearDivisions: true,  // Engineering uses Div A, Div B in 1st year
+            hasDepartmentsInFirstYear: false // Engineering 1st year is usually common
+        },
+        'AGRICULTURE': {
+            activeModules: ["theory", "practical", "field_work"],
+            terminology: { departmentHead: "HOD", practical: "Field Practical" },
+            academicYears: ["First Year", "Second Year", "Third Year", "Fourth Year"],
+            hasFirstYearDivisions: false, 
+            hasDepartmentsInFirstYear: true 
+        },
         'MEDICAL': {
             activeModules: ["theory", "practical", "clinical_posting", "ward_duty"],
-            terminology: { departmentHead: "Unit Head", practical: "Clinical Lab" }
+            terminology: { departmentHead: "Unit Head", practical: "Clinical Lab" },
+            academicYears: ["First Year", "Second Year", "Third Year", "Fourth Year", "Internship"],
+            hasFirstYearDivisions: false,
+            hasDepartmentsInFirstYear: true
         },
         'PHARMACY': {
             activeModules: ["theory", "practical", "industry_visit"],
-            terminology: { departmentHead: "HOD", practical: "Lab" }
+            terminology: { departmentHead: "HOD", practical: "Lab" },
+            academicYears: ["First Year", "Second Year", "Third Year", "Fourth Year"],
+            hasFirstYearDivisions: false,
+            hasDepartmentsInFirstYear: true
         },
-        'ENGINEERING': {
-            activeModules: ["theory", "practical", "tutorial"],
-            terminology: { departmentHead: "HOD", practical: "Practical" }
+        // 👇 NEW: Doctor of Pharmacy (6-Year Course) 👇
+        'PHARM_D': {
+            activeModules: ["theory", "practical", "clinical_posting", "clerkship"],
+            terminology: { departmentHead: "HOD", practical: "Lab" },
+            academicYears: ["First Year", "Second Year", "Third Year", "Fourth Year", "Fifth Year", "Internship"],
+            hasFirstYearDivisions: false,
+            hasDepartmentsInFirstYear: true
         },
-        // 👇 ADDED AGRICULTURE 👇
-        'AGRICULTURE': {
-            activeModules: ["theory", "practical", "field_work"],
-            terminology: { departmentHead: "HOD", practical: "Field Practical" }
-        },
-        // 👇 ADDED NURSING 👇
+        // 👇 UPDATED: Nursing (Includes Ward Duty & Clinicals) 👇
         'NURSING': {
-            activeModules: ["theory", "practical", "clinical_posting"],
-            terminology: { departmentHead: "HOD", practical: "Lab" }
+            activeModules: ["theory", "practical", "clinical_posting", "ward_duty"],
+            terminology: { departmentHead: "HOD", practical: "Nursing Lab" },
+            academicYears: ["First Year", "Second Year", "Third Year", "Fourth Year", "Internship"],
+            hasFirstYearDivisions: false,
+            hasDepartmentsInFirstYear: true
         },
-        // 👇 ADDED ARTS & SCIENCE 👇
         'ARTS_SCIENCE': {
             activeModules: ["theory", "practical"],
-            terminology: { departmentHead: "HOD", practical: "Practical" }
+            terminology: { departmentHead: "HOD", practical: "Practical" },
+            academicYears: ["First Year", "Second Year", "Third Year"],
+            hasFirstYearDivisions: true, // Often have divisions due to high student intake
+            hasDepartmentsInFirstYear: true
         }
     };
 
-    // Default to Engineering if no domain was selected
+    // Default to Engineering if no domain was selected or if there is a typo
     const selectedTemplate = templates[domain?.toUpperCase()] || templates['ENGINEERING'];
 
     return {
