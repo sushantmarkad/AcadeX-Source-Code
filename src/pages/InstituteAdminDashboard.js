@@ -521,6 +521,7 @@ const FaceRequestsManager = ({ user }) => {
             case 'dashboard': return <DashboardHome instituteName={instituteName} instituteId={instituteId} />;
             case 'addDepartment': return <AddDepartment instituteId={instituteId} instituteName={instituteName} showModal={showModal} />;
             case 'addHOD': return <AddHOD instituteId={instituteId} instituteName={instituteName} showModal={showModal} />;
+            case 'curriculum': return <ManageCurriculum instituteId={instituteId} />;
             
             case 'bulkStudents': return <BulkAddStudents instituteId={instituteId} instituteName={instituteName} />;
             case 'manageUsers': return <ManageInstituteUsers instituteId={instituteId} showModal={showModal} />;
