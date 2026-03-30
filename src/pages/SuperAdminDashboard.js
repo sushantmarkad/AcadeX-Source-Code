@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
+
 import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { auth, db, sendPasswordResetEmail } from '../firebase';
-import { collection, onSnapshot, doc, updateDoc, getDoc } from 'firebase/firestore'; 
+import { collection, onSnapshot, doc, updateDoc, getDoc, setDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion'; 
 import './Dashboard.css'; 
 import './SuperAdminDashboard.css'; 
 import logo from "../assets/logo.png";
+
 
 // ✅ Re-import 2FA Component
 import TwoFactorSetup from '../components/TwoFactorSetup';
@@ -180,9 +182,52 @@ export default function SuperAdminDashboard() {
         }
     };
 
+const generateDomainTemplate = (domain, instituteName) => {
+    // This is where you define what different colleges get out of the box
+    const templates = {
+        'MEDICAL': {
+            activeModules: ["theory", "practical", "clinical_posting", "ward_duty"],
+            terminology: { departmentHead: "Unit Head", practical: "Clinical Lab" }
+        },
+        'PHARMACY': {
+            activeModules: ["theory", "practical", "industry_visit"],
+            terminology: { departmentHead: "HOD", practical: "Lab" }
+        },
+        'ENGINEERING': {
+            activeModules: ["theory", "practical", "tutorial"],
+            terminology: { departmentHead: "HOD", practical: "Practical" }
+        },
+        // 👇 ADDED AGRICULTURE 👇
+        'AGRICULTURE': {
+            activeModules: ["theory", "practical", "field_work"],
+            terminology: { departmentHead: "HOD", practical: "Field Practical" }
+        },
+        // 👇 ADDED NURSING 👇
+        'NURSING': {
+            activeModules: ["theory", "practical", "clinical_posting"],
+            terminology: { departmentHead: "HOD", practical: "Lab" }
+        },
+        // 👇 ADDED ARTS & SCIENCE 👇
+        'ARTS_SCIENCE': {
+            activeModules: ["theory", "practical"],
+            terminology: { departmentHead: "HOD", practical: "Practical" }
+        }
+    };
+
+    // Default to Engineering if no domain was selected
+    const selectedTemplate = templates[domain?.toUpperCase()] || templates['ENGINEERING'];
+
+    return {
+        name: instituteName,
+        domain: domain || 'ENGINEERING',
+        ...selectedTemplate
+    };
+};
+
     // --- APPLICATION ACTIONS ---
-    const handleApproval = async (app) => {
-        const toastId = toast.loading("Creating Admin Account...");
+  const handleApproval = async (app) => {
+        // Updated loading message
+        const toastId = toast.loading("Creating Admin Account & Setting up Institute..."); 
         try {
             const tempPassword = Math.random().toString(36).slice(-8) + "Aa1@"; 
             const response = await fetch(`${BACKEND_URL}/createUser`, {
@@ -196,9 +241,17 @@ export default function SuperAdminDashboard() {
             });
             if (!response.ok) throw new Error("Backend creation failed");
             const data = await response.json();
+
+            // 👇 ADDED: Generate and save the master configuration for this institute 👇
+            const instituteConfig = generateDomainTemplate(app.domain, app.instituteName);
+            await setDoc(doc(db, "Institutions", app.id), instituteConfig);
+            // ☝️ ------------------------------------------------------------------ ☝️
+
             await updateDoc(doc(db, "applications", app.id), { status: 'approved', adminUid: data.uid });
             await sendPasswordResetEmail(auth, app.email);
-            toast.success(`Approved! Login email sent to ${app.email}`, { id: toastId });
+            
+            // Updated success message to show the domain it was configured for
+            toast.success(`Approved! Configured as ${instituteConfig.domain}. Login email sent.`, { id: toastId });
         } catch (error) {
             toast.error("Approval Failed: " + error.message, { id: toastId });
         }
@@ -452,18 +505,25 @@ export default function SuperAdminDashboard() {
                             </div>
                         </div>
 
-                        {/* PENDING TABLE */}
+                       {/* PENDING TABLE */}
                         <h3 style={{marginTop:'40px', marginBottom:'15px', color:'#b45309', display:'flex', alignItems:'center', gap:'10px'}}>
                             <i className="fas fa-hourglass-half"></i> Pending Applications
                         </h3>
                         <div className="card card-full-width">
                             <div className="table-wrapper">
                                 <table className="attendance-table">
-                                    <thead><tr><th>Institute</th><th>Contact</th><th>Email</th><th>Document</th><th>Actions</th></tr></thead>
+                                    {/* ✅ CHANGED: Added Domain column */}
+                                    <thead><tr><th>Institute</th><th>Domain</th><th>Contact</th><th>Email</th><th>Document</th><th>Actions</th></tr></thead>
                                     <tbody>
                                         {pendingApps.length > 0 ? pendingApps.map(app => (
                                             <tr key={app.id}>
                                                 <td style={{fontWeight:'600'}}>{app.instituteName}</td>
+                                                {/* ✅ CHANGED: Added Domain Badge */}
+                                                <td>
+                                                    <span style={{ background: '#e0e7ff', color: '#4f46e5', padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '700', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+                                                        {app.domain || 'ENGINEERING'}
+                                                    </span>
+                                                </td>
                                                 <td>{app.contactName}</td>
                                                 <td>{app.email}</td>
                                                 <td>
@@ -480,7 +540,7 @@ export default function SuperAdminDashboard() {
                                                     </div>
                                                 </td>
                                             </tr>
-                                        )) : <tr><td colSpan="5" style={{textAlign:'center', padding:'30px', color:'#666'}}>No pending applications.</td></tr>}
+                                        )) : <tr><td colSpan="6" style={{textAlign:'center', padding:'30px', color:'#666'}}>No pending applications.</td></tr>}
                                     </tbody>
                                 </table>
                             </div>
@@ -493,11 +553,18 @@ export default function SuperAdminDashboard() {
                         <div className="card card-full-width">
                             <div className="table-wrapper">
                                 <table className="attendance-table">
-                                    <thead><tr><th>Institute</th><th>Admin Contact</th><th>Email</th><th>Document</th><th>Actions</th></tr></thead>
+                                    {/* ✅ CHANGED: Added Domain column */}
+                                    <thead><tr><th>Institute</th><th>Domain</th><th>Admin Contact</th><th>Email</th><th>Document</th><th>Actions</th></tr></thead>
                                     <tbody>
                                         {approvedApps.length > 0 ? approvedApps.map(app => (
                                             <tr key={app.id}>
                                                 <td style={{fontWeight:'600'}}>{app.instituteName}</td>
+                                                {/* ✅ CHANGED: Added Domain Badge */}
+                                                <td>
+                                                    <span style={{ background: '#dcfce7', color: '#166534', padding: '4px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: '700', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+                                                        {app.domain || 'ENGINEERING'}
+                                                    </span>
+                                                </td>
                                                 <td>{app.contactName}</td>
                                                 <td>{app.email}</td>
                                                 <td>
@@ -514,7 +581,7 @@ export default function SuperAdminDashboard() {
                                                     </div>
                                                 </td>
                                             </tr>
-                                        )) : <tr><td colSpan="5" style={{textAlign:'center', padding:'30px', color:'#666'}}>No active institutes found.</td></tr>}
+                                        )) : <tr><td colSpan="6" style={{textAlign:'center', padding:'30px', color:'#666'}}>No active institutes found.</td></tr>}
                                     </tbody>
                                 </table>
                             </div>

@@ -873,6 +873,7 @@ const DashboardHome = ({
     historySemester, setHistorySemester, getSubjectForHistory, historyLoading,
     selectedDiv, setRefreshTrigger, currentAcademicYear, selectedSubject, setHistoryLoading, setHistorySessions, refreshTrigger
 }) => {
+    
     const [qrCodeValue, setQrCodeValue] = useState('');
     const [timer, setTimer] = useState(25);
     const [manualRoll, setManualRoll] = useState("");
@@ -890,8 +891,12 @@ const DashboardHome = ({
     const [pastLoading, setPastLoading] = useState(false);
     const [reportBatchFilter, setReportBatchFilter] = useState('All');
     const { config } = useInstitution();
+    console.log("Current Teacher's Config:", config);
+
+    
     const theoryLabel = config?.terminology?.theory || "Theory";
     const practicalLabel = config?.terminology?.practical || "Practical";
+    
     
     useEffect(() => {
         setReportBatchFilter('All');
