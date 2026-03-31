@@ -138,39 +138,33 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
         setLoading(true);
         const toastId = toast.loading("Processing file & checking duplicates...");
 
-        Papa.parse(file, {
+       Papa.parse(file, {
             header: false,
             skipEmptyLines: 'greedy',
             complete: async (results) => {
                 const rows = results.data;
-
+                
                 let headerIndex = -1;
-                for (let i = 0; i < Math.min(rows.length, 20); i++) {
+                for(let i=0; i<Math.min(rows.length, 20); i++) {
                     const rowStr = rows[i].map(c => String(c).toLowerCase()).join(' ');
-                    // Agri has 'name' and 'roll'. Engg has 'email', 'name', 'roll'
                     if (rowStr.includes('name') && rowStr.includes('roll')) {
                         headerIndex = i; break;
                     }
                 }
 
                 if (headerIndex === -1) {
-                    toast.error(`❌ Could not find header row (${isAgri ? 'Full Name, Roll No' : 'Roll No, Name, Email'})`, { id: toastId });
+                    toast.error(`❌ Could not find header row (Ensure 'Name' and 'Roll No' columns exist)`, { id: toastId });
                     setLoading(false); return;
                 }
 
                 const headers = rows[headerIndex].map(h => String(h).toLowerCase().trim());
-
-                // Agri Specific Columns
-                const idxFullName = headers.findIndex(h => h.includes('name'));
-                const idxRollAgri = headers.findIndex(h => h.includes('roll'));
-
-                // Engg Specific Columns
-                const idxEmail = headers.findIndex(h => h.includes('email'));
+                
+                const idxName = headers.findIndex(h => h.includes('name'));
                 const idxRoll = headers.findIndex(h => h.includes('roll'));
-                const idxName = headers.findIndex(h => h.includes('name') && !h.includes('user'));
+                const idxEmail = headers.findIndex(h => h.includes('email'));
                 const idxSex = headers.findIndex(h => h.includes('sex') || h.includes('gender'));
                 const idxCat = headers.findIndex(h => h.includes('category'));
-                const idxId = headers.findIndex(h => h.includes('student id') || h.includes('college id'));
+                const idxId = headers.findIndex(h => h.includes('id'));
                 const idxDiv = headers.findIndex(h => h === 'division');
                 const idxDept = headers.findIndex(h => h === 'department');
                 const idxYear = headers.findIndex(h => h === 'year');
@@ -186,51 +180,26 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                 }
 
                 const existingRolls = await getExistingRollNumbers(selectedYear);
-
+                
                 let skippedCount = 0;
                 let hasErrors = false;
 
                 const cleanStudents = rows.slice(headerIndex + 1).map((row, index) => {
-                    const rollNo = row[idxRoll] ? String(row[idxRoll]).trim() : "";
+                    const rollNo = idxRoll !== -1 && row[idxRoll] ? String(row[idxRoll]).trim() : "";
                     if (!rollNo) return null;
 
                     if (existingRolls.has(rollNo)) {
                         skippedCount++;
-                        return null;
+                        return null; 
                     }
 
-                    // --- 🌾 AGRI COLLEGE PARSING ---
-                    if (isAgri) {
-                        const fullName = idxFullName !== -1 && row[idxFullName] ? String(row[idxFullName]).trim() : "Student";
-                        const nameParts = fullName.split(' ');
-                        const firstName = nameParts[0];
+                    // Robust Name Parsing
+                    const rawName = idxName !== -1 && row[idxName] ? String(row[idxName]).trim() : "Student";
+                    const nameParts = rawName.split(/\s+/);
+                    const firstName = nameParts[0] || "Student";
+                    const lastName = nameParts.slice(1).join(' ') || "";
 
-                        // Extract email if provided, otherwise auto-generate
-                        let finalEmail = "";
-                        if (idxEmail !== -1 && row[idxEmail] && String(row[idxEmail]).includes('@')) {
-                            finalEmail = row[idxEmail].trim();
-                        } else {
-                            finalEmail = generateSystemEmail({ rollNo, firstName });
-                        }
-
-                        return {
-                            "email": finalEmail,
-                            "name": fullName,
-                            "rollNo": rollNo, // Saves "PDVBE/24-01" as a pure string
-                            "collegeId": "", "gender": "", "category": "", "admissionType": "",
-                            "division": null,
-                            "department": selectedDept, // Hardcoded from Dropdown!
-                            "year": selectedYear,
-                            "instituteId": instituteId,
-                            "instituteName": instituteName
-                        };
-                    }
-
-                    // --- ⚙️ ENGG COLLEGE PARSING ---
-                    const nameRaw = idxName !== -1 ? row[idxName] : "Student";
-                    const nameParts = nameRaw ? nameRaw.trim().split(/\s+/) : [];
-                    const firstName = nameParts.length > 1 ? nameParts[1] : (nameParts[0] || "Student");
-
+                    // Robust Email Parsing (Auto-generates if missing)
                     let finalEmail = "";
                     if (idxEmail !== -1 && row[idxEmail] && String(row[idxEmail]).includes('@')) {
                         finalEmail = row[idxEmail].trim();
@@ -238,34 +207,29 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                         finalEmail = generateSystemEmail({ rollNo, firstName });
                     }
 
+                    // Map fields safely
                     const divVal = idxDiv !== -1 && row[idxDiv] ? row[idxDiv] : selectedDivision;
-                    let deptVal = academicYears[0];
-                    if (showDepartment) {
-                        deptVal = idxDept !== -1 && row[idxDept] ? row[idxDept] : selectedDept;
-                        if (deptVal === 'MIXED') deptVal = null;
+                    let deptVal = selectedDept;
+                    if (showDepartment && idxDept !== -1 && row[idxDept]) {
+                        deptVal = row[idxDept];
                     }
+                    if (deptVal === 'MIXED') deptVal = null;
 
-                    if (showDivision && !divVal) {
-                        toast.error(`Row ${index + 2} is missing Division.`, { id: toastId });
-                        hasErrors = true; return null;
-                    }
-                    if (showDepartment && !deptVal) {
-                        toast.error(`Row ${index + 2} is missing Department.`, { id: toastId });
-                        hasErrors = true; return null;
-                    }
+                    const yearVal = idxYear !== -1 && row[idxYear] ? row[idxYear] : selectedYear;
 
                     return {
                         "email": finalEmail,
-                        "name": nameRaw,
+                        "firstName": firstName,
+                        "lastName": lastName,
+                        "name": rawName,
                         "rollNo": rollNo,
-                        "collegeId": idxId !== -1 ? row[idxId] : "",
-                        "gender": idxSex !== -1 ? row[idxSex] : "",
-                        "category": idxCat !== -1 ? row[idxCat] : "",
+                        "collegeId": idxId !== -1 && row[idxId] ? row[idxId] : "",
+                        "gender": idxSex !== -1 && row[idxSex] ? row[idxSex] : "",
+                        "category": idxCat !== -1 && row[idxCat] ? row[idxCat] : "",
                         "division": showDivision ? divVal : null,
-                        // ✅ AGRI FIX: Force them into COMMON pool, and setup the array for HODs!
                         "department": isAgri ? "COMMON" : deptVal,
-                        "enrolledDepartments": [],
-                        "year": idxYear !== -1 && row[idxYear] ? row[idxYear] : selectedYear,
+                        "enrolledDepartments": [], 
+                        "year": yearVal,
                         "instituteId": instituteId,
                         "instituteName": instituteName
                     };
@@ -274,11 +238,10 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                 if (cleanStudents.length === 0) {
                     if (skippedCount > 0) {
                         toast.success(`All ${skippedCount} students already exist!`, { id: toastId });
-                    } else if (hasErrors) {
-                    } else {
+                    } else if (!hasErrors) {
                         toast.error("❌ No valid data found.", { id: toastId });
                     }
-                    setLoading(false);
+                    setLoading(false); 
                     e.target.value = null;
                     return;
                 }
@@ -289,9 +252,9 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                     const response = await fetch(`${BACKEND_URL}/bulkCreateStudents`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            students: cleanStudents,
-                            instituteId,
+                        body: JSON.stringify({ 
+                            students: cleanStudents, 
+                            instituteId, 
                             instituteName
                         })
                     });
@@ -299,19 +262,19 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                     const data = await response.json();
                     if (!response.ok) throw new Error(data.error || "Upload failed");
 
-                    setStats({
-                        total: cleanStudents.length,
-                        success: data.success.length,
+                    setStats({ 
+                        total: cleanStudents.length, 
+                        success: data.success.length, 
                         failed: data.errors.length,
                         skipped: skippedCount
                     });
-
+                    
                     toast.success(
                         <div>
-                            Done! Added {data.success.length} new students.<br />
-                            (Skipped {skippedCount} existing)<br />
+                            Done! Added {data.success.length} new students.<br/>
+                            (Skipped {skippedCount} existing)<br/>
                             <b>Default Password: Student@123</b>
-                        </div>,
+                        </div>, 
                         { id: toastId, duration: 6000 }
                     );
 
@@ -319,7 +282,7 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                     toast.error("Server Error: " + err.message, { id: toastId });
                 } finally {
                     setLoading(false);
-                    e.target.value = null;
+                    e.target.value = null; 
                 }
 
             },

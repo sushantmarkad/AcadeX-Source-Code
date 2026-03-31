@@ -217,8 +217,12 @@ export default function HODDashboard() {
                 const qRequests = query(collection(db, 'student_requests'), where('instituteId', '==', data.instituteId), where('department', '==', data.department), where('status', '==', 'pending'));
                 onSnapshot(qRequests, (snap) => setStudentRequests(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
-                // Fetch Users
-                const qUsers = query(collection(db, 'users'), where('instituteId', '==', data.instituteId), where('department', '==', data.department));
+               // ✅ FIXED: Fetch all users for Agri so HOD can access the Common Pool
+                const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+                const qUsers = isNonEngg 
+                    ? query(collection(db, 'users'), where('instituteId', '==', data.instituteId))
+                    : query(collection(db, 'users'), where('instituteId', '==', data.instituteId), where('department', '==', data.department));
+                
                 onSnapshot(qUsers, (snap) => setDeptUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
                 // Fetch Leaves
@@ -574,41 +578,56 @@ export default function HODDashboard() {
         }
     };
 
-    const studentsList = useMemo(() => deptUsers.filter(u => u.role === 'student'), [deptUsers]);
-    const teachersList = useMemo(() => deptUsers.filter(u => u.role === 'teacher'), [deptUsers]);
+  // ✅ 1. ALL students in the college (Used by the Enrollment Tab to show the Common Pool)
+    const allCollegeStudents = useMemo(() => deptUsers.filter(u => u.role === 'student'), [deptUsers]);
 
-    // ✅ AUTO-POPULATE CHECKBOXES FOR ENROLLMENT
+    // ✅ 2. ONLY students enrolled in THIS HOD's department (Used for Analytics, Dept Users tab, etc.)
+    const studentsList = useMemo(() => {
+        const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+        if (!isNonEngg) return allCollegeStudents; 
+        
+        return allCollegeStudents.filter(s => 
+            s.department === hodInfo?.department || // Legacy string check
+            (s.enrolledDepartments && s.enrolledDepartments.includes(hodInfo?.department)) // Array check
+        );
+    }, [allCollegeStudents, hodInfo, config]);
+
+    // ✅ 3. Teachers for this specific department
+    const teachersList = useMemo(() => {
+        const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+        return deptUsers.filter(u => u.role === 'teacher' && (!isNonEngg || u.department === hodInfo?.department));
+    }, [deptUsers, hodInfo, config]);
+
+   // ✅ AUTO-POPULATE CHECKBOXES FOR ENROLLMENT
     useEffect(() => {
-        if (!hodInfo || !studentsList) return;
-        const studentsInYear = studentsList.filter(s => s.year === enrollmentYear || s.level === enrollmentYear);
+        if (!hodInfo || !allCollegeStudents) return;
+        const studentsInYear = allCollegeStudents.filter(s => s.year === enrollmentYear || s.level === enrollmentYear);
         
         // Find students who are already enrolled in this HOD's department
         const alreadyEnrolled = studentsInYear.filter(s => 
-            s.department === hodInfo.department || // Legacy string check
-            (s.enrolledDepartments && s.enrolledDepartments.includes(hodInfo.department)) // New array check
+            s.department === hodInfo.department || 
+            (s.enrolledDepartments && s.enrolledDepartments.includes(hodInfo.department))
         ).map(s => s.id || s.uid);
         
         setEnrolledStudentIds(alreadyEnrolled);
-    }, [enrollmentYear, studentsList, hodInfo]);
+    }, [enrollmentYear, allCollegeStudents, hodInfo]);
 
     // ✅ SAVE HOD ENROLLMENT (BATCH WRITE)
     const handleSaveEnrollment = async () => {
         const toastId = toast.loading(`Saving enrollment for ${enrollmentYear}...`);
         try {
             const batch = writeBatch(db);
-            const studentsInYear = studentsList.filter(s => s.year === enrollmentYear || s.level === enrollmentYear);
+            const studentsInYear = allCollegeStudents.filter(s => s.year === enrollmentYear || s.level === enrollmentYear);
 
             studentsInYear.forEach(student => {
                 const studentRef = doc(db, 'users', student.id);
                 const isSelected = enrolledStudentIds.includes(student.id);
                 
-                // Initialize their enrolled departments array safely
                 let currentDepts = student.enrolledDepartments || [];
                 if (student.department && student.department !== 'COMMON' && !currentDepts.includes(student.department)) {
                     currentDepts.push(student.department);
                 }
 
-                // Add or Remove this HOD's department based on checkbox
                 if (isSelected && !currentDepts.includes(hodInfo.department)) {
                     currentDepts.push(hodInfo.department);
                 } else if (!isSelected && currentDepts.includes(hodInfo.department)) {
@@ -3615,10 +3634,10 @@ export default function HODDashboard() {
                                                 <input 
                                                     type="checkbox" 
                                                     className="custom-checkbox"
-                                                    checked={enrolledStudentIds.length === studentsList.filter(s => s.year === enrollmentYear || s.level === enrollmentYear).length && enrolledStudentIds.length > 0}
+                                                    checked={enrolledStudentIds.length === allCollegeStudents.filter(s => s.year === enrollmentYear || s.level === enrollmentYear).length && enrolledStudentIds.length > 0}
                                                     onChange={(e) => {
                                                         if (e.target.checked) {
-                                                            setEnrolledStudentIds(studentsList.filter(s => s.year === enrollmentYear || s.level === enrollmentYear).map(s => s.id));
+                                                            setEnrolledStudentIds(allCollegeStudents.filter(s => s.year === enrollmentYear || s.level === enrollmentYear).map(s => s.id));
                                                         } else {
                                                             setEnrolledStudentIds([]);
                                                         }
@@ -3631,7 +3650,7 @@ export default function HODDashboard() {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {studentsList.filter(s => s.year === enrollmentYear || s.level === enrollmentYear)
+                                        {allCollegeStudents.filter(s => s.year === enrollmentYear || s.level === enrollmentYear)
                                             .sort((a, b) => (a.rollNo || "").localeCompare(b.rollNo, undefined, { numeric: true }))
                                             .map(student => (
                                                 <tr key={student.id} 
@@ -3659,7 +3678,7 @@ export default function HODDashboard() {
                                         ))}
                                     </tbody>
                                 </table>
-                                {studentsList.filter(s => s.year === enrollmentYear || s.level === enrollmentYear).length === 0 && (
+                                {allCollegeStudents.filter(s => s.year === enrollmentYear || s.level === enrollmentYear).length === 0 && (
                                     <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
                                         <i className="fas fa-user-slash" style={{ fontSize: '32px', marginBottom: '10px', opacity: 0.5 }}></i>
                                         <p>No students found for {enrollmentYear}. Ask Admin to Bulk Upload them.</p>
