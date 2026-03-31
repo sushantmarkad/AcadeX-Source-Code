@@ -18,12 +18,11 @@ export default function ManageCurriculum({ instituteId }) {
         academicYear: '2024-2025' // Default Calendar Year
     });
 
-    const ACADEMIC_YEARS = ['2023-2024', '2024-2025', '2025-2026', '2026-2027'];
+   const ACADEMIC_YEARS = ['2023-2024', '2024-2025', '2025-2026', '2026-2027'];
     
-    // ✅ FIX: Safe fallback if the college was created before we added the rules!
-    const classLevels = config?.academicYears || (config?.domain === 'AGRICULTURE' 
-        ? ['First Year', 'Second Year', 'Third Year', 'Fourth Year'] 
-        : ['FE', 'SE', 'TE', 'BE']);
+    // ✅ FIX: Pulls terminology dynamically from the database config
+    const classLevels = config?.academicConfig?.levels || ['FE', 'SE', 'TE', 'BE'];
+    const levelNomenclature = config?.academicConfig?.levelNomenclature || 'Class';
 
     // Fetch Data
     useEffect(() => {
@@ -147,15 +146,15 @@ export default function ManageCurriculum({ instituteId }) {
                             {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                         </select>
                         
-                        <div style={{ display: 'flex', gap: '10px' }}>
-                            {/* ✅ FIX: Now perfectly uses the classLevels fallback array! */}
+                       <div style={{ display: 'flex', gap: '10px' }}>
+                            {/* ✅ FIX: Dynamic terminology for the placeholder */}
                             <select 
                                 className="curr-input" 
                                 value={newSubject.year} 
                                 onChange={e => setNewSubject({...newSubject, year: e.target.value})} 
                                 required
                             >
-                                <option value="">-- Select Class --</option>
+                                <option value="">-- Select {levelNomenclature} --</option>
                                 {classLevels.map(y => <option key={y} value={y}>{y}</option>)}
                             </select>
 

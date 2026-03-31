@@ -1,18 +1,24 @@
 import React from 'react';
 import { useInstitution } from '../contexts/InstitutionContext';
 
-const FeatureGuard = ({ requiredModule, children }) => {
+const FeatureGuard = ({ requiredModule, requiredCustomFeature, children }) => {
   const { config, loadingConfig } = useInstitution();
 
   if (loadingConfig) return null; 
 
-  // If the college's activeModules array includes the required module, show it.
-  if (config && config.activeModules && config.activeModules.includes(requiredModule)) {
+  // 1. Check for standard domain modules
+  if (requiredModule && config?.activeModules?.includes(requiredModule)) {
     return <>{children}</>;
   }
 
-  // Otherwise, render nothing.
-  return null;
+  // 2. Check for custom features specific to one college (e.g. 'agri_lab_reports')
+  if (requiredCustomFeature && config?.customFeatures?.includes(requiredCustomFeature)) {
+    return <>{children}</>;
+  }
+  return <>{children}</>;
+
+  // If neither matches, hide the UI element
+  //return null;
 };
 
 export default FeatureGuard;

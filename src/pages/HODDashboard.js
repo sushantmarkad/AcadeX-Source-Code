@@ -20,6 +20,7 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { getCountFromServer } from 'firebase/firestore';
+import { useInstitution } from '../contexts/InstitutionContext';
 
 
 
@@ -165,6 +166,10 @@ export default function HODDashboard() {
     const [classCounts, setClassCounts] = useState({}); // Stores counts like { FE: 10, SE: 20 } or { A: 5, B: 5 }
     const DIVISIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'];
     const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year';
+    // --- PULL DYNAMIC CONFIGURATION ---
+    const { config } = useInstitution();
+    const academicLevels = config?.academicConfig?.levels || ['FE', 'SE', 'TE', 'BE'];
+    const levelName = config?.academicConfig?.levelNomenclature || 'Class';
 
     useEffect(() => {
         const init = async () => {
@@ -245,17 +250,12 @@ export default function HODDashboard() {
         }
     };
 
-
-    useEffect(() => {
-        if (hodInfo) {
-            // Check if department is First Year
-            if (hodInfo.department === 'FE' || hodInfo.department === 'First Year') {
-                setAnalyticsDivision('A'); // Select first division by default
-            } else {
-                setAnalyticsYear('SE');    // Select first valid year (SE) by default
-            }
+useEffect(() => {
+        if (hodInfo && academicLevels.length > 0) {
+            setAnalyticsYear(academicLevels[0]); // Dynamically select first level
+            setAnalyticsDivision('All'); 
         }
-    }, [hodInfo]);
+    }, [hodInfo, academicLevels]);
 
     // --- 1. FETCH SESSIONS (Raw Data for Accurate Math) ---
     useEffect(() => {
@@ -1803,25 +1803,18 @@ const TeacherUsageReport = ({ user }) => {
 
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '20px' }}>
 
-                                    {/* ✅ LOGIC: Show 'FE' only if Dept is FE, otherwise show SE, TE, BE */}
-                                    {(hodInfo?.department === 'FE' || hodInfo?.department === 'First Year'
-                                        ? ['FE']
-                                        : ['SE', 'TE', 'BE']
-                                    ).map(year => {
-                                        // Define Options Per Year
-                                        let options = [];
-                                        if (year === 'FE') options = [{ value: 1, label: 'Semester 1' }, { value: 2, label: 'Semester 2' }];
-                                        if (year === 'SE') options = [{ value: 3, label: 'Semester 3' }, { value: 4, label: 'Semester 4' }];
-                                        if (year === 'TE') options = [{ value: 5, label: 'Semester 5' }, { value: 6, label: 'Semester 6' }];
-                                        if (year === 'BE') options = [{ value: 7, label: 'Semester 7' }, { value: 8, label: 'Semester 8' }];
+                                    {/* ✅ DYNAMIC LOGIC: Show levels based on College Config */}
+                                    {academicLevels.map(level => {
+                                        // Universal Semester Options (1-8)
+                                        const options = Array.from({ length: 8 }, (_, i) => ({ value: i + 1, label: `Semester ${i + 1}` }));
 
                                         return (
-                                            <div key={year}>
+                                            <div key={level}>
                                                 <CustomMobileSelect
-                                                    label={`${year} Session`}
+                                                    label={`${level} Session`}
                                                     icon="fa-graduation-cap"
-                                                    value={activeSemesters[year] || options[0].value}
-                                                    onChange={(val) => handleSemesterSwitch(year, val)}
+                                                    value={activeSemesters[level] || options[0].value}
+                                                    onChange={(val) => handleSemesterSwitch(level, val)}
                                                     options={options}
                                                 />
                                             </div>
@@ -1844,26 +1837,18 @@ const TeacherUsageReport = ({ user }) => {
                         {/* 1. Student Count by Year (Cards) */}
                         <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', marginBottom: '20px' }}>
 
-                            {/* ✅ LOGIC: Show Divisions for FE, Years for Dept HOD */}
-                            {(isFE ? DIVISIONS : ['SE', 'TE', 'BE']).map(label => {
-
-                                // Count Logic
-                                const count = studentsList.filter(s =>
-                                    isFE ? s.division === label : s.year === label
-                                ).length;
-
-                                // Dynamic Colors
-                                const colors = {
-                                    'A': '#3b82f6', 'B': '#8b5cf6', 'C': '#f59e0b', 'D': '#10b981',
-                                    'E': '#ef4444', 'F': '#06b6d4', 'G': '#ec4899', 'H': '#6366f1',
-                                    'SE': '#8b5cf6', 'TE': '#f59e0b', 'BE': '#10b981'
-                                };
-                                const color = colors[label] || '#64748b';
+                            {/* ✅ DYNAMIC LOGIC: Show Student Counts by dynamic level */}
+                            {academicLevels.map((level, index) => {
+                                const count = studentsList.filter(s => s.level === level || s.year === level).length;
+                                
+                                // Cycle through colors dynamically
+                                const colorPalette = ['#3b82f6', '#8b5cf6', '#f59e0b', '#10b981', '#ec4899', '#06b6d4'];
+                                const color = colorPalette[index % colorPalette.length];
 
                                 return (
-                                    <div key={label} className="card" style={{ border: 'none', borderLeft: `4px solid ${color}`, background: '#fff' }}>
+                                    <div key={level} className="card" style={{ border: 'none', borderLeft: `4px solid ${color}`, background: '#fff' }}>
                                         <h3 style={{ margin: 0, color: color, fontSize: '14px' }}>
-                                            {isFE ? `Div ${label}` : `${label}`} Students
+                                            {level} Students
                                         </h3>
                                         <p style={{ margin: '5px 0 0', fontSize: '28px', fontWeight: '800', color: '#1e293b' }}>
                                             {count}
@@ -1995,14 +1980,9 @@ const TeacherUsageReport = ({ user }) => {
                                             icon="fa-users"
                                             value={feedbackForm.targetYear}
                                             onChange={(val) => setFeedbackForm({...feedbackForm, targetYear: val, division: 'All'})}
-                                            options={isFE ? [
-                                                { value: 'All', label: 'All First Year Students' },
-                                                { value: 'FE', label: 'First Year (FE)' }
-                                            ] : [
-                                                { value: 'All', label: 'All Years' },
-                                                { value: 'SE', label: 'Second Year (SE)' },
-                                                { value: 'TE', label: 'Third Year (TE)' },
-                                                { value: 'BE', label: 'Final Year (BE)' }
+                                            options={[
+                                                { value: 'All', label: `All ${levelName}s` },
+                                                ...academicLevels.map(lvl => ({ value: lvl, label: lvl }))
                                             ]}
                                         />
                                     </div>
@@ -2470,50 +2450,25 @@ const TeacherUsageReport = ({ user }) => {
                                     ))}
                                 </div>
 
-                                {/* Division/Year Selector */}
-                                {isFE ? (
-                                    <div style={{ minWidth: '100px', zIndex: 50 }}>
-                                        <CustomMobileSelect
-                                            label="Filter by Division"
-                                            value={analyticsDivision}
-                                            onChange={setAnalyticsDivision}
-                                            options={[
-                                                { value: 'All', label: 'All Divisions' },
-                                                { value: 'A', label: 'Division A' },
-                                                { value: 'B', label: 'Division B' },
-                                                { value: 'C', label: 'Division C' },
-                                                { value: 'D', label: 'Division D' },
-                                                { value: 'E', label: 'Division E' },
-                                                { value: 'F', label: 'Division F' },
-                                                { value: 'G', label: 'Division G' },
-                                                { value: 'H', label: 'Division H' },
-                                                { value: 'I', label: 'Division I' },
-                                                { value: 'J', label: 'Division J' },
-                                                { value: 'K', label: 'Division K' },
-                                                { value: 'L', label: 'Division L' }
-                                            ]}
-                                        />
-                                    </div>
-                                ) : (
-                                    <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '12px', display: 'flex', gap: '5px' }}>
-                                        {['SE', 'TE', 'BE'].map(year => (
-                                            <button
-                                                key={year}
-                                                onClick={() => setAnalyticsYear(year)}
-                                                style={{
-                                                    padding: '8px 16px', border: 'none', borderRadius: '10px', cursor: 'pointer',
-                                                    fontSize: '13px', fontWeight: '700',
-                                                    background: analyticsYear === year ? '#ffffff' : 'transparent',
-                                                    color: analyticsYear === year ? '#2563eb' : '#64748b',
-                                                    boxShadow: analyticsYear === year ? '0 4px 12px rgba(0,0,0,0.05)' : 'none',
-                                                    transition: 'all 0.2s ease'
-                                                }}
-                                            >
-                                                {year}
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
+                                {/* ✅ DYNAMIC Level Selector */}
+                                <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '12px', display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                                    {academicLevels.map(level => (
+                                        <button
+                                            key={level}
+                                            onClick={() => setAnalyticsYear(level)}
+                                            style={{
+                                                padding: '8px 16px', border: 'none', borderRadius: '10px', cursor: 'pointer',
+                                                fontSize: '13px', fontWeight: '700',
+                                                background: analyticsYear === level ? '#ffffff' : 'transparent',
+                                                color: analyticsYear === level ? '#2563eb' : '#64748b',
+                                                boxShadow: analyticsYear === level ? '0 4px 12px rgba(0,0,0,0.05)' : 'none',
+                                                transition: 'all 0.2s ease'
+                                            }}
+                                        >
+                                            {level}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
                         </div>
 
@@ -2887,24 +2842,14 @@ const TeacherUsageReport = ({ user }) => {
                                             value={announcementForm.targetYear}
                                             // ✅ FIXED: Use 'val' directly instead of e.target.value
                                             onChange={(val) => setAnnouncementForm({ ...announcementForm, targetYear: val })}
-                                            options={
-                                                isFE ? [
-                                                    // ✅ FE OPTIONS: All FE, Specific Divisions, Faculty
-                                                    { value: 'All', label: <span><i className="fas fa-users" style={{ marginRight: '10px', color: '#3b82f6' }}></i> All FE Students</span> },
-                                                    ...DIVISIONS.map(div => ({
-                                                        value: `Division ${div}`,
-                                                        label: <span><i className="fas fa-layer-group" style={{ marginRight: '10px', color: '#8b5cf6' }}></i> Division {div}</span>
-                                                    })),
-                                                    { value: 'Teachers', label: <span><i className="fas fa-chalkboard-teacher" style={{ marginRight: '10px', color: '#ef4444' }}></i> Faculty</span> }
-                                                ] : [
-                                                    // STANDARD OPTIONS: Years, Faculty
-                                                    { value: 'All', label: <span><i className="fas fa-users" style={{ marginRight: '10px', color: '#3b82f6' }}></i> All Students</span> },
-                                                    { value: 'SE', label: <span><i className="fas fa-graduation-cap" style={{ marginRight: '10px', color: '#ec4899' }}></i> Second Year (SE)</span> },
-                                                    { value: 'TE', label: <span><i className="fas fa-graduation-cap" style={{ marginRight: '10px', color: '#f59e0b' }}></i> Third Year (TE)</span> },
-                                                    { value: 'BE', label: <span><i className="fas fa-graduation-cap" style={{ marginRight: '10px', color: '#10b981' }}></i> Final Year (BE)</span> },
-                                                    { value: 'Teachers', label: <span><i className="fas fa-chalkboard-teacher" style={{ marginRight: '10px', color: '#ef4444' }}></i> Faculty</span> }
-                                                ]
-                                            }
+                                            options={[
+                                                { value: 'All', label: <span><i className="fas fa-users" style={{ marginRight: '10px', color: '#3b82f6' }}></i> All Students</span> },
+                                                ...academicLevels.map(lvl => ({
+                                                    value: lvl,
+                                                    label: <span><i className="fas fa-graduation-cap" style={{ marginRight: '10px', color: '#10b981' }}></i> {lvl}</span>
+                                                })),
+                                                { value: 'Teachers', label: <span><i className="fas fa-chalkboard-teacher" style={{ marginRight: '10px', color: '#ef4444' }}></i> Faculty</span> }
+                                            ]}
                                         />
                                     </div>
 
@@ -3536,14 +3481,9 @@ const TeacherUsageReport = ({ user }) => {
                                     </label>
 
                                     {teacherForm.assignedClasses.map((cls, index) => {
-                                        const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year';
-                                        const yearOptions = isFE ? [{ value: 'FE', label: 'First Year' }] : [{ value: 'SE', label: 'SE' }, { value: 'TE', label: 'TE' }, { value: 'BE', label: 'BE' }];
-
-                                        let semOptions = [];
-                                        if (cls.year === 'FE') semOptions = [{ value: 1, label: 'Sem 1' }, { value: 2, label: 'Sem 2' }];
-                                        if (cls.year === 'SE') semOptions = [{ value: 3, label: 'Sem 3' }, { value: 4, label: 'Sem 4' }];
-                                        if (cls.year === 'TE') semOptions = [{ value: 5, label: 'Sem 5' }, { value: 6, label: 'Sem 6' }];
-                                        if (cls.year === 'BE') semOptions = [{ value: 7, label: 'Sem 7' }, { value: 8, label: 'Sem 8' }];
+                                        // ✅ DYNAMIC: Pull from Firebase Context
+                                        const yearOptions = academicLevels.map(lvl => ({ value: lvl, label: lvl }));
+                                        const semOptions = Array.from({ length: 8 }, (_, i) => ({ value: i + 1, label: `Sem ${i + 1}` }));
 
                                         return (
                                             <div key={index} className="subject-card" style={{ zIndex: 10 - index }}>

@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 import './Dashboard.css';
 import logo from "../assets/logo.png";
 import TwoFactorSetup from '../components/TwoFactorSetup';
+import FeatureGuard from '../components/FeatureGuard';
 
 import AddHOD from './AddHOD';
 import AddDepartment from './AddDepartment';
@@ -963,15 +964,40 @@ const FaceRequestsManager = ({ user }) => {
                     </div>
                 )}
                 
-                <ul className="menu">
+               <ul className="menu">
+                    {/* Always visible */}
                     <NavLink page="dashboard" iconClass="fa-tachometer-alt" label="Dashboard" />
-                    <NavLink page="addDepartment" iconClass="fa-building" label="Departments" />
-                    <NavLink page="addHOD" iconClass="fa-user-tie" label="Add HOD" />
-                    <NavLink page="curriculum" iconClass="fa-book" label="Manage Curriculum" />
-                    <NavLink page="bulkStudents" iconClass="fa-file-upload" label="Bulk Upload" />
-                    <NavLink page="manageUsers" iconClass="fa-users" label="Manage Users" />
-                    <NavLink page="promote" iconClass="fa-level-up-alt" label="Promote Students" />
-                    <NavLink page="faceRequests" iconClass="fa-user-shield" label="Face ID Resets" />
+                    
+                    {/* Guarded Modules */}
+                    <FeatureGuard requiredModule="departments">
+                        <NavLink page="addDepartment" iconClass="fa-building" label="Departments" />
+                    </FeatureGuard>
+                    
+                    <FeatureGuard requiredModule="hod">
+                        <NavLink page="addHOD" iconClass="fa-user-tie" label="Add HOD" />
+                    </FeatureGuard>
+                    
+                    <FeatureGuard requiredModule="curriculum">
+                        <NavLink page="curriculum" iconClass="fa-book" label="Manage Curriculum" />
+                    </FeatureGuard>
+                    
+                    <FeatureGuard requiredModule="bulk_upload">
+                        <NavLink page="bulkStudents" iconClass="fa-file-upload" label="Bulk Upload" />
+                    </FeatureGuard>
+                    
+                    <FeatureGuard requiredModule="manage_users">
+                        <NavLink page="manageUsers" iconClass="fa-users" label="Manage Users" />
+                    </FeatureGuard>
+                    
+                    <FeatureGuard requiredModule="promote">
+                        <NavLink page="promote" iconClass="fa-level-up-alt" label="Promote Students" />
+                    </FeatureGuard>
+                    
+                    <FeatureGuard requiredModule="face_requests">
+                        <NavLink page="faceRequests" iconClass="fa-user-shield" label="Face ID Resets" />
+                    </FeatureGuard>
+
+                    {/* Always visible */}
                     <NavLink page="security" iconClass="fa-user-circle" label="Profile & Security" />
                 </ul>
                 
