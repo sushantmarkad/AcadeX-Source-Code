@@ -3,7 +3,7 @@ import { signOut, updatePassword, createUserWithEmailAndPassword } from 'firebas
 import { useNavigate } from 'react-router-dom';
 import { auth, db, storage, sendPasswordResetEmail } from '../firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { doc, getDoc, getDocs, collection, query, where, onSnapshot, deleteDoc, addDoc, updateDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import { doc, getDoc, getDocs, collection, query, where, onSnapshot, deleteDoc, addDoc, updateDoc, serverTimestamp, setDoc, writeBatch } from "firebase/firestore";
 import toast from 'react-hot-toast';
 import {
     PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
@@ -102,6 +102,9 @@ export default function HODDashboard() {
     const [allSessions, setAllSessions] = useState([]);
     const [studentAttendanceMap, setStudentAttendanceMap] = useState({}); // { uid: { theory: 5, practical: 2 } }
     const [annoTab, setAnnoTab] = useState('create');
+    // ✅ HOD Enrollment States (For Agri/Medical)
+    const [enrollmentYear, setEnrollmentYear] = useState('FE');
+    const [enrolledStudentIds, setEnrolledStudentIds] = useState([]);
     const [isEditStudentModalOpen, setIsEditStudentModalOpen] = useState(false);
     const [editStudentData, setEditStudentData] = useState(null);
 
@@ -126,6 +129,7 @@ export default function HODDashboard() {
 
     // ✅ Announcement State (Fixed naming consistency)
     const [announcements, setAnnouncements] = useState([]);
+    const [availableSubjects, setAvailableSubjects] = useState([]);
     const [announcementForm, setAnnouncementForm] = useState({ title: '', message: '', targetYear: 'All' });
 
     const [modal, setModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null, type: 'info' });
@@ -228,6 +232,11 @@ export default function HODDashboard() {
                     annData.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
                     setAnnouncements(annData);
                 });
+                // ✅ Fetch Master Subjects List for Dropdowns (Fixed to allow ManageCurriculum structure)
+                const qSubjects = query(collection(db, 'subjects'), where('instituteId', '==', data.instituteId));
+                onSnapshot(qSubjects, (snap) => {
+                    setAvailableSubjects(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                });
             }
         };
         init();
@@ -250,10 +259,10 @@ export default function HODDashboard() {
         }
     };
 
-useEffect(() => {
+    useEffect(() => {
         if (hodInfo && academicLevels.length > 0) {
             setAnalyticsYear(academicLevels[0]); // Dynamically select first level
-            setAnalyticsDivision('All'); 
+            setAnalyticsDivision('All');
         }
     }, [hodInfo, academicLevels]);
 
@@ -286,7 +295,7 @@ useEffect(() => {
         }
     }, [activeTab, fbTab, hodInfo]);
 
-   // --- 2. FETCH & PROCESS ATTENDANCE (Student Counts) - OPTIMIZED ---
+    // --- 2. FETCH & PROCESS ATTENDANCE (Student Counts) - OPTIMIZED ---
     useEffect(() => {
         if (!hodInfo || allSessions.length === 0) return;
 
@@ -301,8 +310,8 @@ useEffect(() => {
                 );
 
                 // Changed to getDocs to stop constant re-downloading
-                const snap = await getDocs(qAttendance); 
-                
+                const snap = await getDocs(qAttendance);
+
                 const tempMap = {};
                 snap.docs.forEach(doc => {
                     const att = doc.data();
@@ -327,7 +336,7 @@ useEffect(() => {
 
 
 
-   // --- 3. FUNCTIONAL ATTENDANCE GRAPH (100% ACCURATE MATH) - OPTIMIZED ---
+    // --- 3. FUNCTIONAL ATTENDANCE GRAPH (100% ACCURATE MATH) - OPTIMIZED ---
     useEffect(() => {
         if (!hodInfo || deptUsers.length === 0 || allSessions.length === 0) return;
 
@@ -349,7 +358,7 @@ useEffect(() => {
                 const snap = await getDocs(q);
 
                 const sessionIdsInTimeframe = new Set();
-                const groupAttended = {}; 
+                const groupAttended = {};
 
                 snap.docs.forEach(doc => {
                     const data = doc.data();
@@ -362,7 +371,7 @@ useEffect(() => {
                     }
                 });
 
-                const groupExpected = {}; 
+                const groupExpected = {};
 
                 sessionIdsInTimeframe.forEach(sid => {
                     const session = allSessions.find(s => s.id === sid);
@@ -385,7 +394,8 @@ useEffect(() => {
                     });
                 });
 
-                const LABELS = isFE ? DIVISIONS : ['SE', 'TE', 'BE'];
+                const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+                const LABELS = isFE ? DIVISIONS : (isNonEngg ? academicLevels : academicLevels.slice(1));
                 const graphData = LABELS.map(label => {
                     const attended = groupAttended[label] || 0;
                     const expected = groupExpected[label] || 0;
@@ -398,6 +408,9 @@ useEffect(() => {
         };
         fetchAttendanceStats();
     }, [hodInfo, deptUsers, timeRange, isFE, allSessions, currentAcademicYear]);
+
+    
+    
 
     // ✅ SAVE TEACHER UPDATES (Fixed: Sends Token)
     const handleSaveTeacherUpdates = async () => {
@@ -561,9 +574,72 @@ useEffect(() => {
         }
     };
 
-   // --- ANALYTICS CALCULATIONS (Optimized with useMemo) ---
     const studentsList = useMemo(() => deptUsers.filter(u => u.role === 'student'), [deptUsers]);
     const teachersList = useMemo(() => deptUsers.filter(u => u.role === 'teacher'), [deptUsers]);
+
+    // ✅ AUTO-POPULATE CHECKBOXES FOR ENROLLMENT
+    useEffect(() => {
+        if (!hodInfo || !studentsList) return;
+        const studentsInYear = studentsList.filter(s => s.year === enrollmentYear || s.level === enrollmentYear);
+        
+        // Find students who are already enrolled in this HOD's department
+        const alreadyEnrolled = studentsInYear.filter(s => 
+            s.department === hodInfo.department || // Legacy string check
+            (s.enrolledDepartments && s.enrolledDepartments.includes(hodInfo.department)) // New array check
+        ).map(s => s.id || s.uid);
+        
+        setEnrolledStudentIds(alreadyEnrolled);
+    }, [enrollmentYear, studentsList, hodInfo]);
+
+    // ✅ SAVE HOD ENROLLMENT (BATCH WRITE)
+    const handleSaveEnrollment = async () => {
+        const toastId = toast.loading(`Saving enrollment for ${enrollmentYear}...`);
+        try {
+            const batch = writeBatch(db);
+            const studentsInYear = studentsList.filter(s => s.year === enrollmentYear || s.level === enrollmentYear);
+
+            studentsInYear.forEach(student => {
+                const studentRef = doc(db, 'users', student.id);
+                const isSelected = enrolledStudentIds.includes(student.id);
+                
+                // Initialize their enrolled departments array safely
+                let currentDepts = student.enrolledDepartments || [];
+                if (student.department && student.department !== 'COMMON' && !currentDepts.includes(student.department)) {
+                    currentDepts.push(student.department);
+                }
+
+                // Add or Remove this HOD's department based on checkbox
+                if (isSelected && !currentDepts.includes(hodInfo.department)) {
+                    currentDepts.push(hodInfo.department);
+                } else if (!isSelected && currentDepts.includes(hodInfo.department)) {
+                    currentDepts = currentDepts.filter(d => d !== hodInfo.department);
+                }
+
+                batch.update(studentRef, { enrolledDepartments: currentDepts });
+            });
+
+            await batch.commit();
+            toast.success(`${enrollmentYear} Students Enrolled Successfully!`, { id: toastId });
+        } catch (error) {
+            console.error(error);
+            toast.error("Failed to save enrollment.", { id: toastId });
+        }
+    };
+
+    // ✅ NEW: Combine DB Subjects + Legacy Manually Typed Subjects
+    const allKnownSubjects = useMemo(() => {
+        const subs = [...availableSubjects];
+        teachersList.forEach(t => {
+            if (t.assignedClasses) {
+                t.assignedClasses.forEach(c => {
+                    if (c.subject && !subs.find(s => s.name === c.subject && s.year === c.year)) {
+                        subs.push({ name: c.subject, year: c.year, isLegacy: true });
+                    }
+                });
+            }
+        });
+        return subs;
+    }, [availableSubjects, teachersList]);
 
     // Keep your existing useEffect for session counts exactly as it was right here!
     useEffect(() => {
@@ -605,9 +681,15 @@ useEffect(() => {
     const analyticsData = useMemo(() => {
         if (!deptUsers || deptUsers.length === 0) return { total: 0, safe: [], defaulters: [], threshold: 75 };
 
-        let targetStudents = studentsList.filter(u => u.year === analyticsYear);
-        if (isFE && analyticsDivision !== 'All') {
-            targetStudents = targetStudents.filter(u => u.division === analyticsDivision);
+        let targetStudents = studentsList;
+        if (isFE) {
+            // FE HODs only need to filter by Division
+            if (analyticsDivision !== 'All') {
+                targetStudents = targetStudents.filter(u => u.division === analyticsDivision);
+            }
+        } else {
+            // Dept HODs filter by Year/Level
+            targetStudents = targetStudents.filter(u => u.year === analyticsYear || u.level === analyticsYear);
         }
 
         const threshold = criteria[analyticsYear] || 75;
@@ -635,7 +717,7 @@ useEffect(() => {
                             myTotalPractical++;
                         }
                     } else {
-                        myTotalPractical++; 
+                        myTotalPractical++;
                     }
                 } else {
                     myTotalTheory++;
@@ -670,7 +752,7 @@ useEffect(() => {
         const defaulters = searchFiltered.filter(s => s.percentage < threshold);
 
         return { total: searchFiltered.length, safe, defaulters, threshold };
-        
+
     }, [studentsList, analyticsYear, isFE, analyticsDivision, criteria, studentAttendanceMap, allSessions, analyticsFilter, searchQuery]);
 
     // ✅ NEW EFFECT: Fetch Accurate Total Classes per Group
@@ -944,7 +1026,7 @@ useEffect(() => {
         doc.setFontSize(18);
         doc.setTextColor(30, 41, 59);
         doc.text(`${hodInfo?.department || 'Department'} - Faculty Directory`, 14, 20);
-        
+
         doc.setFontSize(11);
         doc.setTextColor(100, 116, 139);
         doc.text(`Total Teachers: ${teachersList.length}`, 14, 28);
@@ -979,13 +1061,13 @@ useEffect(() => {
         doc.setFontSize(18);
         doc.setTextColor(30, 41, 59);
         doc.text(`${hodInfo?.department || 'Department'} - Student Directory`, 14, 20);
-        
+
         doc.setFontSize(11);
         doc.setTextColor(100, 116, 139);
         doc.text(`Total Students: ${studentsList.length}`, 14, 28);
 
         const tableColumn = ["Roll No", "Name", "Email", "Class / Div"];
-        
+
         // Sort students by Year -> Division -> Roll Number
         const sortedStudents = [...studentsList].sort((a, b) => {
             if (a.year !== b.year) return (a.year || '').localeCompare(b.year || '');
@@ -1025,416 +1107,418 @@ useEffect(() => {
         } catch (e) { toast.error("Failed", { id: toastId }); }
     };
 
-const TeacherUsageReport = ({ user }) => {
-    const [reportData, setReportData] = useState({});
-    const [loading, setLoading] = useState(true);
-    const [expandedTeacherId, setExpandedTeacherId] = useState(null);
-    const [attendanceStats, setAttendanceStats] = useState({});
-    const [loadingStats, setLoadingStats] = useState({});
+    const TeacherUsageReport = ({ user }) => {
+        const [reportData, setReportData] = useState({});
+        const [loading, setLoading] = useState(true);
+        const [expandedTeacherId, setExpandedTeacherId] = useState(null);
+        const [attendanceStats, setAttendanceStats] = useState({});
+        const [loadingStats, setLoadingStats] = useState({});
 
-    // ✅ NEW: Function to generate the Professional PDF Report
-    const downloadUsagePDF = () => {
-        if (Object.keys(reportData).length === 0) {
-            return toast.error("No data available to download.");
-        }
-
-        const doc = new jsPDF();
-        const pageWidth = doc.internal.pageSize.getWidth();
-
-        // 1. 🎓 Centered College / Institute Name
-        doc.setFontSize(20);
-        doc.setTextColor(15, 23, 42); // Dark bold slate
-        const collegeName = user?.instituteName || "Institute Name";
-        doc.text(collegeName, pageWidth / 2, 22, { align: 'center' });
-
-        // 2. Report Title & Subtitle
-        doc.setFontSize(14);
-        doc.setTextColor(37, 99, 235); // Blue
-        doc.text("Faculty Session Usage Report", pageWidth / 2, 32, { align: 'center' });
-
-        doc.setFontSize(10);
-        doc.setTextColor(100, 116, 139); // Gray
-        doc.text(`Department: ${user?.department || 'N/A'}`, pageWidth / 2, 38, { align: 'center' });
-        doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, pageWidth / 2, 43, { align: 'center' });
-        doc.text(`Academic Year: ${user?.academicYear || 'Current'}`, pageWidth / 2, 48, { align: 'center' });
-
-        // Explanation Text
-        doc.setFontSize(9);
-        doc.setTextColor(71, 85, 105);
-        doc.text("This report summarizes the total number of Theory and Practical sessions created", 14, 60);
-        doc.text("by each faculty member within the trackee application.", 14, 65);
-
-        // 3. Prepare Table Data
-        const tableColumn = ["Teacher Name", "Subject", "Class/Div", "Theory", "Practical", "Total"];
-        const tableRows = [];
-
-        Object.keys(reportData).forEach(teacherName => {
-            const divisions = reportData[teacherName].divisions;
-            
-            Object.entries(divisions).forEach(([division, subjects]) => {
-                Object.entries(subjects).forEach(([subject, stats]) => {
-                    const total = stats.theoryCount + stats.practicalCount;
-                    tableRows.push([
-                        teacherName,
-                        subject,
-                        division,
-                        stats.theoryCount.toString(),
-                        stats.practicalCount.toString(),
-                        total.toString()
-                    ]);
-                });
-            });
-        });
-
-        // Sort alphabetically by Teacher Name
-        tableRows.sort((a, b) => a[0].localeCompare(b[0]));
-
-        // 4. Generate Table
-        autoTable(doc, {
-            startY: 70,
-            head: [tableColumn],
-            body: tableRows,
-            theme: 'grid',
-            headStyles: { fillColor: [59, 130, 246], textColor: 255, fontStyle: 'bold' },
-            styles: { fontSize: 9, cellPadding: 3 },
-            columnStyles: {
-                0: { fontStyle: 'bold', textColor: [30, 41, 59] }, // Teacher Name
-                3: { halign: 'center' }, // Theory
-                4: { halign: 'center' }, // Practical
-                5: { halign: 'center', fontStyle: 'bold', textColor: [22, 163, 74] } // Total (Green)
+        // ✅ NEW: Function to generate the Professional PDF Report
+        const downloadUsagePDF = () => {
+            if (Object.keys(reportData).length === 0) {
+                return toast.error("No data available to download.");
             }
-        });
 
-        // 5. Signatures Footer
-        const finalY = doc.lastAutoTable.finalY + 30;
-        doc.setFontSize(10);
-        doc.setTextColor(15, 23, 42);
-        doc.text("_______________________", 20, finalY);
-        doc.text(`Dr. ${user.firstName} ${user.lastName}`, 20, finalY + 6);
-        doc.text("Head of Department", 20, finalY + 12);
+            const doc = new jsPDF();
+            const pageWidth = doc.internal.pageSize.getWidth();
 
-        doc.text("_______________________", pageWidth - 60, finalY);
-        doc.text("Principal / Director", pageWidth - 60, finalY + 6);
+            // 1. 🎓 Centered College / Institute Name
+            doc.setFontSize(20);
+            doc.setTextColor(15, 23, 42); // Dark bold slate
+            const collegeName = user?.instituteName || "Institute Name";
+            doc.text(collegeName, pageWidth / 2, 22, { align: 'center' });
 
-        // Save PDF
-        doc.save(`${user?.department}_Faculty_Usage_Report.pdf`);
-        toast.success("PDF Downloaded!");
-    };
+            // 2. Report Title & Subtitle
+            doc.setFontSize(14);
+            doc.setTextColor(37, 99, 235); // Blue
+            doc.text("Faculty Session Usage Report", pageWidth / 2, 32, { align: 'center' });
 
-    const handleSendUsageWarning = async (teacherName, email, division, subject, theoryCount, practicalCount) => {
-        if (!email) return toast.error("Teacher email not found!");
-        
-        const toastId = toast.loading(`Sending email to ${teacherName}...`);
+            doc.setFontSize(10);
+            doc.setTextColor(100, 116, 139); // Gray
+            doc.text(`Department: ${user?.department || 'N/A'}`, pageWidth / 2, 38, { align: 'center' });
+            doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, pageWidth / 2, 43, { align: 'center' });
+            doc.text(`Academic Year: ${user?.academicYear || 'Current'}`, pageWidth / 2, 48, { align: 'center' });
 
-        try {
-            const response = await fetch(`${BACKEND_URL}/sendTeacherUsageWarning`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    email,
-                    teacherName,
-                    division,
-                    subject,
-                    theoryCount,
-                    practicalCount,
-                    hodName: `Dr. ${user.firstName} ${user.lastName}` // ✅ Dr. added here
-                })
-            });
+            // Explanation Text
+            doc.setFontSize(9);
+            doc.setTextColor(71, 85, 105);
+            doc.text("This report summarizes the total number of Theory and Practical sessions created", 14, 60);
+            doc.text("by each faculty member within the trackee application.", 14, 65);
 
-            const data = await response.json();
+            // 3. Prepare Table Data
+            const tableColumn = ["Teacher Name", "Subject", "Class/Div", "Theory", "Practical", "Total"];
+            const tableRows = [];
 
-            if (response.ok) {
-                toast.success("Report Emailed Successfully!", { id: toastId });
-            } else {
-                throw new Error(data.error || "Failed to send email");
-            }
-        } catch (error) {
-            console.error(error);
-            toast.error("Failed to send email.", { id: toastId });
-        }
-    };
+            Object.keys(reportData).forEach(teacherName => {
+                const divisions = reportData[teacherName].divisions;
 
-    useEffect(() => {
-        if (!user?.instituteId || !user?.department) return;
-
-        const fetchSessions = async () => {
-            try {
-                const hodDept = (user.department === 'First Year' || user.department === 'FirstYear') ? 'FE' : user.department;
-                const currentAcademicYear = user.academicYear || '2025-2026';
-
-                // 1. Fetch sessions for the department
-                const q = query(
-                    collection(db, 'live_sessions'),
-                    where('instituteId', '==', user.instituteId),
-                    where('department', '==', hodDept)
-                );
-                const snap = await getDocs(q);
-
-                // 2. Build a secure list of what teachers are ACTUALLY assigned to right now
-                const teacherAssignments = {};
-                teachersList.forEach(t => {
-                    const tId = t.id || t.uid;
-                    if (!tId) return;
-                    
-                    teacherAssignments[tId] = {
-                        name: `${t.firstName} ${t.lastName}`,
-                        email: t.email,
-                        validClasses: []
-                    };
-
-                    if (t.assignedClasses) {
-                        t.assignedClasses.forEach(cls => {
-                            const year = cls.year;
-                            const subject = cls.subject;
-                            let divisions = [];
-
-                            if (year === 'FE') {
-                                if (cls.divisions && cls.divisions.toLowerCase() !== 'all') {
-                                    divisions = cls.divisions.split(',').map(d => d.trim().toUpperCase());
-                                } else {
-                                    divisions = ['ALL'];
-                                }
-                            } else {
-                                divisions = ['ALL'];
-                            }
-
-                            teacherAssignments[tId].validClasses.push({ year, subject, divisions });
-                        });
-                    }
-                });
-
-                const grouped = {};
-
-                snap.docs.forEach(doc => {
-                    const data = doc.data();
-
-                    if (data.isDeleted === true || data.status === 'deleted' || data.status === 'cancelled') return;
-                    if (data.academicYear && data.academicYear !== currentAcademicYear) return;
-
-                    const sType = data.type || 'theory';
-                    if (sType !== 'theory' && sType !== 'practical') return;
-
-                    const tId = data.teacherId || data.uid;
-                    if (!tId || !teacherAssignments[tId]) return;
-
-                    const tName = teacherAssignments[tId].name;
-                    const sessionYear = data.targetYear || data.year || '';
-                    const sessionSubject = data.subject || '';
-                    const sessionDiv = data.division || 'All';
-
-                    const isAssigned = teacherAssignments[tId].validClasses.some(validCls => {
-                        const vYear = String(validCls.year).trim().toUpperCase();
-                        const sYear = String(sessionYear).trim().toUpperCase();
-                        if (vYear !== sYear) return false;
-
-                        const vSub = String(validCls.subject).trim().toLowerCase();
-                        const sSub = String(sessionSubject).trim().toLowerCase();
-                        if (vSub !== sSub) return false;
-                        
-                        if (vYear === 'FE' || vYear === 'FIRST YEAR') {
-                            const sDiv = String(sessionDiv).trim().toUpperCase();
-                            if (validCls.divisions.includes('ALL')) return true; 
-                            if (sDiv === 'ALL') return true; 
-                            if (validCls.divisions.includes(sDiv)) return true; 
-                            return false; 
-                        }
-                        
-                        return true; 
+                Object.entries(divisions).forEach(([division, subjects]) => {
+                    Object.entries(subjects).forEach(([subject, stats]) => {
+                        const total = stats.theoryCount + stats.practicalCount;
+                        tableRows.push([
+                            teacherName,
+                            subject,
+                            division,
+                            stats.theoryCount.toString(),
+                            stats.practicalCount.toString(),
+                            total.toString()
+                        ]);
                     });
+                });
+            });
 
-                    if (!isAssigned) return; 
+            // Sort alphabetically by Teacher Name
+            tableRows.sort((a, b) => a[0].localeCompare(b[0]));
 
-                    let divLabel = sessionDiv;
-                    if (!sessionDiv || String(sessionDiv).trim().toUpperCase() === 'ALL') {
-                        if (sessionYear === 'FE' || sessionYear === 'First Year') divLabel = 'Combined FE Lecture'; 
-                        else divLabel = `${sessionYear} Class`; 
-                    } else {
-                        divLabel = `Div ${sessionDiv}`; 
-                    }
+            // 4. Generate Table
+            autoTable(doc, {
+                startY: 70,
+                head: [tableColumn],
+                body: tableRows,
+                theme: 'grid',
+                headStyles: { fillColor: [59, 130, 246], textColor: 255, fontStyle: 'bold' },
+                styles: { fontSize: 9, cellPadding: 3 },
+                columnStyles: {
+                    0: { fontStyle: 'bold', textColor: [30, 41, 59] }, // Teacher Name
+                    3: { halign: 'center' }, // Theory
+                    4: { halign: 'center' }, // Practical
+                    5: { halign: 'center', fontStyle: 'bold', textColor: [22, 163, 74] } // Total (Green)
+                }
+            });
 
-                    if (!grouped[tName]) grouped[tName] = { name: tName, email: teacherAssignments[tId].email, divisions: {} };
-                    if (!grouped[tName].divisions[divLabel]) grouped[tName].divisions[divLabel] = {};
-                    if (!grouped[tName].divisions[divLabel][sessionSubject]) {
-                        grouped[tName].divisions[divLabel][sessionSubject] = { theoryCount: 0, practicalCount: 0, sessionIds: [] };
-                    }
+            // 5. Signatures Footer
+            const finalY = doc.lastAutoTable.finalY + 30;
+            doc.setFontSize(10);
+            doc.setTextColor(15, 23, 42);
+            doc.text("_______________________", 20, finalY);
+            doc.text(`Dr. ${user.firstName} ${user.lastName}`, 20, finalY + 6);
+            doc.text("Head of Department", 20, finalY + 12);
 
-                    if (sType === 'theory') grouped[tName].divisions[divLabel][sessionSubject].theoryCount++;
-                    if (sType === 'practical') grouped[tName].divisions[divLabel][sessionSubject].practicalCount++;
-                    
-                    grouped[tName].divisions[divLabel][sessionSubject].sessionIds.push(doc.id);
+            doc.text("_______________________", pageWidth - 60, finalY);
+            doc.text("Principal / Director", pageWidth - 60, finalY + 6);
+
+            // Save PDF
+            doc.save(`${user?.department}_Faculty_Usage_Report.pdf`);
+            toast.success("PDF Downloaded!");
+        };
+
+        const handleSendUsageWarning = async (teacherName, email, division, subject, theoryCount, practicalCount) => {
+            if (!email) return toast.error("Teacher email not found!");
+
+            const toastId = toast.loading(`Sending email to ${teacherName}...`);
+
+            try {
+                const response = await fetch(`${BACKEND_URL}/sendTeacherUsageWarning`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email,
+                        teacherName,
+                        division,
+                        subject,
+                        theoryCount,
+                        practicalCount,
+                        hodName: `Dr. ${user.firstName} ${user.lastName}` // ✅ Dr. added here
+                    })
                 });
 
-                setReportData(grouped);
-                setLoading(false);
+                const data = await response.json();
+
+                if (response.ok) {
+                    toast.success("Report Emailed Successfully!", { id: toastId });
+                } else {
+                    throw new Error(data.error || "Failed to send email");
+                }
             } catch (error) {
-                console.error("Error fetching usage report:", error);
-                setLoading(false);
+                console.error(error);
+                toast.error("Failed to send email.", { id: toastId });
             }
         };
 
-        fetchSessions();
-    }, [user, teachersList, currentAcademicYear]); 
+     
 
-    const fetchAttendanceCountForGroup = async (teacherName, division, subject, sessionIds) => {
-        const cacheKey = `${teacherName}_${division}_${subject}`;
-        if (attendanceStats[cacheKey] !== undefined) return; 
+        useEffect(() => {
+            if (!user?.instituteId || !user?.department) return;
 
-        setLoadingStats(prev => ({ ...prev, [cacheKey]: true }));
+            const fetchSessions = async () => {
+                try {
+                    const hodDept = (user.department === 'First Year' || user.department === 'FirstYear') ? 'FE' : user.department;
+                    const currentAcademicYear = user.academicYear || '2025-2026';
 
-        try {
-            let totalStudents = 0;
-            for (let i = 0; i < sessionIds.length; i += 10) {
-                const chunk = sessionIds.slice(i, i + 10);
-                const attQ = query(
-                    collection(db, 'attendance'),
-                    where('instituteId', '==', user.instituteId), 
-                    where('sessionId', 'in', chunk),
-                    where('status', '==', 'Present')
-                );
-                
-                const snapshot = await getCountFromServer(attQ);
-                totalStudents += snapshot.data().count;
+                    // 1. Fetch sessions for the department
+                    const q = query(
+                        collection(db, 'live_sessions'),
+                        where('instituteId', '==', user.instituteId),
+                        where('department', '==', hodDept)
+                    );
+                    const snap = await getDocs(q);
+
+                    // 2. Build a secure list of what teachers are ACTUALLY assigned to right now
+                    const teacherAssignments = {};
+                    teachersList.forEach(t => {
+                        const tId = t.id || t.uid;
+                        if (!tId) return;
+
+                        teacherAssignments[tId] = {
+                            name: `${t.firstName} ${t.lastName}`,
+                            email: t.email,
+                            validClasses: []
+                        };
+
+                        if (t.assignedClasses) {
+                            t.assignedClasses.forEach(cls => {
+                                const year = cls.year;
+                                const subject = cls.subject;
+                                let divisions = [];
+
+                                if (year === 'FE') {
+                                    if (cls.divisions && cls.divisions.toLowerCase() !== 'all') {
+                                        divisions = cls.divisions.split(',').map(d => d.trim().toUpperCase());
+                                    } else {
+                                        divisions = ['ALL'];
+                                    }
+                                } else {
+                                    divisions = ['ALL'];
+                                }
+
+                                teacherAssignments[tId].validClasses.push({ year, subject, divisions });
+                            });
+                        }
+                    });
+
+                    const grouped = {};
+
+                    snap.docs.forEach(doc => {
+                        const data = doc.data();
+
+                        if (data.isDeleted === true || data.status === 'deleted' || data.status === 'cancelled') return;
+                        if (data.academicYear && data.academicYear !== currentAcademicYear) return;
+
+                        const sType = data.type || 'theory';
+                        if (sType !== 'theory' && sType !== 'practical') return;
+
+                        const tId = data.teacherId || data.uid;
+                        if (!tId || !teacherAssignments[tId]) return;
+
+                        const tName = teacherAssignments[tId].name;
+                        const sessionYear = data.targetYear || data.year || '';
+                        const sessionSubject = data.subject || '';
+                        const sessionDiv = data.division || 'All';
+
+                        const isAssigned = teacherAssignments[tId].validClasses.some(validCls => {
+                            const vYear = String(validCls.year).trim().toUpperCase();
+                            const sYear = String(sessionYear).trim().toUpperCase();
+                            if (vYear !== sYear) return false;
+
+                            const vSub = String(validCls.subject).trim().toLowerCase();
+                            const sSub = String(sessionSubject).trim().toLowerCase();
+                            if (vSub !== sSub) return false;
+
+                            if (vYear === 'FE' || vYear === 'FIRST YEAR') {
+                                const sDiv = String(sessionDiv).trim().toUpperCase();
+                                if (validCls.divisions.includes('ALL')) return true;
+                                if (sDiv === 'ALL') return true;
+                                if (validCls.divisions.includes(sDiv)) return true;
+                                return false;
+                            }
+
+                            return true;
+                        });
+
+                        if (!isAssigned) return;
+
+                        let divLabel = sessionDiv;
+                        if (!sessionDiv || String(sessionDiv).trim().toUpperCase() === 'ALL') {
+                            if (sessionYear === 'FE' || sessionYear === 'First Year') divLabel = 'Combined FE Lecture';
+                            else divLabel = `${sessionYear} Class`;
+                        } else {
+                            divLabel = `Div ${sessionDiv}`;
+                        }
+
+                        if (!grouped[tName]) grouped[tName] = { name: tName, email: teacherAssignments[tId].email, divisions: {} };
+                        if (!grouped[tName].divisions[divLabel]) grouped[tName].divisions[divLabel] = {};
+                        if (!grouped[tName].divisions[divLabel][sessionSubject]) {
+                            grouped[tName].divisions[divLabel][sessionSubject] = { theoryCount: 0, practicalCount: 0, sessionIds: [] };
+                        }
+
+                        if (sType === 'theory') grouped[tName].divisions[divLabel][sessionSubject].theoryCount++;
+                        if (sType === 'practical') grouped[tName].divisions[divLabel][sessionSubject].practicalCount++;
+
+                        grouped[tName].divisions[divLabel][sessionSubject].sessionIds.push(doc.id);
+                    });
+
+                    setReportData(grouped);
+                    setLoading(false);
+                } catch (error) {
+                    console.error("Error fetching usage report:", error);
+                    setLoading(false);
+                }
+            };
+
+            fetchSessions();
+        }, [user, teachersList, currentAcademicYear]);
+
+        const fetchAttendanceCountForGroup = async (teacherName, division, subject, sessionIds) => {
+            const cacheKey = `${teacherName}_${division}_${subject}`;
+            if (attendanceStats[cacheKey] !== undefined) return;
+
+            setLoadingStats(prev => ({ ...prev, [cacheKey]: true }));
+
+            try {
+                let totalStudents = 0;
+                for (let i = 0; i < sessionIds.length; i += 10) {
+                    const chunk = sessionIds.slice(i, i + 10);
+                    const attQ = query(
+                        collection(db, 'attendance'),
+                        where('instituteId', '==', user.instituteId),
+                        where('sessionId', 'in', chunk),
+                        where('status', '==', 'Present')
+                    );
+
+                    const snapshot = await getCountFromServer(attQ);
+                    totalStudents += snapshot.data().count;
+                }
+
+                setAttendanceStats(prev => ({ ...prev, [cacheKey]: totalStudents }));
+            } catch (err) {
+                console.error("Error fetching count:", err);
+                toast.error("Failed to load attendance count");
+            } finally {
+                setLoadingStats(prev => ({ ...prev, [cacheKey]: false }));
             }
+        };
 
-            setAttendanceStats(prev => ({ ...prev, [cacheKey]: totalStudents }));
-        } catch (err) {
-            console.error("Error fetching count:", err);
-            toast.error("Failed to load attendance count");
-        } finally {
-            setLoadingStats(prev => ({ ...prev, [cacheKey]: false }));
-        }
-    };
+        if (loading) return <div className="card" style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}><i className="fas fa-spinner fa-spin"></i> Loading Analytics...</div>;
 
-    if (loading) return <div className="card" style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}><i className="fas fa-spinner fa-spin"></i> Loading Analytics...</div>;
+        return (
+            <div className="content-section">
+                {/* ✅ UPDATED HEADER WITH PDF BUTTON */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '15px', marginBottom: '20px' }}>
+                    <div>
+                        <h2 className="content-title" style={{ margin: 0 }}>Teacher App Usage</h2>
+                        <p className="content-subtitle" style={{ marginTop: '5px' }}>Track session creation and student engagement.</p>
+                    </div>
 
-    return (
-        <div className="content-section">
-            {/* ✅ UPDATED HEADER WITH PDF BUTTON */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '15px', marginBottom: '20px' }}>
-                <div>
-                    <h2 className="content-title" style={{ margin: 0 }}>Teacher App Usage</h2>
-                    <p className="content-subtitle" style={{ marginTop: '5px' }}>Track session creation and student engagement.</p>
+                    {Object.keys(reportData).length > 0 && (
+                        <button
+                            onClick={downloadUsagePDF}
+                            style={{
+                                background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0',
+                                padding: '10px 16px', borderRadius: '10px', fontSize: '13px', fontWeight: '700',
+                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px',
+                                transition: 'all 0.2s', boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                            }}
+                            onMouseOver={e => e.currentTarget.style.background = '#d1fae5'}
+                            onMouseOut={e => e.currentTarget.style.background = '#ecfdf5'}
+                        >
+                            <i className="fas fa-file-pdf"></i> Download PDF Report
+                        </button>
+                    )}
                 </div>
-                
-                {Object.keys(reportData).length > 0 && (
-                    <button 
-                        onClick={downloadUsagePDF}
-                        style={{ 
-                            background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0', 
-                            padding: '10px 16px', borderRadius: '10px', fontSize: '13px', fontWeight: '700', 
-                            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', 
-                            transition: 'all 0.2s', boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
-                        }}
-                        onMouseOver={e => e.currentTarget.style.background = '#d1fae5'}
-                        onMouseOut={e => e.currentTarget.style.background = '#ecfdf5'}
-                    >
-                        <i className="fas fa-file-pdf"></i> Download PDF Report
-                    </button>
-                )}
-            </div>
 
-            <div className="cards-grid" style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                {Object.keys(reportData).length === 0 ? (
-                    <div className="card" style={{ textAlign: 'center', color: '#64748b' }}>No sessions created yet.</div>
-                ) : (
-                    Object.keys(reportData).map(teacherName => {
-                        const isExpanded = expandedTeacherId === teacherName;
-                        const divisions = reportData[teacherName].divisions;
-                        const teacherEmail = reportData[teacherName].email; 
-                        
-                        let totalTeacherSessions = 0;
-                        Object.values(divisions).forEach(subs => Object.values(subs).forEach(stats => {
-                            totalTeacherSessions += (stats.theoryCount + stats.practicalCount);
-                        }));
+                <div className="cards-grid" style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                    {Object.keys(reportData).length === 0 ? (
+                        <div className="card" style={{ textAlign: 'center', color: '#64748b' }}>No sessions created yet.</div>
+                    ) : (
+                        Object.keys(reportData).map(teacherName => {
+                            const isExpanded = expandedTeacherId === teacherName;
+                            const divisions = reportData[teacherName].divisions;
+                            const teacherEmail = reportData[teacherName].email;
 
-                        return (
-                            <div key={teacherName} className="card" style={{ padding: '15px', cursor: 'pointer', borderLeft: '4px solid #3b82f6', transition: 'all 0.2s' }}>
-                                <div onClick={() => setExpandedTeacherId(isExpanded ? null : teacherName)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <div>
-                                        <h3 style={{ margin: 0, fontSize: '18px', color: '#1e293b' }}>{teacherName}</h3>
-                                        <p style={{ margin: '5px 0 0 0', fontSize: '13px', color: '#64748b' }}>
-                                            Total Sessions Created: <strong style={{ color: '#3b82f6' }}>{totalTeacherSessions}</strong>
-                                        </p>
+                            let totalTeacherSessions = 0;
+                            Object.values(divisions).forEach(subs => Object.values(subs).forEach(stats => {
+                                totalTeacherSessions += (stats.theoryCount + stats.practicalCount);
+                            }));
+
+                            return (
+                                <div key={teacherName} className="card" style={{ padding: '15px', cursor: 'pointer', borderLeft: '4px solid #3b82f6', transition: 'all 0.2s' }}>
+                                    <div onClick={() => setExpandedTeacherId(isExpanded ? null : teacherName)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div>
+                                            <h3 style={{ margin: 0, fontSize: '18px', color: '#1e293b' }}>{teacherName}</h3>
+                                            <p style={{ margin: '5px 0 0 0', fontSize: '13px', color: '#64748b' }}>
+                                                Total Sessions Created: <strong style={{ color: '#3b82f6' }}>{totalTeacherSessions}</strong>
+                                            </p>
+                                        </div>
+                                        <div style={{ background: '#f1f5f9', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            <i className={`fas fa-chevron-${isExpanded ? 'up' : 'down'}`} style={{ color: '#64748b' }}></i>
+                                        </div>
                                     </div>
-                                    <div style={{ background: '#f1f5f9', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                        <i className={`fas fa-chevron-${isExpanded ? 'up' : 'down'}`} style={{ color: '#64748b' }}></i>
-                                    </div>
-                                </div>
 
-                                {isExpanded && (
-                                    <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '15px', borderTop: '1px solid #e2e8f0', paddingTop: '15px' }}>
-                                        {Object.entries(divisions).map(([division, subjects]) => (
-                                            <div key={division} style={{ background: '#f8fafc', padding: '15px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                                                <h4 style={{ margin: '0 0 12px 0', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                    <span style={{ background: '#dbeafe', color: '#1e40af', padding: '4px 10px', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold' }}>
-                                                        {division === 'Combined FE Lecture' ? <i className="fas fa-users"></i> : ''} {division}
-                                                    </span>
-                                                </h4>
-                                                
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                                    {Object.entries(subjects).map(([subject, stats]) => {
-                                                        const cacheKey = `${teacherName}_${division}_${subject}`;
-                                                        const attCount = attendanceStats[cacheKey];
-                                                        const isLoadingCount = loadingStats[cacheKey];
+                                    {isExpanded && (
+                                        <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '15px', borderTop: '1px solid #e2e8f0', paddingTop: '15px' }}>
+                                            {Object.entries(divisions).map(([division, subjects]) => (
+                                                <div key={division} style={{ background: '#f8fafc', padding: '15px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                                                    <h4 style={{ margin: '0 0 12px 0', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <span style={{ background: '#dbeafe', color: '#1e40af', padding: '4px 10px', borderRadius: '8px', fontSize: '12px', fontWeight: 'bold' }}>
+                                                            {division === 'Combined FE Lecture' ? <i className="fas fa-users"></i> : ''} {division}
+                                                        </span>
+                                                    </h4>
 
-                                                        return (
-                                                            <div key={subject} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white', padding: '12px 15px', borderRadius: '8px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '10px' }}>
-                                                                <div>
-                                                                    <strong style={{ fontSize: '14px', color: '#334155' }}>{subject}</strong>
-                                                                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', display: 'flex', gap: '10px' }}>
-                                                                        <span><i className="fas fa-book" style={{color: '#94a3b8'}}></i> {stats.theoryCount} Theory</span>
-                                                                        <span><i className="fas fa-flask" style={{color: '#94a3b8'}}></i> {stats.practicalCount} Practical</span>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                                        {Object.entries(subjects).map(([subject, stats]) => {
+                                                            const cacheKey = `${teacherName}_${division}_${subject}`;
+                                                            const attCount = attendanceStats[cacheKey];
+                                                            const isLoadingCount = loadingStats[cacheKey];
+
+                                                            return (
+                                                                <div key={subject} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'white', padding: '12px 15px', borderRadius: '8px', border: '1px solid #e2e8f0', flexWrap: 'wrap', gap: '10px' }}>
+                                                                    <div>
+                                                                        <strong style={{ fontSize: '14px', color: '#334155' }}>{subject}</strong>
+                                                                        <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', display: 'flex', gap: '10px' }}>
+                                                                            <span><i className="fas fa-book" style={{ color: '#94a3b8' }}></i> {stats.theoryCount} Theory</span>
+                                                                            <span><i className="fas fa-flask" style={{ color: '#94a3b8' }}></i> {stats.practicalCount} Practical</span>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                                        {attCount !== undefined ? (
+                                                                            <span style={{ background: '#dcfce7', color: '#166534', padding: '6px 12px', borderRadius: '20px', fontSize: '13px', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '6px', border: '1px solid #bbf7d0' }}>
+                                                                                <i className="fas fa-users"></i> {attCount} Students Present
+                                                                            </span>
+                                                                        ) : (
+                                                                            <button
+                                                                                onClick={(e) => { e.stopPropagation(); fetchAttendanceCountForGroup(teacherName, division, subject, stats.sessionIds); }}
+                                                                                disabled={isLoadingCount}
+                                                                                style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', padding: '8px 14px', borderRadius: '8px', fontSize: '12px', cursor: 'pointer', fontWeight: '600', transition: '0.2s' }}
+                                                                            >
+                                                                                {isLoadingCount ? <><i className="fas fa-spinner fa-spin"></i> Loading...</> : <><i className="fas fa-chart-bar"></i> Check Attendance</>}
+                                                                            </button>
+                                                                        )}
+
+                                                                        <button
+                                                                            onClick={(e) => { e.stopPropagation(); handleSendUsageWarning(teacherName, teacherEmail, division, subject, stats.theoryCount, stats.practicalCount); }}
+                                                                            style={{ background: '#fef2f2', color: '#ef4444', border: '1px solid #fecaca', padding: '8px 14px', borderRadius: '8px', fontSize: '12px', cursor: 'pointer', fontWeight: '600', transition: '0.2s', display: 'flex', alignItems: 'center', gap: '6px' }}
+                                                                            title="Send usage warning email to teacher"
+                                                                        >
+                                                                            <i className="fas fa-envelope"></i> Email Report
+                                                                        </button>
                                                                     </div>
                                                                 </div>
-                                                                
-                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                                    {attCount !== undefined ? (
-                                                                        <span style={{ background: '#dcfce7', color: '#166534', padding: '6px 12px', borderRadius: '20px', fontSize: '13px', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '6px', border: '1px solid #bbf7d0' }}>
-                                                                            <i className="fas fa-users"></i> {attCount} Students Present
-                                                                        </span>
-                                                                    ) : (
-                                                                        <button 
-                                                                            onClick={(e) => { e.stopPropagation(); fetchAttendanceCountForGroup(teacherName, division, subject, stats.sessionIds); }}
-                                                                            disabled={isLoadingCount}
-                                                                            style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', padding: '8px 14px', borderRadius: '8px', fontSize: '12px', cursor: 'pointer', fontWeight: '600', transition: '0.2s' }}
-                                                                        >
-                                                                            {isLoadingCount ? <><i className="fas fa-spinner fa-spin"></i> Loading...</> : <><i className="fas fa-chart-bar"></i> Check Attendance</>}
-                                                                        </button>
-                                                                    )}
-                                                                    
-                                                                    <button 
-                                                                        onClick={(e) => { e.stopPropagation(); handleSendUsageWarning(teacherName, teacherEmail, division, subject, stats.theoryCount, stats.practicalCount); }}
-                                                                        style={{ background: '#fef2f2', color: '#ef4444', border: '1px solid #fecaca', padding: '8px 14px', borderRadius: '8px', fontSize: '12px', cursor: 'pointer', fontWeight: '600', transition: '0.2s', display: 'flex', alignItems: 'center', gap: '6px' }}
-                                                                        title="Send usage warning email to teacher"
-                                                                    >
-                                                                        <i className="fas fa-envelope"></i> Email Report
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                        )
-                                                    })}
+                                                            )
+                                                        })}
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        )
-                    })
-                )}
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )
+                        })
+                    )}
+                </div>
             </div>
-        </div>
-    );
-};
+        );
+    };
 
-   // 📄 DOWNLOAD DEFAULTERS (CRITICAL LIST) PDF
+    // 📄 DOWNLOAD DEFAULTERS (CRITICAL LIST) PDF
     const downloadDefaultersPDF = () => {
         if (!analyticsData || !analyticsData.defaulters || analyticsData.defaulters.length === 0) {
             return toast.error("No defaulters to download.");
         }
 
         const doc = new jsPDF();
-        
+
         // Get the exact width of the PDF page for perfect centering
         const pageWidth = doc.internal.pageSize.getWidth();
 
@@ -1447,12 +1531,12 @@ const TeacherUsageReport = ({ user }) => {
         // 2. Report Title (Left aligned, shifted down)
         doc.setFontSize(14);
         doc.setTextColor(30, 41, 59);
-        const reportTitle = isFE 
+        const reportTitle = isFE
             ? `${hodInfo?.department || 'First Year'} - Div ${analyticsDivision} Defaulters`
             : `${hodInfo?.department || 'Department'} - ${analyticsYear} Defaulters`;
-            
+
         doc.text(reportTitle, 14, 30);
-        
+
         // 3. Subtitle / Metadata (Shifted down)
         doc.setFontSize(11);
         doc.setTextColor(100, 116, 139);
@@ -1460,9 +1544,9 @@ const TeacherUsageReport = ({ user }) => {
         doc.text(`Total Defaulters: ${analyticsData.defaulters.length}`, 14, 44);
 
         const tableColumn = ["Roll No", "Student Name", "Email", "Attendance %"];
-        
+
         // Sort students by Roll Number numerically
-        const sortedDefaulters = [...analyticsData.defaulters].sort((a, b) => 
+        const sortedDefaulters = [...analyticsData.defaulters].sort((a, b) =>
             (a.rollNo || '').localeCompare(b.rollNo || '', undefined, { numeric: true })
         );
 
@@ -1729,6 +1813,10 @@ const TeacherUsageReport = ({ user }) => {
                     <NavLink page="timetable" iconClass="fa-calendar-alt" label="Timetable" />
                     <NavLink page="addTeacher" iconClass="fa-chalkboard-teacher" label="Add Teacher" />
                     <NavLink page="feedback" iconClass="fa-comment-dots" label="Feedback Forms" />
+                    {/* ✅ ONLY SHOW TO NON-ENGG HODS */}
+                    {config?.domain !== 'ENGINEERING' && (
+                        <NavLink page="enrollment" iconClass="fa-user-check" label="Enroll Students" />
+                    )}
                     <NavLink page="profile" iconClass="fa-user-cog" label="My Profile" />
                 </ul>
                 <div className="sidebar-footer">
@@ -1800,26 +1888,37 @@ const TeacherUsageReport = ({ user }) => {
                                         Warning: Switching this hides all attendance data from other years.
                                     </p>
                                 </div>
-
+                                
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '20px' }}>
 
-                                    {/* ✅ DYNAMIC LOGIC: Show levels based on College Config */}
-                                    {academicLevels.map(level => {
-                                        // Universal Semester Options (1-8)
-                                        const options = Array.from({ length: 8 }, (_, i) => ({ value: i + 1, label: `Semester ${i + 1}` }));
+                                    {(() => {
+                                        // ✅ LOGIC: Engg FE sees FE. Engg Depts see SE/TE/BE. Agri/Medical see ALL.
+                                        const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+                                        const levelsToShow = isFE ? [academicLevels[0]] : (isNonEngg ? academicLevels : academicLevels.slice(1));
 
-                                        return (
-                                            <div key={level}>
-                                                <CustomMobileSelect
-                                                    label={`${level} Session`}
-                                                    icon="fa-graduation-cap"
-                                                    value={activeSemesters[level] || options[0].value}
-                                                    onChange={(val) => handleSemesterSwitch(level, val)}
-                                                    options={options}
-                                                />
-                                            </div>
-                                        )
-                                    })}
+                                        return levelsToShow.map(level => {
+                                            // Dynamically calculate semesters based on the level's index
+                                            const actualIdx = academicLevels.indexOf(level);
+                                            const startSem = actualIdx >= 0 ? (actualIdx * 2) + 1 : 1;
+
+                                            const options = [
+                                                { value: startSem, label: `Semester ${startSem}` },
+                                                { value: startSem + 1, label: `Semester ${startSem + 1}` }
+                                            ];
+
+                                            return (
+                                                <div key={level}>
+                                                    <CustomMobileSelect
+                                                        label={`${level} Session`}
+                                                        icon="fa-graduation-cap"
+                                                        value={activeSemesters[level] || options[0].value}
+                                                        onChange={(val) => handleSemesterSwitch(level, val)}
+                                                        options={options}
+                                                    />
+                                                </div>
+                                            );
+                                        });
+                                    })()}
 
                                 </div>
 
@@ -1834,28 +1933,42 @@ const TeacherUsageReport = ({ user }) => {
 
                         <h2 className="content-title">Department Overview</h2>
 
-                        {/* 1. Student Count by Year (Cards) */}
+                      {/* 1. Student Count by Year (Cards) */}
                         <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', marginBottom: '20px' }}>
 
-                            {/* ✅ DYNAMIC LOGIC: Show Student Counts by dynamic level */}
-                            {academicLevels.map((level, index) => {
-                                const count = studentsList.filter(s => s.level === level || s.year === level).length;
-                                
-                                // Cycle through colors dynamically
-                                const colorPalette = ['#3b82f6', '#8b5cf6', '#f59e0b', '#10b981', '#ec4899', '#06b6d4'];
-                                const color = colorPalette[index % colorPalette.length];
+                            {(() => {
+                                const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+                                // Safely hide FE if it's an Engineering Dept HOD
+                                const labelsToShow = isFE ? DIVISIONS : (isNonEngg ? academicLevels : academicLevels.filter(lvl => lvl !== 'FE'));
 
-                                return (
-                                    <div key={level} className="card" style={{ border: 'none', borderLeft: `4px solid ${color}`, background: '#fff' }}>
-                                        <h3 style={{ margin: 0, color: color, fontSize: '14px' }}>
-                                            {level} Students
-                                        </h3>
-                                        <p style={{ margin: '5px 0 0', fontSize: '28px', fontWeight: '800', color: '#1e293b' }}>
-                                            {count}
-                                        </p>
-                                    </div>
-                                );
-                            })}
+                                return labelsToShow.map((label, index) => {
+
+                                    // Count Logic
+                                    const count = studentsList.filter(s =>
+                                        isFE ? s.division === label : (s.level === label || s.year === label)
+                                    ).length;
+
+                                    // Dynamic Colors
+                                    const colors = {
+                                        'A': '#3b82f6', 'B': '#8b5cf6', 'C': '#f59e0b', 'D': '#10b981',
+                                        'E': '#ef4444', 'F': '#06b6d4', 'G': '#ec4899', 'H': '#6366f1'
+                                    };
+                                    // Fallback colors for dynamic levels
+                                    const colorPalette = ['#8b5cf6', '#f59e0b', '#10b981', '#ec4899', '#06b6d4'];
+                                    const color = isFE ? (colors[label] || '#64748b') : colorPalette[index % colorPalette.length];
+
+                                    return (
+                                        <div key={label} className="card" style={{ border: 'none', borderLeft: `4px solid ${color}`, background: '#fff' }}>
+                                            <h3 style={{ margin: 0, color: color, fontSize: '14px' }}>
+                                                {isFE ? `Div ${label}` : `${label}`} Students
+                                            </h3>
+                                            <p style={{ margin: '5px 0 0', fontSize: '28px', fontWeight: '800', color: '#1e293b' }}>
+                                                {count}
+                                            </p>
+                                        </div>
+                                    );
+                                });
+                            })()}
 
                             <div className="card" style={{ background: '#f8fafc', border: 'none', borderLeft: '4px solid #64748b' }}>
                                 <h3 style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>Total Faculty</h3>
@@ -1927,7 +2040,7 @@ const TeacherUsageReport = ({ user }) => {
                     </div>
                 )}
 
-               {activeTab === 'feedback' && (
+                {activeTab === 'feedback' && (
                     <div className="content-section">
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '20px' }}>
                             <div>
@@ -1940,16 +2053,16 @@ const TeacherUsageReport = ({ user }) => {
                         <div className="fb-toggle-nav">
                             <button className={`fb-toggle-btn ${fbTab === 'create' ? 'active' : ''}`} onClick={() => {
                                 setFbTab('create');
-                                if(!editingFormId) {
+                                if (!editingFormId) {
                                     setFeedbackForm({ title: '', targetYear: 'All', division: 'All', questions: [{ id: Date.now(), type: 'mcq', text: '', options: ['', ''] }] });
                                 }
                             }}>
-                                <i className={`fas ${editingFormId ? 'fa-pen' : 'fa-plus-circle'}`} style={{ marginRight: '8px' }}></i> 
+                                <i className={`fas ${editingFormId ? 'fa-pen' : 'fa-plus-circle'}`} style={{ marginRight: '8px' }}></i>
                                 {editingFormId ? 'Edit Form' : 'Create Form'}
                             </button>
-                            <button className={`fb-toggle-btn ${fbTab === 'view' ? 'active' : ''}`} onClick={() => { 
-                                setFbTab('view'); 
-                                setSelectedFormToView(null); 
+                            <button className={`fb-toggle-btn ${fbTab === 'view' ? 'active' : ''}`} onClick={() => {
+                                setFbTab('view');
+                                setSelectedFormToView(null);
                                 setEditingFormId(null); // Clear edit state
                                 setFeedbackForm({ title: '', targetYear: 'All', division: 'All', questions: [{ id: Date.now(), type: 'mcq', text: '', options: ['', ''] }] });
                             }}>
@@ -1964,22 +2077,22 @@ const TeacherUsageReport = ({ user }) => {
                                     <label style={{ fontSize: '12px', fontWeight: '800', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px', display: 'block', letterSpacing: '0.5px' }}>
                                         <i className="fas fa-heading" style={{ marginRight: '6px', color: '#3b82f6' }}></i> Form Title
                                     </label>
-                                    <input 
-                                        type="text" 
-                                        placeholder="e.g. Mid-Semester Teaching Feedback" 
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Mid-Semester Teaching Feedback"
                                         value={feedbackForm.title}
-                                        onChange={e => setFeedbackForm({...feedbackForm, title: e.target.value})}
+                                        onChange={e => setFeedbackForm({ ...feedbackForm, title: e.target.value })}
                                         className="fb-title-input"
                                     />
                                 </div>
 
                                 <div className="fb-target-row" style={{ position: 'relative', zIndex: 100 }}>
                                     <div style={{ flex: 1 }}>
-                                        <CustomMobileSelect 
+                                        <CustomMobileSelect
                                             label="Target Year"
                                             icon="fa-users"
                                             value={feedbackForm.targetYear}
-                                            onChange={(val) => setFeedbackForm({...feedbackForm, targetYear: val, division: 'All'})}
+                                            onChange={(val) => setFeedbackForm({ ...feedbackForm, targetYear: val, division: 'All' })}
                                             options={[
                                                 { value: 'All', label: `All ${levelName}s` },
                                                 ...academicLevels.map(lvl => ({ value: lvl, label: lvl }))
@@ -1989,11 +2102,11 @@ const TeacherUsageReport = ({ user }) => {
 
                                     {(feedbackForm.targetYear === 'FE' || isFE) && (
                                         <div style={{ flex: 1 }}>
-                                            <CustomMobileSelect 
+                                            <CustomMobileSelect
                                                 label="Target Division"
                                                 icon="fa-layer-group"
                                                 value={feedbackForm.division}
-                                                onChange={(val) => setFeedbackForm({...feedbackForm, division: val})}
+                                                onChange={(val) => setFeedbackForm({ ...feedbackForm, division: val })}
                                                 options={[
                                                     { value: 'All', label: 'All Divisions' },
                                                     ...DIVISIONS.map(div => ({ value: div, label: `Division ${div}` }))
@@ -2006,12 +2119,12 @@ const TeacherUsageReport = ({ user }) => {
                                 <h3 style={{ fontSize: '18px', color: '#1e293b', borderBottom: '2px solid #f1f5f9', paddingBottom: '10px', marginBottom: '20px' }}>
                                     Questions Setup
                                 </h3>
-                                
+
                                 {feedbackForm.questions.map((q, qIndex) => (
                                     <div key={q.id} className="fb-question-card" style={{ zIndex: 90 - qIndex }}>
                                         <button className="fb-delete-q-btn" onClick={() => {
                                             const updated = feedbackForm.questions.filter((_, idx) => idx !== qIndex);
-                                            setFeedbackForm({...feedbackForm, questions: updated});
+                                            setFeedbackForm({ ...feedbackForm, questions: updated });
                                         }} title="Remove Question">
                                             <i className="fas fa-trash"></i>
                                         </button>
@@ -2024,13 +2137,13 @@ const TeacherUsageReport = ({ user }) => {
                                                     </div>
                                                     Question Text
                                                 </label>
-                                                <input 
-                                                    type="text" 
+                                                <input
+                                                    type="text"
                                                     value={q.text}
                                                     onChange={(e) => {
                                                         const updated = [...feedbackForm.questions];
                                                         updated[qIndex].text = e.target.value;
-                                                        setFeedbackForm({...feedbackForm, questions: updated});
+                                                        setFeedbackForm({ ...feedbackForm, questions: updated });
                                                     }}
                                                     className="fb-input-styled"
                                                     placeholder="What do you want to ask the students?"
@@ -2038,14 +2151,14 @@ const TeacherUsageReport = ({ user }) => {
                                             </div>
 
                                             <div>
-                                                <CustomMobileSelect 
+                                                <CustomMobileSelect
                                                     label="Answer Format"
                                                     icon="fa-sliders-h"
                                                     value={q.type}
                                                     onChange={(val) => {
                                                         const updated = [...feedbackForm.questions];
                                                         updated[qIndex].type = val;
-                                                        setFeedbackForm({...feedbackForm, questions: updated});
+                                                        setFeedbackForm({ ...feedbackForm, questions: updated });
                                                     }}
                                                     options={[
                                                         { value: 'mcq', label: 'Multiple Choice' },
@@ -2060,17 +2173,17 @@ const TeacherUsageReport = ({ user }) => {
                                                 <label style={{ fontSize: '11px', fontWeight: '800', color: '#94a3b8', marginBottom: '12px', display: 'block', textTransform: 'uppercase' }}>
                                                     <i className="fas fa-list-ul" style={{ marginRight: '6px' }}></i> Multiple Choice Options
                                                 </label>
-                                                
+
                                                 {q.options.map((opt, oIndex) => (
                                                     <div key={oIndex} className="fb-option-row">
                                                         <div style={{ width: '16px', height: '16px', borderRadius: '50%', border: '2px solid #cbd5e1', background: 'white' }}></div>
-                                                        <input 
-                                                            type="text" 
+                                                        <input
+                                                            type="text"
                                                             value={opt}
                                                             onChange={(e) => {
                                                                 const updated = [...feedbackForm.questions];
                                                                 updated[qIndex].options[oIndex] = e.target.value;
-                                                                setFeedbackForm({...feedbackForm, questions: updated});
+                                                                setFeedbackForm({ ...feedbackForm, questions: updated });
                                                             }}
                                                             className="fb-option-input"
                                                             placeholder={`Option ${oIndex + 1}`}
@@ -2078,17 +2191,17 @@ const TeacherUsageReport = ({ user }) => {
                                                         <button onClick={() => {
                                                             const updated = [...feedbackForm.questions];
                                                             updated[qIndex].options = updated[qIndex].options.filter((_, idx) => idx !== oIndex);
-                                                            setFeedbackForm({...feedbackForm, questions: updated});
+                                                            setFeedbackForm({ ...feedbackForm, questions: updated });
                                                         }} style={{ background: '#fee2e2', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '6px 8px', borderRadius: '8px', transition: 'all 0.2s' }}>
                                                             <i className="fas fa-times"></i>
                                                         </button>
                                                     </div>
                                                 ))}
-                                                
+
                                                 <button className="fb-add-option-btn" onClick={() => {
                                                     const updated = [...feedbackForm.questions];
                                                     updated[qIndex].options.push('');
-                                                    setFeedbackForm({...feedbackForm, questions: updated});
+                                                    setFeedbackForm({ ...feedbackForm, questions: updated });
                                                 }}>
                                                     <i className="fas fa-plus"></i> Add Option
                                                 </button>
@@ -2098,22 +2211,22 @@ const TeacherUsageReport = ({ user }) => {
                                 ))}
 
                                 <button className="fb-add-question-btn" onClick={() => setFeedbackForm({
-                                    ...feedbackForm, 
+                                    ...feedbackForm,
                                     questions: [...feedbackForm.questions, { id: Date.now(), type: 'mcq', text: '', options: ['', ''] }]
                                 })}>
                                     <i className="fas fa-plus-circle"></i> Add Another Question
                                 </button>
 
                                 {/* ✅ UPDATED SUBMIT BUTTON (Handles both Save and Edit) */}
-                                <button 
-                                    className="btn-primary" 
+                                <button
+                                    className="btn-primary"
                                     style={{ width: '100%', padding: '16px', fontSize: '16px', borderRadius: '14px', background: 'linear-gradient(135deg, #2563eb, #1d4ed8)', boxShadow: '0 10px 20px -5px rgba(37, 99, 235, 0.4)' }}
                                     onClick={async () => {
-                                        if(!feedbackForm.title) return toast.error("Title is required!");
+                                        if (!feedbackForm.title) return toast.error("Title is required!");
                                         const actionText = editingFormId ? "Updating" : "Publishing";
                                         const endpoint = editingFormId ? "updateFeedbackForm" : "createFeedbackForm";
                                         const toastId = toast.loading(`${actionText} Feedback Form...`);
-                                        
+
                                         try {
                                             const payload = {
                                                 instituteId: hodInfo.instituteId,
@@ -2131,17 +2244,17 @@ const TeacherUsageReport = ({ user }) => {
                                                 headers: { 'Content-Type': 'application/json' },
                                                 body: JSON.stringify(payload)
                                             });
-                                            
+
                                             toast.success(`Form ${editingFormId ? 'Updated' : 'Published'} successfully!`, { id: toastId });
                                             setFeedbackForm({ title: '', targetYear: 'All', division: 'All', questions: [{ id: Date.now(), type: 'mcq', text: '', options: ['', ''] }] });
                                             setEditingFormId(null);
-                                            setFbTab('view'); 
+                                            setFbTab('view');
                                         } catch (error) {
                                             toast.error(`Failed to ${editingFormId ? 'update' : 'publish'} form.`, { id: toastId });
                                         }
                                     }}
                                 >
-                                    <i className={`fas ${editingFormId ? 'fa-save' : 'fa-paper-plane'}`} style={{ marginRight: '8px' }}></i> 
+                                    <i className={`fas ${editingFormId ? 'fa-save' : 'fa-paper-plane'}`} style={{ marginRight: '8px' }}></i>
                                     {editingFormId ? 'Save Changes' : 'Publish Form to Students'}
                                 </button>
                             </div>
@@ -2162,17 +2275,17 @@ const TeacherUsageReport = ({ user }) => {
                                                 <span><i className="fas fa-calendar"></i> {form.academicYear}</span>
                                             </div>
                                         </div>
-                                        
+
                                         {/* ✅ EDIT & DELETE BUTTONS ON THE CARD */}
                                         <div style={{ display: 'flex', gap: '8px', zIndex: 10 }}>
-                                            <button 
-                                                onClick={(e) => { e.stopPropagation(); handleEditFeedbackForm(form); }} 
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); handleEditFeedbackForm(form); }}
                                                 style={{ background: '#f8fafc', color: '#3b82f6', border: '1px solid #e2e8f0', padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', transition: '0.2s' }}
                                             >
                                                 <i className="fas fa-pen"></i>
                                             </button>
-                                            <button 
-                                                onClick={(e) => { e.stopPropagation(); handleDeleteFeedbackForm(form.id); }} 
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); handleDeleteFeedbackForm(form.id); }}
                                                 style={{ background: '#fee2e2', color: '#ef4444', border: '1px solid #fecaca', padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', transition: '0.2s' }}
                                             >
                                                 <i className="fas fa-trash"></i>
@@ -2191,13 +2304,13 @@ const TeacherUsageReport = ({ user }) => {
                         {/* --- INSIDE A SPECIFIC FORM --- */}
                         {fbTab === 'view' && selectedFormToView && (
                             <div className="fade-in-up" style={{ background: 'white', borderRadius: '20px', padding: '30px', boxShadow: '0 10px 30px -10px rgba(0,0,0,0.05)' }}>
-                                <button 
+                                <button
                                     onClick={() => setSelectedFormToView(null)}
                                     style={{ background: 'transparent', border: 'none', color: '#64748b', fontWeight: '700', cursor: 'pointer', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}
                                 >
                                     <i className="fas fa-arrow-left"></i> Back to Forms
                                 </button>
-                                
+
                                 <div style={{ borderBottom: '2px solid #f1f5f9', paddingBottom: '20px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '15px' }}>
                                     <div>
                                         <h2 style={{ margin: 0, color: '#1e293b', fontSize: '22px' }}>{selectedFormToView.title}</h2>
@@ -2205,23 +2318,23 @@ const TeacherUsageReport = ({ user }) => {
                                             <p style={{ margin: '5px 0 0', color: '#64748b' }}>Total Submissions: <strong>{formResponses.length}</strong></p>
                                         )}
                                     </div>
-                                    
+
                                     {/* 📥 GOOGLE FORMS STYLE EXPORT BUTTONS */}
                                     {!isResponsesLoading && formResponses.length > 0 && (
                                         <div style={{ display: 'flex', gap: '10px' }}>
-                                            <button 
+                                            <button
                                                 onClick={() => {
                                                     // 📊 EXCEL EXPORT LOGIC
                                                     const rows = formResponses.map(r => {
                                                         const teacherInfo = deptUsers.find(u => u.id === r.teacherId);
                                                         const teacherName = teacherInfo ? `${teacherInfo.firstName} ${teacherInfo.lastName}` : 'Unknown Teacher';
-                                                        
+
                                                         let rowData = {
                                                             "Date Submitted": r.submittedAt?._seconds ? new Date(r.submittedAt._seconds * 1000).toLocaleString() : new Date().toLocaleString(),
                                                             "Teacher Name": teacherName,
                                                             "Subject": r.subject
                                                         };
-                                                        
+
                                                         // Add all questions as columns
                                                         selectedFormToView.questions.forEach(q => {
                                                             const ans = r.answers.find(a => a.questionText === q.text);
@@ -2242,16 +2355,16 @@ const TeacherUsageReport = ({ user }) => {
                                                 <i className="fas fa-file-excel"></i> Download Excel
                                             </button>
 
-                                            <button 
+                                            <button
                                                 onClick={() => {
                                                     // 📄 PDF EXPORT LOGIC
                                                     const doc = new jsPDF();
-                                                    
+
                                                     // Header (College Name & Details)
                                                     doc.setFontSize(18);
                                                     doc.setTextColor(30, 41, 59);
                                                     doc.text(hodInfo.instituteName || "Institute Feedback Report", 14, 20);
-                                                    
+
                                                     doc.setFontSize(11);
                                                     doc.setTextColor(100, 116, 139);
                                                     doc.text(`Department: ${hodInfo.department}`, 14, 28);
@@ -2264,7 +2377,7 @@ const TeacherUsageReport = ({ user }) => {
                                                     // Group responses by Teacher/Subject
                                                     const grouped = formResponses.reduce((acc, curr) => {
                                                         const key = `${curr.teacherId}_${curr.subject}`;
-                                                        if(!acc[key]) acc[key] = { teacherId: curr.teacherId, subject: curr.subject, responses: [] };
+                                                        if (!acc[key]) acc[key] = { teacherId: curr.teacherId, subject: curr.subject, responses: [] };
                                                         acc[key].responses.push(curr);
                                                         return acc;
                                                     }, {});
@@ -2338,7 +2451,7 @@ const TeacherUsageReport = ({ user }) => {
                                         {Object.entries(
                                             formResponses.reduce((acc, curr) => {
                                                 const key = `${curr.teacherId}_${curr.subject}`;
-                                                if(!acc[key]) acc[key] = { teacherId: curr.teacherId, subject: curr.subject, responses: [] };
+                                                if (!acc[key]) acc[key] = { teacherId: curr.teacherId, subject: curr.subject, responses: [] };
                                                 acc[key].responses.push(curr);
                                                 return acc;
                                             }, {})
@@ -2371,8 +2484,8 @@ const TeacherUsageReport = ({ user }) => {
 
                                                             return (
                                                                 <div key={q.id} style={{ background: 'white', padding: '15px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                                                                    <p style={{ margin: '0 0 10px 0', fontSize: '13px', fontWeight: '700', color: '#334155' }}>Q{i+1}: {q.text}</p>
-                                                                    
+                                                                    <p style={{ margin: '0 0 10px 0', fontSize: '13px', fontWeight: '700', color: '#334155' }}>Q{i + 1}: {q.text}</p>
+
                                                                     {q.type === 'mcq' ? (
                                                                         <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '12px', color: '#64748b' }}>
                                                                             {q.options.map(opt => {
@@ -2450,25 +2563,44 @@ const TeacherUsageReport = ({ user }) => {
                                     ))}
                                 </div>
 
-                                {/* ✅ DYNAMIC Level Selector */}
-                                <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '12px', display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
-                                    {academicLevels.map(level => (
-                                        <button
-                                            key={level}
-                                            onClick={() => setAnalyticsYear(level)}
-                                            style={{
-                                                padding: '8px 16px', border: 'none', borderRadius: '10px', cursor: 'pointer',
-                                                fontSize: '13px', fontWeight: '700',
-                                                background: analyticsYear === level ? '#ffffff' : 'transparent',
-                                                color: analyticsYear === level ? '#2563eb' : '#64748b',
-                                                boxShadow: analyticsYear === level ? '0 4px 12px rgba(0,0,0,0.05)' : 'none',
-                                                transition: 'all 0.2s ease'
-                                            }}
-                                        >
-                                            {level}
-                                        </button>
-                                    ))}
-                                </div>
+                              {/* ✅ DYNAMIC Level Selector / Division Dropdown */}
+                                {isFE ? (
+                                    <div style={{ minWidth: '100px', zIndex: 50 }}>
+                                        <CustomMobileSelect 
+                                            label="Filter by Division" 
+                                            value={analyticsDivision} 
+                                            onChange={setAnalyticsDivision} 
+                                            options={[
+                                                { value: 'All', label: 'All Divisions' }, 
+                                                ...DIVISIONS.map(div => ({ value: div, label: `Division ${div}` }))
+                                            ]} 
+                                        />
+                                    </div>
+                                ) : (
+                                    <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '12px', display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                                        {(() => {
+                                            const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+                                            const filterLevels = isNonEngg ? academicLevels : academicLevels.filter(lvl => lvl !== 'FE');
+                                            
+                                            return filterLevels.map(year => (
+                                                <button 
+                                                    key={year} 
+                                                    onClick={() => setAnalyticsYear(year)} 
+                                                    style={{ 
+                                                        padding: '8px 16px', border: 'none', borderRadius: '10px', cursor: 'pointer', 
+                                                        fontSize: '13px', fontWeight: '700', 
+                                                        background: analyticsYear === year ? '#ffffff' : 'transparent', 
+                                                        color: analyticsYear === year ? '#2563eb' : '#64748b', 
+                                                        boxShadow: analyticsYear === year ? '0 4px 12px rgba(0,0,0,0.05)' : 'none', 
+                                                        transition: 'all 0.2s ease' 
+                                                    }}
+                                                >
+                                                    {year}
+                                                </button>
+                                            ));
+                                        })()}
+                                    </div>
+                                )}
                             </div>
                         </div>
 
@@ -2565,7 +2697,7 @@ const TeacherUsageReport = ({ user }) => {
                             {/* Card 2: Defaulters List */}
                             <div className="card" style={{ borderTop: '4px solid #ef4444', height: '420px', display: 'flex', flexDirection: 'column', padding: '0' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 20px 15px', borderBottom: '1px solid #f1f5f9' }}>
-                                    
+
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                         <h3 style={{ color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px', margin: 0, fontSize: '16px', fontWeight: '700' }}>
                                             ⚠️ Critical List
@@ -2577,12 +2709,12 @@ const TeacherUsageReport = ({ user }) => {
 
                                     {/* 📥 NEW DOWNLOAD PDF BUTTON */}
                                     {analyticsData.defaulters.length > 0 && (
-                                        <button 
+                                        <button
                                             onClick={downloadDefaultersPDF}
-                                            style={{ 
-                                                background: '#fef2f2', color: '#ef4444', border: '1px solid #fecaca', 
-                                                padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '700', 
-                                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.2s' 
+                                            style={{
+                                                background: '#fef2f2', color: '#ef4444', border: '1px solid #fecaca',
+                                                padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '700',
+                                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.2s'
                                             }}
                                             onMouseOver={e => e.currentTarget.style.background = '#fee2e2'}
                                             onMouseOut={e => e.currentTarget.style.background = '#fef2f2'}
@@ -3259,10 +3391,10 @@ const TeacherUsageReport = ({ user }) => {
                             {/* Flex header for Title + Download Button */}
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', borderBottom: '2px solid #f1f5f9', paddingBottom: '10px' }}>
                                 <h3 style={{ margin: 0, color: '#1e293b' }}>
-                                    <i className="fas fa-chalkboard-teacher" style={{ color: '#3b82f6', marginRight: '8px' }}></i> 
+                                    <i className="fas fa-chalkboard-teacher" style={{ color: '#3b82f6', marginRight: '8px' }}></i>
                                     Faculty ({teachersList.length})
                                 </h3>
-                                <button 
+                                <button
                                     onClick={downloadTeacherEmails}
                                     style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', padding: '8px 14px', borderRadius: '10px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}
                                     onMouseOver={e => e.currentTarget.style.background = '#dbeafe'}
@@ -3340,10 +3472,10 @@ const TeacherUsageReport = ({ user }) => {
                         {/* --- 2. STUDENTS LIST (Grouped) --- */}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', margin: '0 0 15px 0' }}>
                             <h3 style={{ margin: 0, color: '#1e293b' }}>
-                                <i className="fas fa-user-graduate" style={{ color: '#10b981', marginRight: '8px' }}></i> 
+                                <i className="fas fa-user-graduate" style={{ color: '#10b981', marginRight: '8px' }}></i>
                                 Enrolled Students ({studentsList.length})
                             </h3>
-                            <button 
+                            <button
                                 onClick={downloadStudentEmails}
                                 style={{ background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0', padding: '8px 14px', borderRadius: '10px', fontSize: '12px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}
                                 onMouseOver={e => e.currentTarget.style.background = '#d1fae5'}
@@ -3353,68 +3485,75 @@ const TeacherUsageReport = ({ user }) => {
                             </button>
                         </div>
 
+
                         <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
-                            {(isFE ? DIVISIONS : ['SE', 'TE', 'BE']).map(label => {
-                                const groupStudents = studentsList.filter(s =>
-                                    isFE ? s.division === label : s.year === label
-                                );
+                            {(() => {
+                                const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+                                // Safely hide FE if it's an Engineering Dept HOD
+                                const labelsToShow = isFE ? DIVISIONS : (isNonEngg ? academicLevels : academicLevels.filter(lvl => lvl !== 'FE'));
 
-                                return (
-                                    <div key={label} className="card" style={{ display: 'flex', flexDirection: 'column', height: '350px' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '10px', marginBottom: '10px' }}>
-                                            <h3 style={{ margin: 0, color: '#2563eb' }}>
-                                                {isFE ? `Division ${label}` : `${label} Class`}
-                                            </h3>
-                                            <span className="nav-badge" style={{ background: '#eff6ff', color: '#2563eb', fontSize: '12px' }}>
-                                                {groupStudents.length}
-                                            </span>
-                                        </div>
+                                return labelsToShow.map(label => {
+                                    const groupStudents = studentsList.filter(s =>
+                                        isFE ? s.division === label : (s.year === label || s.level === label)
+                                    );
 
-                                        <div className="custom-scroll" style={{ flex: 1, overflowY: 'auto' }}>
-                                            {groupStudents.length > 0 ? (
-                                                <table className="attendance-table" style={{ fontSize: '13px' }}>
-                                                    <thead>
-                                                        <tr>
-                                                            <th>Roll</th>
-                                                            <th>Name</th>
-                                                            <th style={{ textAlign: 'right' }}>Edit</th>
-                                                        </tr>
-                                                    </thead>
-                                                    <tbody>
-                                                        {groupStudents.sort((a, b) => (a.rollNo || "").localeCompare(b.rollNo, undefined, { numeric: true })).map(s => (
-                                                            <tr key={s.id}>
-                                                                <td style={{ fontWeight: 'bold', color: '#475569' }}>{s.rollNo}</td>
-                                                                <td>
-                                                                    <div style={{ lineHeight: '1.2', color: '#1e293b', fontWeight: '600' }}>
-                                                                        {s.firstName} {s.lastName}
-                                                                    </div>
-                                                                    <div style={{ fontSize: '10px', color: '#64748b' }}>{s.email}</div>
-                                                                </td>
-                                                                <td style={{ textAlign: 'right' }}>
-                                                                    <button
-                                                                        onClick={() => {
-                                                                            setEditStudentData({ ...s });
-                                                                            setIsEditStudentModalOpen(true);
-                                                                        }}
-                                                                        style={{
-                                                                            background: '#f1f5f9', color: '#64748b', border: 'none',
-                                                                            borderRadius: '6px', padding: '6px', cursor: 'pointer', fontSize: '12px'
-                                                                        }}
-                                                                        onMouseOver={e => e.currentTarget.style.color = '#3b82f6'}
-                                                                        onMouseOut={e => e.currentTarget.style.color = '#64748b'}
-                                                                    >
-                                                                        <i className="fas fa-edit"></i>
-                                                                    </button>
-                                                                </td>
+                                    return (
+                                        <div key={label} className="card" style={{ display: 'flex', flexDirection: 'column', height: '350px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '10px', marginBottom: '10px' }}>
+                                                <h3 style={{ margin: 0, color: '#2563eb' }}>
+                                                    {isFE ? `Division ${label}` : `${label} Class`}
+                                                </h3>
+                                                <span className="nav-badge" style={{ background: '#eff6ff', color: '#2563eb', fontSize: '12px' }}>
+                                                    {groupStudents.length}
+                                                </span>
+                                            </div>
+
+                                            <div className="custom-scroll" style={{ flex: 1, overflowY: 'auto' }}>
+                                                {groupStudents.length > 0 ? (
+                                                    <table className="attendance-table" style={{ fontSize: '13px' }}>
+                                                        <thead>
+                                                            <tr>
+                                                                <th>Roll</th>
+                                                                <th>Name</th>
+                                                                <th style={{ textAlign: 'right' }}>Edit</th>
                                                             </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            ) : <p style={{ textAlign: 'center', color: '#94a3b8', marginTop: '20px', fontStyle: 'italic' }}>No students found.</p>}
+                                                        </thead>
+                                                        <tbody>
+                                                            {groupStudents.sort((a, b) => (a.rollNo || "").localeCompare(b.rollNo, undefined, { numeric: true })).map(s => (
+                                                                <tr key={s.id}>
+                                                                    <td style={{ fontWeight: 'bold', color: '#475569' }}>{s.rollNo}</td>
+                                                                    <td>
+                                                                        <div style={{ lineHeight: '1.2', color: '#1e293b', fontWeight: '600' }}>
+                                                                            {s.firstName} {s.lastName}
+                                                                        </div>
+                                                                        <div style={{ fontSize: '10px', color: '#64748b' }}>{s.email}</div>
+                                                                    </td>
+                                                                    <td style={{ textAlign: 'right' }}>
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setEditStudentData({ ...s });
+                                                                                setIsEditStudentModalOpen(true);
+                                                                            }}
+                                                                            style={{
+                                                                                background: '#f1f5f9', color: '#64748b', border: 'none',
+                                                                                borderRadius: '6px', padding: '6px', cursor: 'pointer', fontSize: '12px'
+                                                                            }}
+                                                                            onMouseOver={e => e.currentTarget.style.color = '#3b82f6'}
+                                                                            onMouseOut={e => e.currentTarget.style.color = '#64748b'}
+                                                                        >
+                                                                            <i className="fas fa-edit"></i>
+                                                                        </button>
+                                                                    </td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                ) : <p style={{ textAlign: 'center', color: '#94a3b8', marginTop: '20px', fontStyle: 'italic' }}>No students found.</p>}
+                                            </div>
                                         </div>
-                                    </div>
-                                );
-                            })}
+                                    );
+                                });
+                            })()}
                         </div>
 
                         {/* --- 3. BULK DELETE BUTTON --- */}
@@ -3423,6 +3562,121 @@ const TeacherUsageReport = ({ user }) => {
                                 <i className="fas fa-trash-alt"></i> Delete Selected ({selectedUserIds.length})
                             </button>
                         )}
+                    </div>
+                )}
+
+                {/* ✅ NEW: AGRI/MEDICAL STUDENT ENROLLMENT TAB */}
+                {activeTab === 'enrollment' && (
+                    <div className="content-section fade-in-up">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', flexWrap: 'wrap', gap: '15px' }}>
+                            <div>
+                                <h2 className="content-title" style={{ margin: 0 }}>Enroll Students to {hodInfo?.department}</h2>
+                                <p style={{ color: '#64748b', margin: '5px 0 0', fontSize: '14px' }}>
+                                    Select the students taking subjects under your department.
+                                </p>
+                            </div>
+                            
+                            <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '12px', display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                                {academicLevels.map(level => (
+                                    <button
+                                        key={level}
+                                        onClick={() => setEnrollmentYear(level)}
+                                        style={{
+                                            padding: '8px 16px', border: 'none', borderRadius: '10px', cursor: 'pointer',
+                                            fontSize: '13px', fontWeight: '700',
+                                            background: enrollmentYear === level ? '#ffffff' : 'transparent',
+                                            color: enrollmentYear === level ? '#2563eb' : '#64748b',
+                                            boxShadow: enrollmentYear === level ? '0 4px 12px rgba(0,0,0,0.05)' : 'none',
+                                            transition: 'all 0.2s ease'
+                                        }}
+                                    >
+                                        {level}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
+                            <div style={{ padding: '20px 25px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>
+                                    <i className="fas fa-users" style={{ color: '#3b82f6', marginRight: '8px' }}></i> 
+                                    {enrollmentYear} Students
+                                </h3>
+                                <span className="nav-badge" style={{ background: '#eff6ff', color: '#2563eb' }}>
+                                    {enrolledStudentIds.length} Selected
+                                </span>
+                            </div>
+
+                            <div className="table-wrapper custom-scroll" style={{ maxHeight: '500px', overflowY: 'auto' }}>
+                                <table className="attendance-table">
+                                    <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: 'white' }}>
+                                        <tr>
+                                            <th style={{ width: '50px', textAlign: 'center' }}>
+                                                <input 
+                                                    type="checkbox" 
+                                                    className="custom-checkbox"
+                                                    checked={enrolledStudentIds.length === studentsList.filter(s => s.year === enrollmentYear || s.level === enrollmentYear).length && enrolledStudentIds.length > 0}
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) {
+                                                            setEnrolledStudentIds(studentsList.filter(s => s.year === enrollmentYear || s.level === enrollmentYear).map(s => s.id));
+                                                        } else {
+                                                            setEnrolledStudentIds([]);
+                                                        }
+                                                    }}
+                                                />
+                                            </th>
+                                            <th>Roll No</th>
+                                            <th>Student Name</th>
+                                            <th>Email</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {studentsList.filter(s => s.year === enrollmentYear || s.level === enrollmentYear)
+                                            .sort((a, b) => (a.rollNo || "").localeCompare(b.rollNo, undefined, { numeric: true }))
+                                            .map(student => (
+                                                <tr key={student.id} 
+                                                    onClick={() => setEnrolledStudentIds(prev => prev.includes(student.id) ? prev.filter(id => id !== student.id) : [...prev, student.id])}
+                                                    style={{ cursor: 'pointer', background: enrolledStudentIds.includes(student.id) ? '#f0fdf4' : 'transparent', transition: 'background 0.2s' }}
+                                                >
+                                                    <td style={{ textAlign: 'center' }}>
+                                                        <input 
+                                                            type="checkbox" 
+                                                            className="custom-checkbox"
+                                                            checked={enrolledStudentIds.includes(student.id)}
+                                                            readOnly
+                                                        />
+                                                    </td>
+                                                    <td style={{ fontWeight: '700', color: enrolledStudentIds.includes(student.id) ? '#166534' : '#475569' }}>
+                                                        {student.rollNo}
+                                                    </td>
+                                                    <td style={{ fontWeight: '600', color: '#1e293b' }}>
+                                                        {student.firstName} {student.lastName}
+                                                    </td>
+                                                    <td style={{ color: '#64748b', fontSize: '13px' }}>
+                                                        {student.email}
+                                                    </td>
+                                                </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                                {studentsList.filter(s => s.year === enrollmentYear || s.level === enrollmentYear).length === 0 && (
+                                    <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
+                                        <i className="fas fa-user-slash" style={{ fontSize: '32px', marginBottom: '10px', opacity: 0.5 }}></i>
+                                        <p>No students found for {enrollmentYear}. Ask Admin to Bulk Upload them.</p>
+                                    </div>
+                                )}
+                            </div>
+                            
+                            <div style={{ padding: '20px', background: 'white', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end' }}>
+                                <button 
+                                    onClick={handleSaveEnrollment}
+                                    className="btn-primary" 
+                                    style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', borderRadius: '10px' }}
+                                >
+                                    <i className="fas fa-save"></i> Save Department Roster
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 )}
 
@@ -3481,14 +3735,39 @@ const TeacherUsageReport = ({ user }) => {
                                     </label>
 
                                     {teacherForm.assignedClasses.map((cls, index) => {
-                                        // ✅ DYNAMIC: Pull from Firebase Context
-                                        const yearOptions = academicLevels.map(lvl => ({ value: lvl, label: lvl }));
-                                        const semOptions = Array.from({ length: 8 }, (_, i) => ({ value: i + 1, label: `Sem ${i + 1}` }));
+                                        const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year' || hodInfo?.department === 'FirstYear';
+                                        const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+
+                                        // ✅ DYNAMIC YEAR OPTIONS
+                                        let yearOptions = [];
+                                        if (isNonEngg) {
+                                            yearOptions = academicLevels.map(lvl => ({ value: lvl, label: lvl }));
+                                        } else if (isFE) {
+                                            yearOptions = [{ value: 'FE', label: 'First Year' }];
+                                        } else {
+                                            yearOptions = [{ value: 'SE', label: 'SE' }, { value: 'TE', label: 'TE' }, { value: 'BE', label: 'BE' }];
+                                        }
+
+                                        // ✅ DYNAMIC SEMESTER OPTIONS
+                                        let semOptions = [];
+                                        const actualIdx = academicLevels.indexOf(cls.year);
+                                        if (actualIdx >= 0 && isNonEngg) {
+                                            const startSem = (actualIdx * 2) + 1;
+                                            semOptions = [
+                                                { value: startSem, label: `Sem ${startSem}` },
+                                                { value: startSem + 1, label: `Sem ${startSem + 1}` }
+                                            ];
+                                        } else {
+                                            if (cls.year === 'FE') semOptions = [{ value: 1, label: 'Sem 1' }, { value: 2, label: 'Sem 2' }];
+                                            else if (cls.year === 'SE') semOptions = [{ value: 3, label: 'Sem 3' }, { value: 4, label: 'Sem 4' }];
+                                            else if (cls.year === 'TE') semOptions = [{ value: 5, label: 'Sem 5' }, { value: 6, label: 'Sem 6' }];
+                                            else if (cls.year === 'BE') semOptions = [{ value: 7, label: 'Sem 7' }, { value: 8, label: 'Sem 8' }];
+                                            else semOptions = Array.from({ length: 8 }, (_, i) => ({ value: i + 1, label: `Sem ${i + 1}` }));
+                                        }
 
                                         return (
                                             <div key={index} className="subject-card" style={{ zIndex: 10 - index }}>
 
-                                                {/* 🔴 NEW BEAUTIFUL DELETE BUTTON */}
                                                 <button type="button" className="delete-subject-btn" onClick={() => {
                                                     const updated = teacherForm.assignedClasses.filter((_, i) => i !== index);
                                                     setTeacherForm({ ...teacherForm, assignedClasses: updated });
@@ -3499,7 +3778,7 @@ const TeacherUsageReport = ({ user }) => {
                                                 <div style={{ flex: '1 1 120px' }}>
                                                     <CustomMobileSelect label="Class" value={cls.year} onChange={(val) => {
                                                         const updated = [...teacherForm.assignedClasses];
-                                                        updated[index] = { ...updated[index], year: val, semester: val === 'FE' ? 1 : 3 };
+                                                        updated[index] = { ...updated[index], year: val, semester: val === 'FE' ? 1 : (isNonEngg ? 1 : 3) };
                                                         setTeacherForm({ ...teacherForm, assignedClasses: updated });
                                                     }} options={yearOptions} />
                                                 </div>
@@ -3512,7 +3791,7 @@ const TeacherUsageReport = ({ user }) => {
                                                     }} options={semOptions} />
                                                 </div>
 
-                                                {isFE && (
+                                                {isFE && !isNonEngg && (
                                                     <div style={{ flex: '0 1 80px' }}>
                                                         <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block' }}>DIV</label>
                                                         <input type="text" placeholder="A" value={cls.divisions || ''} onChange={(e) => {
@@ -3523,23 +3802,53 @@ const TeacherUsageReport = ({ user }) => {
                                                     </div>
                                                 )}
 
-                                                <div style={{ flex: '2 1 180px' }}>
-                                                    <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block' }}>SUBJECT NAME</label>
-                                                    <input type="text" placeholder="e.g. Object Oriented Prog." value={cls.subject} onChange={(e) => {
-                                                        const updated = [...teacherForm.assignedClasses];
-                                                        updated[index] = { ...updated[index], subject: e.target.value };
-                                                        setTeacherForm({ ...teacherForm, assignedClasses: updated });
-                                                    }} style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '2px solid #e2e8f0', fontWeight: '600' }} required />
+                                                {/* ✅ NEW: SUBJECT DROPDOWN (Shows all department subjects for Agri) */}
+                                                <div style={{ flex: '2 1 180px', position: 'relative', zIndex: 10 }}>
+                                                    {(() => {
+                                                        const filteredSubs = isNonEngg 
+                                                            ? allKnownSubjects 
+                                                            : allKnownSubjects.filter(s => s.year === cls.year);
+                                                        
+                                                        const subOptions = filteredSubs.length > 0 
+                                                            ? filteredSubs.map(s => ({ value: s.name, label: s.isLegacy ? `${s.name} (Legacy)` : s.name })) 
+                                                            : [{ value: '', label: 'No subjects found' }];
+
+                                                        if (cls.subject && !subOptions.find(o => o.value === cls.subject)) {
+                                                            subOptions.unshift({ value: cls.subject, label: `${cls.subject} (Typed)` });
+                                                        }
+
+                                                        return (
+                                                            <CustomMobileSelect 
+                                                                label="SUBJECT NAME" 
+                                                                icon="fa-book"
+                                                                value={cls.subject} 
+                                                                onChange={(val) => {
+                                                                    const updated = [...teacherForm.assignedClasses];
+                                                                    updated[index] = { ...updated[index], subject: val };
+                                                                    setTeacherForm({ ...teacherForm, assignedClasses: updated });
+                                                                }} 
+                                                                options={subOptions} 
+                                                            />
+                                                        );
+                                                    })()}
                                                 </div>
                                             </div>
                                         );
                                     })}
 
                                     <button type="button" className="add-subject-btn" onClick={() => {
-                                        const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year';
+                                        const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year' || hodInfo?.department === 'FirstYear';
+                                        const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+                                        
+                                        let defaultYear = isFE ? 'FE' : 'SE';
+                                        if (isNonEngg) defaultYear = academicLevels[0] || 'First Year';
+
+                                        let defaultSem = isFE ? 1 : 3;
+                                        if (isNonEngg) defaultSem = 1;
+
                                         setTeacherForm({
                                             ...teacherForm,
-                                            assignedClasses: [...teacherForm.assignedClasses, { year: isFE ? 'FE' : 'SE', semester: isFE ? 1 : 3, divisions: '', subject: '' }]
+                                            assignedClasses: [...teacherForm.assignedClasses, { year: defaultYear, semester: defaultSem, divisions: '', subject: '' }]
                                         });
                                     }}>
                                         <i className="fas fa-plus"></i> Add Another Subject
@@ -3659,7 +3968,7 @@ const TeacherUsageReport = ({ user }) => {
                                 Changing the email here will immediately update their login credentials.
                             </p>
 
-                            {/* 🎓 ASSIGNMENTS EDITOR (Standard UI) */}
+                           {/* 🎓 ASSIGNMENTS EDITOR (Standard UI) */}
                             <div className="class-assignment-container">
                                 <label style={{ fontSize: '12px', fontWeight: '800', color: '#64748b', marginBottom: '15px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                                     <i className="fas fa-edit" style={{ marginRight: '8px', color: '#3b82f6' }}></i>
@@ -3667,14 +3976,35 @@ const TeacherUsageReport = ({ user }) => {
                                 </label>
 
                                 {editTeacherData.assignedClasses.map((cls, index) => {
-                                    const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year';
-                                    const yearOptions = isFE ? [{ value: 'FE', label: 'First Year' }] : [{ value: 'SE', label: 'SE' }, { value: 'TE', label: 'TE' }, { value: 'BE', label: 'BE' }];
+                                    const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year' || hodInfo?.department === 'FirstYear';
+                                    const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
 
+                                    // ✅ DYNAMIC YEAR OPTIONS
+                                    let yearOptions = [];
+                                    if (isNonEngg) {
+                                        yearOptions = academicLevels.map(lvl => ({ value: lvl, label: lvl }));
+                                    } else if (isFE) {
+                                        yearOptions = [{ value: 'FE', label: 'First Year' }];
+                                    } else {
+                                        yearOptions = [{ value: 'SE', label: 'SE' }, { value: 'TE', label: 'TE' }, { value: 'BE', label: 'BE' }];
+                                    }
+
+                                    // ✅ DYNAMIC SEMESTER OPTIONS
                                     let semOptions = [];
-                                    if (cls.year === 'FE') semOptions = [{ value: 1, label: 'Sem 1' }, { value: 2, label: 'Sem 2' }];
-                                    if (cls.year === 'SE') semOptions = [{ value: 3, label: 'Sem 3' }, { value: 4, label: 'Sem 4' }];
-                                    if (cls.year === 'TE') semOptions = [{ value: 5, label: 'Sem 5' }, { value: 6, label: 'Sem 6' }];
-                                    if (cls.year === 'BE') semOptions = [{ value: 7, label: 'Sem 7' }, { value: 8, label: 'Sem 8' }];
+                                    const actualIdx = academicLevels.indexOf(cls.year);
+                                    if (actualIdx >= 0 && isNonEngg) {
+                                        const startSem = (actualIdx * 2) + 1;
+                                        semOptions = [
+                                            { value: startSem, label: `Sem ${startSem}` },
+                                            { value: startSem + 1, label: `Sem ${startSem + 1}` }
+                                        ];
+                                    } else {
+                                        if (cls.year === 'FE') semOptions = [{ value: 1, label: 'Sem 1' }, { value: 2, label: 'Sem 2' }];
+                                        else if (cls.year === 'SE') semOptions = [{ value: 3, label: 'Sem 3' }, { value: 4, label: 'Sem 4' }];
+                                        else if (cls.year === 'TE') semOptions = [{ value: 5, label: 'Sem 5' }, { value: 6, label: 'Sem 6' }];
+                                        else if (cls.year === 'BE') semOptions = [{ value: 7, label: 'Sem 7' }, { value: 8, label: 'Sem 8' }];
+                                        else semOptions = Array.from({ length: 8 }, (_, i) => ({ value: i + 1, label: `Sem ${i + 1}` }));
+                                    }
 
                                     return (
                                         <div key={index} className="subject-card" style={{ zIndex: 50 - index }}>
@@ -3688,7 +4018,7 @@ const TeacherUsageReport = ({ user }) => {
                                             <div style={{ flex: '1 1 100px' }}>
                                                 <CustomMobileSelect label="Class" value={cls.year} onChange={(val) => {
                                                     const updated = [...editTeacherData.assignedClasses];
-                                                    updated[index] = { ...updated[index], year: val, semester: val === 'FE' ? 1 : 3 };
+                                                    updated[index] = { ...updated[index], year: val, semester: val === 'FE' ? 1 : (isNonEngg ? 1 : 3) };
                                                     setEditTeacherData({ ...editTeacherData, assignedClasses: updated });
                                                 }} options={yearOptions} />
                                             </div>
@@ -3701,7 +4031,7 @@ const TeacherUsageReport = ({ user }) => {
                                                 }} options={semOptions} />
                                             </div>
 
-                                            {isFE && (
+                                            {isFE && !isNonEngg && (
                                                 <div style={{ flex: '0 1 70px' }}>
                                                     <label style={{ fontSize: '10px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block' }}>DIV</label>
                                                     <input type="text" value={cls.divisions || ''} onChange={(e) => {
@@ -3712,27 +4042,54 @@ const TeacherUsageReport = ({ user }) => {
                                                 </div>
                                             )}
 
-                                            <div style={{ flex: '2 1 150px' }}>
-                                                <label style={{ fontSize: '10px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block' }}>SUBJECT</label>
-                                                <input type="text" value={cls.subject} onChange={(e) => {
-                                                    const updated = [...editTeacherData.assignedClasses];
-                                                    updated[index] = { ...updated[index], subject: e.target.value };
-                                                    setEditTeacherData({ ...editTeacherData, assignedClasses: updated });
-                                                }} style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #e2e8f0', fontWeight: '600' }} />
+                                            {/* ✅ NEW: SUBJECT DROPDOWN FOR EDIT MODAL */}
+                                            <div style={{ flex: '2 1 150px', position: 'relative', zIndex: 10 }}>
+                                                {(() => {
+                                                    const filteredSubs = isNonEngg 
+                                                        ? allKnownSubjects 
+                                                        : allKnownSubjects.filter(s => s.year === cls.year);
+                                                    
+                                                    const subOptions = filteredSubs.length > 0 
+                                                        ? filteredSubs.map(s => ({ value: s.name, label: s.isLegacy ? `${s.name} (Legacy)` : s.name })) 
+                                                        : [{ value: '', label: 'No subjects found' }];
+
+                                                    if (cls.subject && !subOptions.find(o => o.value === cls.subject)) {
+                                                        subOptions.unshift({ value: cls.subject, label: `${cls.subject} (Typed)` });
+                                                    }
+
+                                                    return (
+                                                        <CustomMobileSelect 
+                                                            label="SUBJECT" 
+                                                            icon="fa-book"
+                                                            value={cls.subject} 
+                                                            onChange={(val) => {
+                                                                const updated = [...editTeacherData.assignedClasses];
+                                                                updated[index] = { ...updated[index], subject: val };
+                                                                setEditTeacherData({ ...editTeacherData, assignedClasses: updated });
+                                                            }} 
+                                                            options={subOptions} 
+                                                        />
+                                                    );
+                                                })()}
                                             </div>
                                         </div>
                                     );
                                 })}
-
                                 <button type="button" className="add-subject-btn" onClick={() => {
-                                    const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year';
+                                    const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year' || hodInfo?.department === 'FirstYear';
+                                    const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+                                    
+                                    let defaultYear = isFE ? 'FE' : 'SE';
+                                    if (isNonEngg) defaultYear = academicLevels[0] || 'First Year';
+
+                                    let defaultSem = isFE ? 1 : 3;
+                                    if (isNonEngg) defaultSem = 1;
+
                                     setEditTeacherData({
                                         ...editTeacherData,
-                                        assignedClasses: [...editTeacherData.assignedClasses, { year: isFE ? 'FE' : 'SE', semester: isFE ? 1 : 3, divisions: '', subject: '' }]
+                                        assignedClasses: [...editTeacherData.assignedClasses, { year: defaultYear, semester: defaultSem, divisions: '', subject: '' }]
                                     });
-                                }}>
-                                    <i className="fas fa-plus"></i> Add New Assignment
-                                </button>
+                                }}><i className="fas fa-plus"></i> Add New Assignment</button>
                             </div>
                         </div>
 

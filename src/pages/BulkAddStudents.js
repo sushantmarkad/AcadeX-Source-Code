@@ -1,31 +1,35 @@
 import React, { useState, useEffect } from 'react';
 import Papa from 'papaparse';
-import { auth, db } from '../firebase'; 
+import { auth, db } from '../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
-import toast from 'react-hot-toast'; 
+import toast from 'react-hot-toast';
 import './Dashboard.css';
 import { useInstitution } from '../contexts/InstitutionContext';
 
-const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com"; 
+const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
 export default function BulkAddStudents({ instituteId, instituteName }) {
     const [loading, setLoading] = useState(false);
-    const [stats, setStats] = useState({ total: 0, success: 0, failed: 0, skipped: 0 }); 
-    
+    const [stats, setStats] = useState({ total: 0, success: 0, failed: 0, skipped: 0 });
+
     const [selectedDept, setSelectedDept] = useState("");
     const [selectedYear, setSelectedYear] = useState("");
     const [selectedDivision, setSelectedDivision] = useState("A");
     const [departments, setDepartments] = useState([]);
 
     const DIVISIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'];
-    
+
     // 👇 1. PULL CONFIGURATION RULES 👇
     const { config } = useInstitution();
-    const isAgri = config?.domain === 'AGRICULTURE'; // ✅ CHECK FOR AGRI COLLEGE
-    const academicYears = config?.academicYears || ['FE', 'SE', 'TE', 'BE'];
-    
-    const showDivision = config?.hasFirstYearDivisions && selectedYear === academicYears[0];
-    const showDepartment = selectedYear !== academicYears[0] || config?.hasDepartmentsInFirstYear;
+    const isAgri = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+    const academicYears = config?.academicConfig?.levels || ['FE', 'SE', 'TE', 'BE'];
+
+    // ✅ STRICT LOGIC: 
+    // - Engg FE shows Division. 
+    // - Engg SE/TE/BE shows Department. 
+    // - Agri ALWAYS hides both (dumps into Common Pool).
+    const showDivision = !isAgri && selectedYear === 'FE';
+    const showDepartment = !isAgri && selectedYear !== 'FE';
 
     useEffect(() => {
         if (academicYears.length > 0 && !selectedYear) {
@@ -40,7 +44,7 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
             try {
                 const q = query(collection(db, 'departments'), where('instituteId', '==', instituteId));
                 const snap = await getDocs(q);
-                const deptList = snap.docs.map(doc => doc.data().name); 
+                const deptList = snap.docs.map(doc => doc.data().name);
                 setDepartments(deptList.sort());
             } catch (err) {
                 console.error("Error fetching departments:", err);
@@ -57,10 +61,10 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
             where('role', '==', 'student'),
             where('year', '==', year)
         );
-        
+
         const snap = await getDocs(q);
         const existingRolls = new Set();
-        
+
         snap.docs.forEach(doc => {
             const data = doc.data();
             if (data.rollNo) existingRolls.add(String(data.rollNo).trim());
@@ -71,7 +75,7 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
     const generateSystemEmail = (student) => {
         const cleanName = student.firstName ? student.firstName.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() : 'student';
         const cleanRoll = String(student.rollNo).replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
-        return `${cleanRoll}.${cleanName}@student.app`; 
+        return `${cleanRoll}.${cleanName}@student.app`;
     };
 
     // 👇 2. DYNAMIC TEMPLATE GENERATOR 👇
@@ -83,10 +87,10 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
         let headers = "";
         let sampleRow = "";
 
-        // ✅ AGRI COLLEGES ONLY NEED NAME AND ROLL NO
+        /// ✅ AGRI COLLEGES: Name, Roll No, Email
         if (isAgri) {
-            headers = "Full Name,Roll No";
-            sampleRow = "Rahul Patil,PDVBE/24-01";
+            headers = "Full Name,Roll No,Email";
+            sampleRow = "Rahul Patil,PDVBE/24-01,rahul@example.com";
         } else {
             headers = "First Name,Last Name,Email,Roll No,Year";
             sampleRow = `John,Doe,john.doe@example.com,101,${selectedYear}`;
@@ -96,7 +100,7 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                 sampleRow += `,${selectedDept === 'MIXED' ? 'Agronomy' : selectedDept}`;
             } else {
                 headers += ",Department";
-                sampleRow += `,${academicYears[0]}`; 
+                sampleRow += `,${academicYears[0]}`;
             }
 
             if (showDivision) {
@@ -139,9 +143,9 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
             skipEmptyLines: 'greedy',
             complete: async (results) => {
                 const rows = results.data;
-                
+
                 let headerIndex = -1;
-                for(let i=0; i<Math.min(rows.length, 20); i++) {
+                for (let i = 0; i < Math.min(rows.length, 20); i++) {
                     const rowStr = rows[i].map(c => String(c).toLowerCase()).join(' ');
                     // Agri has 'name' and 'roll'. Engg has 'email', 'name', 'roll'
                     if (rowStr.includes('name') && rowStr.includes('roll')) {
@@ -155,7 +159,7 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                 }
 
                 const headers = rows[headerIndex].map(h => String(h).toLowerCase().trim());
-                
+
                 // Agri Specific Columns
                 const idxFullName = headers.findIndex(h => h.includes('name'));
                 const idxRollAgri = headers.findIndex(h => h.includes('roll'));
@@ -182,7 +186,7 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                 }
 
                 const existingRolls = await getExistingRollNumbers(selectedYear);
-                
+
                 let skippedCount = 0;
                 let hasErrors = false;
 
@@ -192,7 +196,7 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
 
                     if (existingRolls.has(rollNo)) {
                         skippedCount++;
-                        return null; 
+                        return null;
                     }
 
                     // --- 🌾 AGRI COLLEGE PARSING ---
@@ -200,10 +204,17 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                         const fullName = idxFullName !== -1 && row[idxFullName] ? String(row[idxFullName]).trim() : "Student";
                         const nameParts = fullName.split(' ');
                         const firstName = nameParts[0];
-                        const email = generateSystemEmail({ rollNo, firstName });
+
+                        // Extract email if provided, otherwise auto-generate
+                        let finalEmail = "";
+                        if (idxEmail !== -1 && row[idxEmail] && String(row[idxEmail]).includes('@')) {
+                            finalEmail = row[idxEmail].trim();
+                        } else {
+                            finalEmail = generateSystemEmail({ rollNo, firstName });
+                        }
 
                         return {
-                            "email": email,
+                            "email": finalEmail,
                             "name": fullName,
                             "rollNo": rollNo, // Saves "PDVBE/24-01" as a pure string
                             "collegeId": "", "gender": "", "category": "", "admissionType": "",
@@ -231,7 +242,7 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                     let deptVal = academicYears[0];
                     if (showDepartment) {
                         deptVal = idxDept !== -1 && row[idxDept] ? row[idxDept] : selectedDept;
-                        if (deptVal === 'MIXED') deptVal = null; 
+                        if (deptVal === 'MIXED') deptVal = null;
                     }
 
                     if (showDivision && !divVal) {
@@ -251,7 +262,9 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                         "gender": idxSex !== -1 ? row[idxSex] : "",
                         "category": idxCat !== -1 ? row[idxCat] : "",
                         "division": showDivision ? divVal : null,
-                        "department": deptVal,
+                        // ✅ AGRI FIX: Force them into COMMON pool, and setup the array for HODs!
+                        "department": isAgri ? "COMMON" : deptVal,
+                        "enrolledDepartments": [],
                         "year": idxYear !== -1 && row[idxYear] ? row[idxYear] : selectedYear,
                         "instituteId": instituteId,
                         "instituteName": instituteName
@@ -265,7 +278,7 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                     } else {
                         toast.error("❌ No valid data found.", { id: toastId });
                     }
-                    setLoading(false); 
+                    setLoading(false);
                     e.target.value = null;
                     return;
                 }
@@ -276,9 +289,9 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                     const response = await fetch(`${BACKEND_URL}/bulkCreateStudents`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                            students: cleanStudents, 
-                            instituteId, 
+                        body: JSON.stringify({
+                            students: cleanStudents,
+                            instituteId,
                             instituteName
                         })
                     });
@@ -286,19 +299,19 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                     const data = await response.json();
                     if (!response.ok) throw new Error(data.error || "Upload failed");
 
-                    setStats({ 
-                        total: cleanStudents.length, 
-                        success: data.success.length, 
+                    setStats({
+                        total: cleanStudents.length,
+                        success: data.success.length,
                         failed: data.errors.length,
                         skipped: skippedCount
                     });
-                    
+
                     toast.success(
                         <div>
-                            Done! Added {data.success.length} new students.<br/>
-                            (Skipped {skippedCount} existing)<br/>
+                            Done! Added {data.success.length} new students.<br />
+                            (Skipped {skippedCount} existing)<br />
                             <b>Default Password: Student@123</b>
-                        </div>, 
+                        </div>,
                         { id: toastId, duration: 6000 }
                     );
 
@@ -306,7 +319,7 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                     toast.error("Server Error: " + err.message, { id: toastId });
                 } finally {
                     setLoading(false);
-                    e.target.value = null; 
+                    e.target.value = null;
                 }
 
             },
@@ -324,13 +337,13 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                     <h2 className="content-title">Bulk Student Upload</h2>
                     <p className="content-subtitle">Upload CSV. Existing students will be skipped automatically.</p>
                 </div>
-                <div className="icon-box-modern" style={{background: '#e0e7ff', color: '#4338ca'}}>
+                <div className="icon-box-modern" style={{ background: '#e0e7ff', color: '#4338ca' }}>
                     <i className="fas fa-file-upload"></i>
                 </div>
             </div>
-            
+
             <div className="cards-grid" style={{ gridTemplateColumns: '1fr' }}>
-                
+
                 {/* 1. Configuration Card */}
                 <div className="card">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '15px', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
@@ -338,11 +351,11 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                             <span style={{ background: '#3b82f6', color: 'white', borderRadius: '50%', width: '26px', height: '26px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', marginRight: '10px', fontWeight: 'bold' }}>1</span>
                             Batch Configuration
                         </h3>
-                        
-                        <button 
-                            onClick={downloadTemplate} 
-                            style={{ 
-                                background: '#10b981', color: 'white', border: 'none', padding: '8px 16px', 
+
+                        <button
+                            onClick={downloadTemplate}
+                            style={{
+                                background: '#10b981', color: 'white', border: 'none', padding: '8px 16px',
                                 borderRadius: '8px', fontSize: '13px', fontWeight: '700', cursor: 'pointer',
                                 display: 'inline-flex', alignItems: 'center', gap: '8px',
                                 boxShadow: '0 4px 6px rgba(16, 185, 129, 0.2)', transition: 'all 0.2s ease'
@@ -350,51 +363,70 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                             onMouseOver={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 12px rgba(16, 185, 129, 0.3)'; }}
                             onMouseOut={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 6px rgba(16, 185, 129, 0.2)'; }}
                         >
-                            <i className="fas fa-file-csv" style={{ fontSize: '14px' }}></i> 
+                            <i className="fas fa-file-csv" style={{ fontSize: '14px' }}></i>
                             Download CSV Template
                         </button>
                     </div>
-                    
+
+                    {/* 📊 BULK UPLOAD FILTERS */}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px' }}>
+
+                        {/* 1. YEAR SELECTOR (Always Visible) */}
                         <div>
                             <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#64748b', fontSize: '13px' }}>Select Class / Year *</label>
-                            <select 
-                                value={selectedYear} 
-                                onChange={(e) => setSelectedYear(e.target.value)}
+                            <select
+                                value={selectedYear}
+                                onChange={(e) => {
+                                    setSelectedYear(e.target.value);
+                                    // If Engg and FE is selected, auto-set department to FE and clear division
+                                    if (!isAgri && e.target.value === 'FE') {
+                                        setSelectedDept('FE');
+                                        setSelectedDivision('A'); // Set a default
+                                    } else {
+                                        setSelectedDept('');
+                                    }
+                                }}
                                 className="modern-input"
                                 style={{ width: '100%', padding: '12px', background: '#fff' }}
                             >
-                                <option value="">Select Year...</option>
+                                <option value="">-- Choose Year --</option>
                                 {academicYears.map(y => <option key={y} value={y}>{y}</option>)}
                             </select>
                         </div>
 
-                        {showDivision && (
-                            <div className="animate-fade-in">
-                                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#64748b', fontSize: '13px' }}>Select Division *</label>
-                                <select 
-                                    value={selectedDivision} 
-                                    onChange={(e) => setSelectedDivision(e.target.value)}
-                                    className="modern-input"
-                                    style={{ width: '100%', padding: '12px', background: '#fff', borderColor: '#2563eb' }}
-                                >
-                                    {DIVISIONS.map(div => <option key={div} value={div}>Division {div}</option>)}
-                                </select>
-                            </div>
-                        )}
-
+                        {/* 2. DEPARTMENT SELECTOR */}
                         {showDepartment && (
                             <div className="animate-fade-in">
                                 <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#64748b', fontSize: '13px' }}>Select Department *</label>
-                                <select 
-                                    value={selectedDept} 
+                                <select
+                                    value={selectedDept}
                                     onChange={(e) => setSelectedDept(e.target.value)}
                                     className="modern-input"
                                     style={{ width: '100%', padding: '12px', background: '#fff' }}
                                 >
                                     <option value="">-- Choose Department --</option>
                                     {!isAgri && <option value="MIXED" style={{ fontWeight: 'bold', color: '#2563eb' }}>📂 Multiple Departments (From CSV)</option>}
-                                    {departments.map((dept, idx) => <option key={idx} value={dept}>{dept}</option>)}
+                                    {departments.map((dept, idx) => (
+                                        // Don't show the "FE" or "First Year" department in this list for SE/TE/BE Engg HODs
+                                        (isAgri || (dept !== 'FE' && dept !== 'First Year' && dept !== 'FirstYear')) &&
+                                        <option key={idx} value={dept}>{dept}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
+                        {/* 3. DIVISION SELECTOR (Strictly for Engineering FE) */}
+                        {showDivision && (
+                            <div className="animate-fade-in">
+                                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#64748b', fontSize: '13px' }}>Select Division *</label>
+                                <select
+                                    value={selectedDivision}
+                                    onChange={(e) => setSelectedDivision(e.target.value)}
+                                    className="modern-input"
+                                    style={{ width: '100%', padding: '12px', background: '#fff', borderColor: '#2563eb' }}
+                                >
+                                    <option value="">-- Choose Division --</option>
+                                    {DIVISIONS.map(div => <option key={div} value={div}>Division {div}</option>)}
                                 </select>
                             </div>
                         )}
@@ -407,11 +439,11 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                         <span style={{ background: '#3b82f6', color: 'white', borderRadius: '50%', width: '26px', height: '26px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', marginRight: '10px', fontWeight: 'bold' }}>2</span>
                         Upload Data
                     </h3>
-                    
+
                     <div className="upload-zone" style={{ border: '2px dashed #cbd5e1', borderRadius: '16px', padding: '40px', textAlign: 'center', background: '#f8fafc', cursor: 'pointer' }}>
-                        <input 
-                            type="file" 
-                            accept=".csv" 
+                        <input
+                            type="file"
+                            accept=".csv"
                             onChange={handleFileUpload}
                             style={{ display: 'none' }}
                             id="csvUpload"
@@ -423,7 +455,7 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                             </div>
                             <h4 style={{ margin: '0 0 5px 0', color: '#1e293b' }}>{loading ? 'Processing Files...' : 'Click to Upload CSV'}</h4>
                             <p style={{ margin: 0, color: '#94a3b8', fontSize: '13px' }}>
-                                {isAgri ? "CSV must contain ONLY: Full Name, Roll No" : "CSV must contain: Name, Email, Roll No"}
+                                {isAgri ? "CSV must contain: Full Name, Roll No, Email" : "CSV must contain: Name, Email, Roll No"}
                             </p>
                         </label>
                     </div>
