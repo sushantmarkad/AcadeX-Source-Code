@@ -888,7 +888,12 @@ const DashboardHome = ({
     sessionType, setSessionType, selectedBatch, setSelectedBatch,
     rollStart, setRollStart, rollEnd, setRollEnd,
     historySemester, setHistorySemester, getSubjectForHistory, historyLoading,
-    selectedDiv, setRefreshTrigger, currentAcademicYear, selectedSubject, setHistoryLoading, setHistorySessions, refreshTrigger
+    selectedDiv, setRefreshTrigger, currentAcademicYear, selectedSubject, setHistoryLoading, setHistorySessions, refreshTrigger,
+    
+    // 👇 ADDED PROPS HERE 👇
+    batchSelectionMethod, setBatchSelectionMethod, 
+    selectedRosterId, setSelectedRosterId, 
+    availableRosters
 }) => {
 
     const [qrCodeValue, setQrCodeValue] = useState('');
@@ -896,7 +901,7 @@ const DashboardHome = ({
     const [manualRoll, setManualRoll] = useState("");
     const [absentList, setAbsentList] = useState("");
     const [classStrength, setClassStrength] = useState(0);
-    const [attendanceMode, setAttendanceMode] = useState('qr'); // 'qr' or 'pin'
+    const [attendanceMode, setAttendanceMode] = useState('qr'); 
     const [currentPin, setCurrentPin] = useState('------');
     const [editingSession, setEditingSession] = useState(null);
     const [sessionToDelete, setSessionToDelete] = useState(null);
@@ -909,9 +914,10 @@ const DashboardHome = ({
     const [reportBatchFilter, setReportBatchFilter] = useState('All');
     const { config } = useInstitution();
 
-
     const theoryLabel = config?.terminology?.theory || "Theory";
     const practicalLabel = config?.terminology?.practical || "Practical";
+    
+    // (Note: The local useState and useEffect for rosters have been removed from here)
 
 
     useEffect(() => {
@@ -2340,6 +2346,189 @@ const DashboardHome = ({
     );
 };
 
+// ------------------------------------
+//  COMPONENT: MANAGE STUDENT ROSTERS (For Electives & Custom Batches)
+// ------------------------------------
+const ManageRoster = ({ teacherInfo, selectedYear, selectedDiv, currentSubject }) => {
+    const [allStudents, setAllStudents] = useState([]);
+    const [rosters, setRosters] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [isCreating, setIsCreating] = useState(false);
+    
+    // New Roster Form
+    const [rosterName, setRosterName] = useState('');
+    const [selectedStudentIds, setSelectedStudentIds] = useState([]);
+
+    useEffect(() => {
+        const fetchData = async () => {
+            if (!teacherInfo?.instituteId || !selectedYear || !currentSubject) return;
+            setLoading(true);
+            try {
+                // 1. Fetch ALL Students in this Year/Div
+                const qStudents = query(
+                    collection(db, 'users'),
+                    where('instituteId', '==', teacherInfo.instituteId),
+                    where('role', '==', 'student'),
+                    where('year', '==', selectedYear),
+                    where('department', '==', teacherInfo.department)
+                );
+                const snapStudents = await getDocs(qStudents);
+                let students = snapStudents.docs.map(d => ({ id: d.id, ...d.data() }));
+                
+                if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
+                    students = students.filter(s => s.division === selectedDiv);
+                }
+                
+                // Sort alphabetically by Roll No string
+                students.sort((a, b) => String(a.rollNo).localeCompare(String(b.rollNo)));
+                setAllStudents(students);
+
+                // 2. Fetch Existing Rosters for this Subject
+                const qRosters = query(
+                    collection(db, 'subject_rosters'),
+                    where('instituteId', '==', teacherInfo.instituteId),
+                    where('subject', '==', currentSubject),
+                    where('year', '==', selectedYear)
+                );
+                const unsub = onSnapshot(qRosters, (snap) => {
+                    setRosters(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                });
+
+                return () => unsub();
+            } catch (err) {
+                console.error(err);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchData();
+    }, [teacherInfo, selectedYear, selectedDiv, currentSubject]);
+
+    const handleSaveRoster = async (e) => {
+        e.preventDefault();
+        if (!rosterName) return toast.error("Please name this group (e.g., 'Elective A' or 'Batch 1')");
+        if (selectedStudentIds.length === 0) return toast.error("Please select at least one student.");
+
+        const toastId = toast.loading("Saving roster...");
+        try {
+            await addDoc(collection(db, 'subject_rosters'), {
+                name: rosterName,
+                subject: currentSubject,
+                year: selectedYear,
+                division: selectedYear === 'FE' ? selectedDiv : null,
+                instituteId: teacherInfo.instituteId,
+                teacherId: auth.currentUser.uid,
+                studentIds: selectedStudentIds, // Array of assigned students!
+                createdAt: serverTimestamp()
+            });
+            toast.success("Roster Saved!", { id: toastId });
+            setIsCreating(false);
+            setRosterName('');
+            setSelectedStudentIds([]);
+        } catch (err) {
+            toast.error("Error: " + err.message, { id: toastId });
+        }
+    };
+
+    const handleDeleteRoster = async (id) => {
+        if(window.confirm("Delete this roster? This won't delete past attendance, but will remove the group.")) {
+            await deleteDoc(doc(db, 'subject_rosters', id));
+            toast.success("Roster deleted.");
+        }
+    };
+
+    const toggleStudent = (id) => {
+        setSelectedStudentIds(prev => 
+            prev.includes(id) ? prev.filter(sId => sId !== id) : [...prev, id]
+        );
+    };
+
+    if (loading) return <div style={{ padding: '20px', textAlign: 'center' }}>Loading students...</div>;
+
+    return (
+        <div className="content-section fade-in">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <div>
+                    <h2 className="content-title">Student Rosters</h2>
+                    <p className="content-subtitle">Create custom groups for Electives or Practicals for {currentSubject}.</p>
+                </div>
+                {!isCreating && (
+                    <button onClick={() => setIsCreating(true)} className="btn-primary" style={{ width: 'auto', padding: '10px 20px' }}>
+                        <i className="fas fa-plus"></i> Create New Group
+                    </button>
+                )}
+            </div>
+
+            {isCreating ? (
+                <div className="card fade-in">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '15px', marginBottom: '20px' }}>
+                        <h3 style={{ margin: 0, color: '#1e293b' }}>Create Custom Group</h3>
+                        <button onClick={() => setIsCreating(false)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>
+                    </div>
+                    
+                    <input 
+                        type="text" 
+                        placeholder="Group Name (e.g., AI Elective, Practical Batch A)" 
+                        value={rosterName} 
+                        onChange={e => setRosterName(e.target.value)} 
+                        className="modern-input"
+                        style={{ width: '100%', marginBottom: '20px', padding: '12px' }} 
+                    />
+
+                    <div style={{ background: '#f8fafc', padding: '15px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}>
+                            <strong style={{ color: '#475569' }}>Select Students ({selectedStudentIds.length} selected)</strong>
+                            <button onClick={() => setSelectedStudentIds(allStudents.map(s => s.id))} style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>Select All</button>
+                        </div>
+                        
+                        <div style={{ maxHeight: '400px', overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '10px' }}>
+                            {allStudents.map(student => (
+                                <label key={student.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'white', padding: '10px', borderRadius: '8px', border: selectedStudentIds.includes(student.id) ? '2px solid #3b82f6' : '1px solid #cbd5e1', cursor: 'pointer', transition: 'all 0.2s' }}>
+                                    <input 
+                                        type="checkbox" 
+                                        checked={selectedStudentIds.includes(student.id)} 
+                                        onChange={() => toggleStudent(student.id)} 
+                                        style={{ width: '18px', height: '18px' }}
+                                    />
+                                    <div>
+                                        <div style={{ fontWeight: 'bold', color: '#1e293b', fontSize: '14px' }}>{student.firstName} {student.lastName}</div>
+                                        <div style={{ fontSize: '12px', color: '#64748b' }}>Roll: {student.rollNo}</div>
+                                    </div>
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+                    <button onClick={handleSaveRoster} className="btn-primary" style={{ width: '100%', marginTop: '20px' }}>Save Roster</button>
+                </div>
+            ) : (
+                <div className="cards-grid">
+                    {rosters.length === 0 ? (
+                        <div className="card" style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
+                            <i className="fas fa-users-slash" style={{ fontSize: '40px', marginBottom: '15px', opacity: 0.5 }}></i>
+                            <h3>No Custom Groups</h3>
+                            <p>If this is an Elective, create a group so only enrolled students show up in attendance.</p>
+                        </div>
+                    ) : (
+                        rosters.map(roster => (
+                            <div key={roster.id} className="card" style={{ borderTop: '4px solid #3b82f6' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                    <div>
+                                        <h3 style={{ margin: '0 0 5px 0', color: '#1e293b' }}>{roster.name}</h3>
+                                        <span className="status-badge-pill" style={{ background: '#eff6ff', color: '#2563eb' }}>{roster.studentIds.length} Students</span>
+                                    </div>
+                                    <button onClick={() => handleDeleteRoster(roster.id)} style={{ background: '#fee2e2', color: '#ef4444', border: 'none', padding: '8px', borderRadius: '8px', cursor: 'pointer' }}>
+                                        <i className="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        ))
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 // --- 📱 MOBILE FOOTER COMPONENT ---
 const MobileFooter = ({ activePage, setActivePage, unreadNoticeCount }) => {
     return (
@@ -2944,6 +3133,27 @@ export default function TeacherDashboard() {
     const [historyLoading, setHistoryLoading] = useState(false);
     const navigate = useNavigate();
     const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+    const [batchSelectionMethod, setBatchSelectionMethod] = useState('range');
+    const [selectedRosterId, setSelectedRosterId] = useState('');
+    const [availableRosters, setAvailableRosters] = useState([]);
+    
+    const currentSubject = selectedSubject || teacherInfo?.assignedClasses?.find(c => c.year === selectedYear)?.subject || teacherInfo?.subject;
+
+    useEffect(() => {
+        if (!teacherInfo?.instituteId || !currentSubject || !selectedYear) return;
+        const q = query(
+            collection(db, 'subject_rosters'),
+            where('instituteId', '==', teacherInfo.instituteId),
+            where('subject', '==', currentSubject),
+            where('year', '==', selectedYear)
+        );
+        const unsub = onSnapshot(q, (snap) => {
+            setAvailableRosters(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+        return () => unsub();
+    }, [teacherInfo, currentSubject, selectedYear]);
+
     // ✅ 3. PROPER SEMESTER & DIVISION FILTERING IN REPORTS TAB
     const getSubjectForHistory = () => {
         if (!teacherInfo?.assignedClasses) return selectedSubject || teacherInfo?.subject || "Subject";
@@ -3454,6 +3664,11 @@ export default function TeacherDashboard() {
                 setRefreshTrigger={setRefreshTrigger}
                 setHistorySessions={setHistorySessions}
                 refreshTrigger={refreshTrigger}
+                batchSelectionMethod={batchSelectionMethod}
+                setBatchSelectionMethod={setBatchSelectionMethod}
+                selectedRosterId={selectedRosterId}
+                setSelectedRosterId={setSelectedRosterId}
+                availableRosters={availableRosters}
             />;
             case 'analytics': return <TeacherAnalytics teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} currentAcademicYear={currentAcademicYear} selectedSubject={selectedSubject} />;
             case 'reports':
@@ -3610,6 +3825,7 @@ export default function TeacherDashboard() {
                 );
             case 'announcements': return <TeacherAnnouncements teacherInfo={teacherInfo} />;
             case 'addTasks': return <AddTasks teacherInfo={teacherInfo} />;
+            case 'manageRoster': return <ManageRoster teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} currentSubject={currentSubject} />;
             case 'marks':
                 // ✅ ADD selectedSubject prop here
                 return <MarksManager teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} selectedSubject={selectedSubject} />;
@@ -3869,6 +4085,7 @@ export default function TeacherDashboard() {
                     <NavLink page="analytics" iconClass="fa-chart-bar" label="Analytics" />
                     <NavLink page="announcements" iconClass="fa-bullhorn" label="Announcements" />
                     <NavLink page="addTasks" iconClass="fa-tasks" label="Add Tasks" />
+                    <NavLink page="manageRoster" iconClass="fa-users-cog" label="Manage Roster" />
                     <FeatureGuard requiredModule="exam_marks">
                         <NavLink page="marks" iconClass="fa-clipboard-check" label="Marks & Results" />
                     </FeatureGuard>
