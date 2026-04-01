@@ -3091,6 +3091,9 @@ export default function TeacherDashboard() {
     const [historyDivision, setHistoryDivision] = useState('All');
     const { downloadFile } = useFileDownloader();
     const [allStudentsReport, setAllStudentsReport] = useState([]);
+    const { config } = useInstitution();
+    const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+    const allowedSessionTypes = config?.academicConfig?.sessionTypes || ['Theory', 'Practical'];
 
 
     // Year & Subject Logic
@@ -4086,17 +4089,17 @@ export default function TeacherDashboard() {
                     <NavLink page="announcements" iconClass="fa-bullhorn" label="Announcements" />
                     <NavLink page="addTasks" iconClass="fa-tasks" label="Add Tasks" />
                     <NavLink page="manageRoster" iconClass="fa-users-cog" label="Manage Roster" />
-                    <FeatureGuard requiredModule="exam_marks">
+                   
                         <NavLink page="marks" iconClass="fa-clipboard-check" label="Marks & Results" />
-                    </FeatureGuard>
+                    
 
                     <FeatureGuard requiredModule="cce_automation">
                         <NavLink page="cce" iconClass="fa-calculator" label="CCE Manager" />
                     </FeatureGuard>
 
-                    <FeatureGuard requiredModule="assignment_marks">
+                    
                         <NavLink page="assignmentMarks" iconClass="fa-file-signature" label="Assignment Marks" />
-                    </FeatureGuard>
+                
 
                     {/* ✅ ADDED PROFILE TAB */}
                     <NavLink page="profile" iconClass="fa-user-circle" label="Profile" />
