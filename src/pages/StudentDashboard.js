@@ -2547,38 +2547,53 @@ export default function StudentDashboard() {
             localStorage.setItem('seenTasksCount', assignments.length.toString());
         }
     }, [activePage, notices, assignments, readCount, taskReadCount]);
-
-    // ✅ MISSING LOGIC: FETCH NOTICES (Fixed for FE/First Year & Divisions)
+// ✅ MISSING LOGIC: FETCH NOTICES (Fixed for Agri Enrolled Depts & Engg FE)
     useEffect(() => {
         if (!user?.instituteId) return;
 
-        // ✅ OPTIMIZED: Added department filter to save reads
+        // 🚨 Fetch ALL institute announcements to handle cross-department (FE) and multi-department (Agri) logic
+        // We removed the 'academicYear' and strict 'department' query filters because they cause missing data issues
         const q = query(
             collection(db, 'announcements'),
-            where('instituteId', '==', user.instituteId),
-            where('department', '==', user.department), // <-- ADD THIS
-            where('academicYear', '==', user.academicYear || '2025-2026')
+            where('instituteId', '==', user.instituteId)
         );
+        
         const unsub = onSnapshot(q, (snapshot) => {
             const allNotices = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
             const relevantNotices = allNotices.filter(n => {
-                // 1. Department Check (Handle "FE" vs "First Year" mismatch)
-                const userDept = user.department ? user.department.trim().toLowerCase() : '';
                 const noticeDept = n.department ? n.department.trim().toLowerCase() : '';
-
-                const isUserFE = userDept === 'fe' || userDept === 'first year' || userDept === 'firstyear';
+                const userDeptNorm = user.department ? user.department.trim().toLowerCase() : '';
+                const userYearNorm = user.year ? user.year.trim().toLowerCase() : '';
+                
                 const isNoticeFE = noticeDept === 'fe' || noticeDept === 'first year' || noticeDept === 'firstyear';
+                const isUserFE = userYearNorm === 'fe' || userYearNorm === 'first year' || userDeptNorm === 'fe' || userDeptNorm === 'first year';
+                const isNonEngg = userDeptNorm === 'common' || (user.enrolledDepartments && user.enrolledDepartments.length > 0);
 
+                // 1. Department Check
                 if (isUserFE && isNoticeFE) {
                     // Match! (Both are FE)
-                } else if (userDept !== noticeDept) {
-                    return false; // Different departments
+                } else if (isNonEngg) {
+                    // Agri/Medical Check: Does the notice department match ANY of the student's enrolled departments?
+                    const myDepts = user.enrolledDepartments ? user.enrolledDepartments.map(d => d.trim().toLowerCase()) : [];
+                    if (userDeptNorm && !myDepts.includes(userDeptNorm)) myDepts.push(userDeptNorm);
+                    
+                    if (!myDepts.includes(noticeDept) && noticeDept !== 'general' && noticeDept !== 'common') {
+                        return false; // Notice is not for any of their enrolled departments
+                    }
+                } else if (userDeptNorm !== noticeDept && noticeDept !== 'general') {
+                    return false; // Standard Engineering Dept mismatch
                 }
 
                 // 2. Year Check (Hide Staff notices)
                 if (n.targetYear === 'Teachers') return false;
-                if (n.targetYear !== 'All' && n.targetYear !== user.year) return false;
+                
+                if (n.targetYear !== 'All' && n.targetYear !== user.year) {
+                    // If user is FE and target is FE, allow it
+                    if (!(isUserFE && n.targetYear === 'FE')) {
+                         return false; 
+                    }
+                }
 
                 // 3. Division Check
                 if (n.division && n.division !== 'All') {

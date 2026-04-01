@@ -966,6 +966,9 @@ export default function HODDashboard() {
             if (announcementForm.targetYear.startsWith('Division ')) {
                 finalTargetYear = 'FE';
                 finalDivision = announcementForm.targetYear.split(' ')[1];
+            } else if (isFE && announcementForm.targetYear === 'All') {
+                // If an FE HOD selects "All Students", it means "All FE Students"
+                finalTargetYear = 'FE'; 
             }
 
             // 2. Normalize Department (Force "First Year" -> "FE")
@@ -3024,19 +3027,21 @@ export default function HODDashboard() {
                                         <label style={{ display: 'block', fontWeight: '700', color: '#64748b', fontSize: '12px', textTransform: 'uppercase', marginBottom: '10px' }}>Target Audience</label>
                                         <CustomDropdown
                                             value={announcementForm.targetYear}
-                                            // ✅ FIXED: Use 'val' directly instead of e.target.value
                                             onChange={(val) => setAnnouncementForm({ ...announcementForm, targetYear: val })}
                                             options={[
-                                                { value: 'All', label: <span><i className="fas fa-users" style={{ marginRight: '10px', color: '#3b82f6' }}></i> All Students</span> },
-                                                ...academicLevels.map(lvl => ({
+                                                { value: 'All', label: <span><i className="fas fa-users" style={{ marginRight: '10px', color: '#3b82f6' }}></i> {isFE ? 'All FE Students' : 'All Students'}</span> },
+                                                // ✅ FIX: Show Divisions for FE HOD, otherwise show Academic Years
+                                                ...(isFE ? DIVISIONS.map(div => ({
+                                                    value: `Division ${div}`,
+                                                    label: <span><i className="fas fa-layer-group" style={{ marginRight: '10px', color: '#10b981' }}></i> Division {div}</span>
+                                                })) : academicLevels.map(lvl => ({
                                                     value: lvl,
                                                     label: <span><i className="fas fa-graduation-cap" style={{ marginRight: '10px', color: '#10b981' }}></i> {lvl}</span>
-                                                })),
+                                                }))),
                                                 { value: 'Teachers', label: <span><i className="fas fa-chalkboard-teacher" style={{ marginRight: '10px', color: '#ef4444' }}></i> Faculty</span> }
                                             ]}
                                         />
                                     </div>
-
                                     {/* Title */}
                                     <div style={{ marginBottom: '25px' }}>
                                         <label style={{ display: 'block', fontWeight: '700', color: '#64748b', fontSize: '12px', textTransform: 'uppercase', marginBottom: '10px', letterSpacing: '0.5px' }}>Subject Line</label>
