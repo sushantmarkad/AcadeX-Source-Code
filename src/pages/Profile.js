@@ -439,7 +439,7 @@ export default function Profile({ user }) {
                 {activeTab === 'details' && (
                     <div className="prof-grid">
 
-                        {/* LEFT: Basic Info */}
+                       {/* LEFT: Basic Info */}
                         <div className="prof-card">
                             <div className="prof-card-header">
                                 <div className="prof-icon-box" style={{ background: '#eff6ff', color: '#3b82f6' }}>
@@ -453,11 +453,30 @@ export default function Profile({ user }) {
                                 <ProfInput label="Last Name" value={formData.lastName} onChange={e => setFormData({ ...formData, lastName: e.target.value })} disabled={!isEditing} />
                                 <ProfInput label="Phone Number" value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} disabled={!isEditing} />
                                 <ProfInput label="Email Address" value={profileData.email} disabled={true} lockIcon={true} />
-                                <ProfInput label="Department" value={profileData.department} disabled={true} lockIcon={true} />
+                                
+                                {/* ✅ UPDATED: Institute Name */}
+                                <ProfInput label="Institute" value={profileData.instituteName || "Not Set"} disabled={true} lockIcon={true} />
+
+                                {/* ✅ UPDATED: Dynamic Department Display */}
+                                <ProfInput 
+                                    label={profileData.department === 'COMMON' ? "Enrolled Departments" : "Department"} 
+                                    value={
+                                        profileData.department === 'COMMON' && profileData.enrolledDepartments?.length > 0
+                                            ? profileData.enrolledDepartments.join(', ')
+                                            : (profileData.department !== 'COMMON' ? profileData.department : "Common Pool (Awaiting Assignment)")
+                                    } 
+                                    disabled={true} 
+                                    lockIcon={true} 
+                                />
                                 
                                 {user.role === 'student' && (
                                     <>
-                                        {/* Division Field: Updated logic to check both 'division' and 'div' and removed FE restriction */}
+                                        <ProfInput 
+                                            label="Class Year" 
+                                            value={profileData.year || profileData.level || "N/A"} 
+                                            disabled={true} 
+                                            lockIcon={true} 
+                                        />
                                         <ProfInput 
                                             label="Division" 
                                             value={profileData.division || profileData.div || "N/A"} 
@@ -498,53 +517,50 @@ export default function Profile({ user }) {
                         </div>
 
                        {/* --- TEACHER SPECIFIC FIELDS --- */}
-                                {user.role === 'teacher' && (
-                                    <>
-                                        {/* Field 1: Academic Year */}
-                                        <ProfInput 
-                                            label="Academic Year" 
-                                            lockIcon 
-                                            disabled 
-                                            value={profileData.academicYear || "Not Set"} 
-                                        />
-
-                                        {/* Field 2: Assigned Classes (Now Standard Width) */}
-                                        <ProfInput 
-                                            label="Assigned Classes" 
-                                            lockIcon 
-                                            disabled 
-                                            value={
-                                                profileData.assignedClasses && profileData.assignedClasses.length > 0
-                                                    ? profileData.assignedClasses.map(c => {
-                                                        // Display Logic: "FE (Div A)" or "SE"
-                                                        const classDisplay = c.year === 'FE' 
-                                                            ? `FE (Div ${c.divisions || profileData.division || 'N/A'})` 
-                                                            : c.year;
-                                                        
-                                                        // Append Subject if available
-                                                        const subjectDisplay = c.subject ? ` - ${c.subject}` : '';
-
-                                                        return `${classDisplay}${subjectDisplay}`;
-                                                      }).join('  |  ')
-                                                    : "No Classes Assigned"
-                                            } 
-                                        />
-                                    </>
-                                )}
-
                         {user.role === 'teacher' && (
-                            <>
-                                <ProfInput
-                                    label="Assigned Subjects"
-                                    value={
-                                        profileData.assignedClasses && profileData.assignedClasses.length > 0
-                                            ? profileData.assignedClasses.map(c => `${c.subject} (${c.year})`).join(', ')
-                                            : profileData.subject || "No Subject Assigned"
-                                    }
-                                    disabled={true}
-                                    lockIcon={true}
-                                />
-                            </>
+                            <div className="prof-card" style={{ marginTop: '20px', borderLeft: '4px solid #3b82f6' }}>
+                                <div className="prof-card-header">
+                                    <div className="prof-icon-box" style={{ background: '#eff6ff', color: '#3b82f6' }}>
+                                        <i className="fas fa-chalkboard-teacher"></i>
+                                    </div>
+                                    <h3>Teaching Profile</h3>
+                                </div>
+                                
+                                <div className="prof-form-grid">
+                                    <ProfInput 
+                                        label="Academic Year" 
+                                        lockIcon 
+                                        disabled 
+                                        value={profileData.academicYear || "Not Set"} 
+                                    />
+                                    
+                                    {/* ✅ UPDATED: Clean display of all assignments */}
+                                    <div className="prof-input-group" style={{ gridColumn: '1 / -1' }}>
+                                        <label className="prof-label">
+                                            Assigned Classes & Subjects <i className="fas fa-lock" style={{ fontSize: '10px', color: '#94a3b8' }}></i>
+                                        </label>
+                                        <div style={{ background: '#f8fafc', border: '2px solid #f1f5f9', borderRadius: '12px', padding: '12px 16px' }}>
+                                            {profileData.assignedClasses && profileData.assignedClasses.length > 0 ? (
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                    {profileData.assignedClasses.map((cls, idx) => (
+                                                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '14px', color: '#1e293b', fontWeight: '600' }}>
+                                                            <span style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 8px', borderRadius: '6px', fontSize: '12px' }}>
+                                                                {cls.year} {cls.year === 'FE' && cls.divisions ? `(Div ${cls.divisions})` : ''}
+                                                            </span>
+                                                            <span style={{ background: '#f1f5f9', color: '#475569', padding: '4px 8px', borderRadius: '6px', fontSize: '12px' }}>
+                                                                Sem {cls.semester || '-'}
+                                                            </span>
+                                                            <span>{cls.subject || 'No Subject Set'}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '14px' }}>No Classes Assigned Yet</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         )}
 
                         {/* RIGHT: Career (Student Only) */}

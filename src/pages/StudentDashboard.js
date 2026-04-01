@@ -1398,20 +1398,40 @@ const FeedbackView = ({ user }) => {
             }).catch(err => console.error("Error fetching forms", err));
             fetchPromises.push(formsPromise);
         }
-
-        // 2. Fetch Teachers
+// 2. Fetch Teachers (Safely checking enrolled departments for Agri)
         if (!cachedDeptTeachers) {
-            const teachersPromise = fetch(`${BACKEND_URL}/getDepartmentTeachers`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    instituteId: user.instituteId,
-                    department: user.department
-                })
-            }).then(res => res.json()).then(data => {
-                cachedDeptTeachers = data.teachers || [];
-                setDeptTeachers(data.teachers || []);
-            }).catch(err => console.error("Error fetching teachers", err));
-            fetchPromises.push(teachersPromise);
+            // If they are in the COMMON pool, we must fetch teachers for ALL their enrolled departments
+            const deptsToFetch = user.department === 'COMMON' && user.enrolledDepartments 
+                ? user.enrolledDepartments 
+                : [user.department];
+
+            if (deptsToFetch.length > 0) {
+                const teacherPromises = deptsToFetch.map(dept => 
+                    fetch(`${BACKEND_URL}/getDepartmentTeachers`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            instituteId: user.instituteId,
+                            department: dept
+                        })
+                    }).then(res => res.json())
+                );
+
+                const teachersPromise = Promise.all(teacherPromises).then(results => {
+                    // Combine teachers from all fetched departments
+                    let allTeachers = [];
+                    results.forEach(data => {
+                        if (data.teachers) allTeachers = [...allTeachers, ...data.teachers];
+                    });
+                    
+                    // Remove duplicates just in case
+                    const uniqueTeachers = Array.from(new Map(allTeachers.map(t => [t.id, t])).values());
+                    
+                    cachedDeptTeachers = uniqueTeachers;
+                    setDeptTeachers(uniqueTeachers);
+                }).catch(err => console.error("Error fetching teachers", err));
+                
+                fetchPromises.push(teachersPromise);
+            }
         }
 
         // 3. ✅ REAL-TIME LISTENER FOR THIS STUDENT'S SUBMISSIONS
@@ -2324,17 +2344,26 @@ export default function StudentDashboard() {
 
 
 
-    // ✅ 2. Listen for Active Session (Filtered by Year AND Division)
+   // ✅ 2. Listen for Active Session (Filtered by Year AND Division AND Enrolled Depts)
     useEffect(() => {
         if (!auth.currentUser || !user) return;
 
-        // Fetch ANY active session for this institute
-        const q = query(
-            collection(db, 'live_sessions'),
-            where('isActive', '==', true),
-            where('instituteId', '==', user.instituteId),
-            where('department', '==', user.department)
-        );
+        // 🚨 THE FIX: For Agri/Medical (where user.department might be 'COMMON'), 
+        // we can't filter by department in the query. We must fetch all institute sessions and filter in memory.
+        const isNonEngg = user.department === 'COMMON' || (user.enrolledDepartments && user.enrolledDepartments.length > 0);
+
+        const q = isNonEngg 
+            ? query(
+                collection(db, 'live_sessions'),
+                where('isActive', '==', true),
+                where('instituteId', '==', user.instituteId)
+            )
+            : query(
+                collection(db, 'live_sessions'),
+                where('isActive', '==', true),
+                where('instituteId', '==', user.instituteId),
+                where('department', '==', user.department)
+            );
 
         const unsub = onSnapshot(q, (snap) => {
             if (!snap.empty) {
@@ -2342,33 +2371,30 @@ export default function StudentDashboard() {
                 const relevantSession = snap.docs.find(doc => {
                     const data = doc.data();
 
-                    // 1. Check Year Match
+                    // 1. Check Department Match (CRITICAL FOR AGRI)
+                    if (isNonEngg) {
+                        const myDepts = user.enrolledDepartments || [];
+                        if (!myDepts.includes(data.department)) return false;
+                    }
+
+                    // 2. Check Year Match
                     const sessionYear = data.year || data.targetYear;
                     const isYearMatch = sessionYear === 'All' || sessionYear === user.year;
                     if (!isYearMatch) return false;
 
-                    // ✅ 2. NEW: Check Division Match
-                    // If the session has a specific division (e.g. "A"), the student MUST match it.
-                    if (data.division) {
-                        // Support both 'division' and 'div' field names for students
+                    // 3. Check Division Match
+                    if (data.division && data.division !== 'All') {
                         const myDiv = user.division || user.div;
-
-                        // If student has no division or it doesn't match the session's division -> Hide it
-                        if (!myDiv || data.division !== myDiv) {
-                            return false;
-                        }
+                        if (!myDiv || data.division !== myDiv) return false;
                     }
 
-                    // 3. Check Roll Number Range (For Practical Labs)
+                    // 4. Check Roll Number Range (For Practical Labs)
                     if (data.type === 'practical' && data.rollRange) {
                         const myRoll = parseInt(user.rollNo);
                         const min = parseInt(data.rollRange.start);
                         const max = parseInt(data.rollRange.end);
 
-                        // If my roll number is OUTSIDE the range, hide this session
-                        if (isNaN(myRoll) || myRoll < min || myRoll > max) {
-                            return false;
-                        }
+                        if (isNaN(myRoll) || myRoll < min || myRoll > max) return false;
                     }
 
                     return true; // Passed all checks
