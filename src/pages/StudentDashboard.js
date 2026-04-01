@@ -1111,29 +1111,31 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                                 {/* NEW: Side-by-Side Face ID & PIN Buttons */}
                                 <div style={{ display: 'flex', gap: '12px', marginTop: '15px' }}>
                                     <button
-                                        onClick={() => {
-                                            // 🔥 NEW LOGIC: Only force setup if they click Face ID and aren't registered
-                                            if (!user.registeredFace) {
-                                                setShowFaceSetup(true);
-                                                toast("Please register your face first to use Face ID", { icon: '📸' });
-                                            } else {
-                                                setShowFaceScanner(true);
-                                                setTimeout(handleFaceAttendance, 500);
-                                            }
-                                        }}
-                                        style={{
-                                            flex: 1, background: 'rgba(255, 255, 255, 0.2)', border: '1px solid rgba(255, 255, 255, 0.4)',
-                                            borderRadius: '16px', padding: '14px', color: 'white', fontSize: '14px',
-                                            fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-                                            backdropFilter: 'blur(10px)', transition: 'all 0.2s', boxShadow: '0 4px 15px rgba(0,0,0,0.1)'
-                                        }}
-                                        onMouseDown={e => e.currentTarget.style.transform = 'scale(0.96)'}
-                                        onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
-                                        onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
-                                    >
-                                        <i className="fas fa-user-check"></i> Face ID
-                                    </button>
-
+                                            onClick={() => {
+                                                // 🚨 TEMPORARILY DISABLED FOR MAINTENANCE
+                                                toast("This feature is under maintenance. Try to give attendance through QR or PIN.", { 
+                                                    icon: '🔧',
+                                                    duration: 4000,
+                                                    style: {
+                                                        borderRadius: '10px',
+                                                        background: '#1e293b',
+                                                        color: '#fff',
+                                                    }
+                                                });
+                                            }}
+                                            style={{
+                                                flex: 1, background: 'rgba(255, 255, 255, 0.2)', border: '1px solid rgba(255, 255, 255, 0.4)',
+                                                borderRadius: '16px', padding: '14px', color: 'white', fontSize: '14px',
+                                                fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                                                backdropFilter: 'blur(10px)', transition: 'all 0.2s', boxShadow: '0 4px 15px rgba(0,0,0,0.1)',
+                                                opacity: 0.8 // Slightly dimmed to show it's currently inactive
+                                            }}
+                                            onMouseDown={e => e.currentTarget.style.transform = 'scale(0.96)'}
+                                            onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
+                                            onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+                                        >
+                                            <i className="fas fa-user-check"></i> Face ID
+                                        </button>
                                     <button
                                         onClick={() => setShowPinModal(true)}
                                         style={{

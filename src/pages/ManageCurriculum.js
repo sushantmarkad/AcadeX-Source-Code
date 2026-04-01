@@ -3,6 +3,7 @@ import { collection, addDoc, onSnapshot, query, where, deleteDoc, doc, serverTim
 import { db } from '../firebase';
 import toast from 'react-hot-toast';
 import { useInstitution } from '../contexts/InstitutionContext';
+import { createPortal } from 'react-dom';
 
 export default function ManageCurriculum({ instituteId }) {
     const { config } = useInstitution();
@@ -14,14 +15,16 @@ export default function ManageCurriculum({ instituteId }) {
     const [newSubject, setNewSubject] = useState({ 
         name: '', 
         departmentId: '', 
-        year: '', // This is the Class (e.g., First Year, FE)
-        academicYear: '2024-2025' // Default Calendar Year
+        year: '', 
+        academicYear: '2024-2025' 
     });
     const [editingSubject, setEditingSubject] = useState(null);
 
+    // ✅ NEW: Delete Modal State
+    const [deleteModal, setDeleteModal] = useState({ isOpen: false, collectionName: '', id: '', itemName: '' });
+
    const ACADEMIC_YEARS = ['2023-2024', '2024-2025', '2025-2026', '2026-2027'];
     
-    // ✅ FIX: Pulls terminology dynamically from the database config
     const classLevels = config?.academicConfig?.levels || ['FE', 'SE', 'TE', 'BE'];
     const levelNomenclature = config?.academicConfig?.levelNomenclature || 'Class';
 
@@ -51,11 +54,10 @@ export default function ManageCurriculum({ instituteId }) {
             toast.success("Department Added!");
         } catch (err) { toast.error(err.message); }
     };
-// Rename this to handleAddOrUpdateSubject
+
     const handleAddOrUpdateSubject = async (e) => {
         e.preventDefault();
         
-        // Determine if we are editing or adding
         const target = editingSubject || newSubject;
 
         if (!target.name.trim() || !target.departmentId || !target.year || !target.academicYear) {
@@ -64,7 +66,6 @@ export default function ManageCurriculum({ instituteId }) {
         
         try {
             if (editingSubject) {
-                // UPDATE logic
                 await updateDoc(doc(db, 'subjects', editingSubject.id), {
                     name: editingSubject.name.trim(),
                     departmentId: editingSubject.departmentId,
@@ -74,7 +75,6 @@ export default function ManageCurriculum({ instituteId }) {
                 setEditingSubject(null);
                 toast.success("Subject Updated!");
             } else {
-                // ADD logic
                 await addDoc(collection(db, 'subjects'), {
                     ...newSubject,
                     name: newSubject.name.trim(),
@@ -89,17 +89,24 @@ export default function ManageCurriculum({ instituteId }) {
         }
     };
 
-    const handleDelete = async (collectionName, id) => {
-        if(window.confirm(`Are you sure you want to delete this ${collectionName === 'departments' ? 'department' : 'subject'}?`)) {
-            try {
-                await deleteDoc(doc(db, collectionName, id));
-                toast.success("Deleted successfully");
-            } catch (err) { toast.error("Failed to delete"); }
+    // ✅ MODAL TRIGGERS
+    const initiateDelete = (collectionName, id, itemName) => {
+        setDeleteModal({ isOpen: true, collectionName, id, itemName });
+    };
+
+    const confirmDelete = async () => {
+        const { collectionName, id } = deleteModal;
+        try {
+            await deleteDoc(doc(db, collectionName, id));
+            toast.success("Deleted successfully");
+            setDeleteModal({ isOpen: false, collectionName: '', id: '', itemName: '' });
+        } catch (err) { 
+            toast.error("Failed to delete"); 
         }
-    }
+    };
 
     return (
-        <div className="content-section fade-in">
+        <div className="content-section fade-in" style={{ position: 'relative' }}>
             <div className="curr-header">
                 <div>
                     <h2 className="content-title">Manage Curriculum</h2>
@@ -138,7 +145,8 @@ export default function ManageCurriculum({ instituteId }) {
                             departments.map(dept => (
                                 <div key={dept.id} className="curr-list-item">
                                     <span className="curr-item-text">{dept.name}</span>
-                                    <button onClick={() => handleDelete('departments', dept.id)} className="curr-delete-btn" title="Delete Department">
+                                    {/* ✅ UPDATED TO USE MODAL */}
+                                    <button onClick={() => initiateDelete('departments', dept.id, dept.name)} className="curr-delete-btn" title="Delete Department">
                                         <i className="fas fa-trash-alt"></i>
                                     </button>
                                 </div>
@@ -156,15 +164,12 @@ export default function ManageCurriculum({ instituteId }) {
                         <h3>2. Subjects</h3>
                     </div>
 
-                    {/* Update the form tag to call handleAddOrUpdateSubject */}
                     <form onSubmit={handleAddOrUpdateSubject} className="curr-form-col" style={{ background: editingSubject ? '#fefce8' : 'transparent', padding: editingSubject ? '15px' : '0', borderRadius: '12px', border: editingSubject ? '1px dashed #eab308' : 'none' }}>
                         
-                        {/* Add this indicator */}
                         {editingSubject && <div style={{ fontSize: '13px', color: '#a16207', fontWeight: 'bold', marginBottom: '5px' }}><i className="fas fa-pen"></i> Editing Subject</div>}
                         
                         <select 
                             className="curr-input" 
-                            // Update value and onChange
                             value={editingSubject ? editingSubject.departmentId : newSubject.departmentId} 
                             onChange={e => editingSubject ? setEditingSubject({...editingSubject, departmentId: e.target.value}) : setNewSubject({...newSubject, departmentId: e.target.value})} 
                             required
@@ -173,10 +178,9 @@ export default function ManageCurriculum({ instituteId }) {
                             {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                         </select>
                         
-                       <div style={{ display: 'flex', gap: '10px' }}>
+                        <div style={{ display: 'flex', gap: '10px' }}>
                             <select 
                                 className="curr-input" 
-                                // Update value and onChange
                                 value={editingSubject ? editingSubject.year : newSubject.year} 
                                 onChange={e => editingSubject ? setEditingSubject({...editingSubject, year: e.target.value}) : setNewSubject({...newSubject, year: e.target.value})} 
                                 required
@@ -187,7 +191,6 @@ export default function ManageCurriculum({ instituteId }) {
 
                             <select 
                                 className="curr-input" 
-                                // Update value and onChange
                                 value={editingSubject ? editingSubject.academicYear : newSubject.academicYear} 
                                 onChange={e => editingSubject ? setEditingSubject({...editingSubject, academicYear: e.target.value}) : setNewSubject({...newSubject, academicYear: e.target.value})} 
                                 required
@@ -199,14 +202,12 @@ export default function ManageCurriculum({ instituteId }) {
 
                         <input 
                             className="curr-input" 
-                            // Update value and onChange
                             value={editingSubject ? editingSubject.name : newSubject.name} 
                             onChange={e => editingSubject ? setEditingSubject({...editingSubject, name: e.target.value}) : setNewSubject({...newSubject, name: e.target.value})} 
                             placeholder="Subject Name (e.g. Soil Science)" 
                             required 
                         />
                         
-                        {/* Update button text dynamically */}
                         <div style={{display: 'flex', gap: '10px'}}>
                             <button type="submit" className="curr-btn curr-btn-green" style={{flex: 1}}>
                                 {editingSubject ? 'Update Subject' : 'Add Subject'}
@@ -219,7 +220,6 @@ export default function ManageCurriculum({ instituteId }) {
                         </div>
                     </form>
 
-                    {/* Add the scrollable-list class */}
                     <div className="curr-list-container scrollable-list">
                         {subjects.length === 0 ? (
                             <p className="curr-empty">No subjects added yet.</p>
@@ -233,11 +233,11 @@ export default function ManageCurriculum({ instituteId }) {
                                         </span>
                                     </div>
                                     <div style={{display: 'flex', gap: '5px'}}>
-                                        {/* Add Edit Button */}
                                         <button onClick={() => setEditingSubject(sub)} className="curr-action-btn edit-btn" title="Edit Subject">
                                             <i className="fas fa-pen"></i>
                                         </button>
-                                        <button onClick={() => handleDelete('subjects', sub.id)} className="curr-action-btn delete-btn" title="Delete Subject">
+                                        {/* ✅ UPDATED TO USE MODAL */}
+                                        <button onClick={() => initiateDelete('subjects', sub.id, sub.name)} className="curr-action-btn delete-btn" title="Delete Subject">
                                             <i className="fas fa-trash-alt"></i>
                                         </button>
                                     </div>
@@ -247,6 +247,31 @@ export default function ManageCurriculum({ instituteId }) {
                     </div>
                 </div>
             </div>
+
+            {/* ✅ NEW: SMOOTH DELETE MODAL USING PORTAL */}
+            {deleteModal.isOpen && createPortal(
+                <div className="curr-modal-overlay" onClick={() => setDeleteModal({ ...deleteModal, isOpen: false })}>
+                    <div className="curr-modal-content" onClick={e => e.stopPropagation()}>
+                        <div className="curr-modal-icon">
+                            <i className="fas fa-exclamation-triangle"></i>
+                        </div>
+                        <h3>Confirm Deletion</h3>
+                        <p>
+                            Are you sure you want to delete <strong>{deleteModal.itemName}</strong>? 
+                            This action cannot be undone.
+                        </p>
+                        <div className="curr-modal-actions">
+                            <button className="curr-modal-btn cancel" onClick={() => setDeleteModal({ ...deleteModal, isOpen: false })}>
+                                Cancel
+                            </button>
+                            <button className="curr-modal-btn confirm" onClick={confirmDelete}>
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>,
+                document.body // ✅ THIS FORCES IT OVER THE SIDEBAR
+            )}
 
             <style>{`
                 .curr-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
@@ -282,6 +307,22 @@ export default function ManageCurriculum({ instituteId }) {
                 .curr-subject-info { display: flex; flex-direction: column; gap: 4px; }
                 .curr-subject-meta { font-size: 11px; color: #64748b; background: #f1f5f9; padding: 2px 8px; border-radius: 6px; display: inline-block; width: fit-content; font-weight: bold; }
                 .curr-delete-btn { background: #fee2e2; color: #ef4444; border: none; width: 32px; height: 32px; border-radius: 8px; display: flex; justify-content: center; align-items: center; cursor: pointer; }
+                
+                /* ✅ MODAL CSS */
+               .curr-modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.5); backdrop-filter: blur(8px); display: flex; justify-content: center; align-items: center; z-index: 999999 !important; animation: fadeIn 0.2s ease-out; }
+                .curr-modal-content { background: white; padding: 30px; border-radius: 20px; width: 90%; max-width: 400px; text-align: center; box-shadow: 0 20px 40px -10px rgba(0,0,0,0.2); animation: scaleUp 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+                .curr-modal-icon { width: 60px; height: 60px; background: #fef2f2; color: #ef4444; font-size: 24px; border-radius: 50%; display: flex; justify-content: center; align-items: center; margin: 0 auto 20px; }
+                .curr-modal-content h3 { margin: 0 0 10px 0; color: #1e293b; font-size: 20px; font-weight: 800; }
+                .curr-modal-content p { margin: 0 0 25px 0; color: #64748b; font-size: 15px; line-height: 1.5; }
+                .curr-modal-actions { display: flex; gap: 15px; }
+                .curr-modal-btn { flex: 1; padding: 12px; border-radius: 12px; font-size: 15px; font-weight: bold; cursor: pointer; border: none; transition: all 0.2s; }
+                .curr-modal-btn.cancel { background: #f1f5f9; color: #475569; }
+                .curr-modal-btn.cancel:hover { background: #e2e8f0; }
+                .curr-modal-btn.confirm { background: #ef4444; color: white; box-shadow: 0 4px 10px rgba(239, 68, 68, 0.2); }
+                .curr-modal-btn.confirm:hover { background: #dc2626; transform: translateY(-2px); }
+                
+                @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+                @keyframes scaleUp { from { opacity: 0; transform: scale(0.9) translateY(20px); } to { opacity: 1; transform: scale(1) translateY(0); } }
             `}</style>
         </div>
     );

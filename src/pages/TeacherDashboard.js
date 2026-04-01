@@ -439,7 +439,11 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv, currentAcade
     const [timeRange, setTimeRange] = useState('week');
     const [classStrength, setClassStrength] = useState(0);
     const { config } = useInstitution();
-    const activeModules = config?.activeModules || ['theory', 'practical'];
+    let activeModules = config?.academicConfig?.sessionTypes || ['theory', 'practical'];
+    if (config?.domain === 'AGRICULTURE') {
+        activeModules = ['theory', 'practical'];
+    }
+    activeModules = activeModules.map(mod => mod.toLowerCase());
 
     useEffect(() => {
         const fetchAnalytics = async () => {
@@ -619,7 +623,7 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv, currentAcade
                     <h2 className="gradient-text">Analytics</h2>
                     <p className="content-subtitle">
                         {/* ✅ Show Division in Subtitle */}
-                        {selectedYear} {selectedYear === 'FE' && selectedDiv ? `(Div ${selectedDiv})` : ''} • Average Attendance
+                       {selectedYear} {selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All' ? `(Div ${selectedDiv})` : ''} • Average Attendance
                     </p>
                 </div>
 
@@ -824,7 +828,7 @@ const generatePDFReport = (teacherInfo, selectedYear, selectedDiv, subject, star
     doc.text(`Department: ${teacherInfo.department}`, leftMargin, 32);
 
     // ✅ UPDATED LINE: Includes Batch Info if available
-    let classLine = `Class: ${selectedYear} ${selectedYear === 'FE' ? `(Div ${selectedDiv})` : ''}   |   ${currentSemester}`;
+    let classLine = `Class: ${selectedYear} ${selectedYear === 'FE' && selectedDiv !== 'All' ? `(Div ${selectedDiv})` : ''}   |   ${currentSemester}`;
     if (batchInfo) classLine += `   |   ${batchInfo}`; // Append Batch Info
 
     doc.text(classLine, leftMargin, 37);
@@ -1006,21 +1010,21 @@ const DashboardHome = ({
         }
     };
 
-// --- 🟢 NEW: DYNAMIC REPORT FILTERS ---
-    const filterOptions = [{ id: 'all', label: 'All' }];
+const filterOptions = [{ id: 'all', label: 'All' }];
     
-    // We safely check if config exists, otherwise we default to standard theory/practical
-    if (config && config.activeModules) {
-        config.activeModules.forEach(mod => {
-            filterOptions.push({
-                id: mod,
-                label: config.terminology?.[mod] || mod.charAt(0).toUpperCase() + mod.slice(1).replace('_', ' ')
-            });
-        });
-    } else {
-        filterOptions.push({ id: 'theory', label: 'Theory' });
-        filterOptions.push({ id: 'practical', label: 'Practical' });
+    // ✅ FIX: Use sessionTypes and restrict to Theory/Practical for Agriculture College
+    let sessionTypesToDisplay = config?.academicConfig?.sessionTypes || ['theory', 'practical'];
+    if (config?.domain === 'AGRICULTURE') {
+        sessionTypesToDisplay = ['theory', 'practical'];
     }
+
+    sessionTypesToDisplay.forEach(mod => {
+        const modId = mod.toLowerCase();
+        filterOptions.push({
+            id: modId,
+            label: config?.terminology?.[modId] || modId.charAt(0).toUpperCase() + modId.slice(1).replace('_', ' ')
+        });
+    });
 
     const filteredHistorySessions = historySessions.filter(session => {
         // 1. Filter by Module Type
@@ -1707,28 +1711,35 @@ const DashboardHome = ({
 
                             {!isSessionRelevant && (
                                 <div style={{ marginBottom: '15px' }}>
-                                    {/* Session Type Toggle (Theory / Practical) */}
+                                    {/* Session Type Toggle (Dynamic for Agri/Engg/Medical) */}
                                     <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+                                        {(() => {
+                                            // ✅ FIX: Force only Theory & Practical for Agriculture
+                                            let sessionTypesToDisplay = config?.academicConfig?.sessionTypes || ['theory', 'practical'];
+                                            if (config?.domain === 'AGRICULTURE') {
+                                                sessionTypesToDisplay = ['theory', 'practical'];
+                                            }
 
-                                        <FeatureGuard requiredModule="theory">
-                                            <button onClick={() => setSessionType('theory')} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: sessionType === 'theory' ? '#2563eb' : 'white', color: sessionType === 'theory' ? 'white' : '#64748b', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold', boxShadow: sessionType === 'theory' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none' }}>
-                                                {theoryLabel}
-                                            </button>
-                                        </FeatureGuard>
-
-                                        <FeatureGuard requiredModule="practical">
-                                            <button onClick={() => setSessionType('practical')} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: sessionType === 'practical' ? '#2563eb' : 'white', color: sessionType === 'practical' ? 'white' : '#64748b', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold', boxShadow: sessionType === 'practical' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none' }}>
-                                                {practicalLabel}
-                                            </button>
-                                        </FeatureGuard>
-
-                                        {/* Example of how you will add future generic modules! */}
-                                        <FeatureGuard requiredModule="clinical_posting">
-                                            <button onClick={() => setSessionType('clinical_posting')} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: sessionType === 'clinical_posting' ? '#2563eb' : 'white', color: sessionType === 'clinical_posting' ? 'white' : '#64748b', fontSize: '12px', cursor: 'pointer', fontWeight: 'bold', boxShadow: sessionType === 'clinical_posting' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none' }}>
-                                                {config?.terminology?.clinical_posting || "Clinicals"}
-                                            </button>
-                                        </FeatureGuard>
-
+                                            return sessionTypesToDisplay.map(mod => {
+                                                const modId = mod.toLowerCase();
+                                                const label = config?.terminology?.[modId] || modId.charAt(0).toUpperCase() + modId.slice(1).replace('_', ' ');
+                                                
+                                                return (
+                                                    <button 
+                                                        key={modId}
+                                                        onClick={() => setSessionType(modId)} 
+                                                        style={{ 
+                                                            flex: 1, padding: '8px', borderRadius: '8px', border: 'none', 
+                                                            background: sessionType === modId ? '#2563eb' : 'white', 
+                                                            color: sessionType === modId ? 'white' : '#64748b', 
+                                                            fontSize: '12px', cursor: 'pointer', fontWeight: 'bold', 
+                                                            boxShadow: sessionType === modId ? '0 2px 4px rgba(0,0,0,0.1)' : 'none' 
+                                                        }}>
+                                                        {label}
+                                                    </button>
+                                                );
+                                            });
+                                        })()}
                                     </div>
 
                                     {/* Practical Config (Restored Roll Nos) */}
@@ -1783,7 +1794,7 @@ const DashboardHome = ({
                             <p style={{ color: isSessionRelevant ? '#166534' : '#1e40af', marginBottom: '20px', fontSize: '12px', opacity: 0.8 }}>
                                 {isSessionRelevant
                                     ? `Code updates in ${timer}s`
-                                    : `Configure session for ${selectedYear} ${selectedYear === 'FE' ? `(Div ${selectedDiv})` : ''}.`
+                                    : `Configure session for ${selectedYear} ${selectedYear === 'FE' && selectedDiv !== 'All' ? `(Div ${selectedDiv})` : ''}.`
                                 }
                             </p>
                         </div>
@@ -1949,7 +1960,7 @@ const DashboardHome = ({
                             <i className="fas fa-history"></i> Add Past Attendance
                         </h3>
                         <p style={{ fontSize: '12px', color: '#64748b', marginBottom: '20px' }}>
-                            Mark attendance for {selectedYear} {selectedYear === 'FE' && selectedDiv ? `(Div ${selectedDiv})` : ''} on a previous date.
+                            Mark attendance for {selectedYear} {selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All' ? `(Div ${selectedDiv})` : ''} on a previous date.
                         </p>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -3157,7 +3168,7 @@ export default function TeacherDashboard() {
         return () => unsub();
     }, [teacherInfo, currentSubject, selectedYear]);
 
-    // ✅ 3. PROPER SEMESTER & DIVISION FILTERING IN REPORTS TAB
+   // ✅ 3. PROPER SEMESTER & DIVISION FILTERING IN REPORTS TAB
     const getSubjectForHistory = () => {
         if (!teacherInfo?.assignedClasses) return selectedSubject || teacherInfo?.subject || "Subject";
 
@@ -3165,8 +3176,8 @@ export default function TeacherDashboard() {
         const semClass = teacherInfo.assignedClasses.find(c => {
             const isYearSemMatch = c.year === selectedYear && Number(c.semester) === Number(historySemester);
 
-            // 🚨 THE FIX: Make sure we grab the subject for the CORRECT division!
-            if (isYearSemMatch && selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
+            // 🚨 THE FIX: Check division ONLY if Engineering FE!
+            if (isYearSemMatch && selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All' && !isNonEngg) {
                 if (c.divisions && c.divisions.toLowerCase() !== 'all') {
                     // Split in case divisions are saved like "C, J"
                     const divs = c.divisions.split(',').map(d => d.trim().toUpperCase());
@@ -3179,7 +3190,7 @@ export default function TeacherDashboard() {
         });
 
         if (semClass) {
-            return semClass.subject; // Now it correctly returns "Chemistry" for Div J and "Physics" for Div C!
+            return semClass.subject; 
         }
 
         // Fallback
@@ -3198,7 +3209,6 @@ export default function TeacherDashboard() {
 
                 // ✅ FIX: Only run auto-selection logic IF the app just loaded (selectedYear is null)
                 if (!selectedYear) {
-
                     if (data.assignedClasses && data.assignedClasses.length === 1) {
                         // Teacher only has 1 class, auto-select it!
                         const singleClass = data.assignedClasses[0];
@@ -3206,9 +3216,11 @@ export default function TeacherDashboard() {
                         setSelectedSubject(singleClass.subject); // ✅ AUTO-SET SUBJECT
                         if (singleClass.semester) setHistorySemester(Number(singleClass.semester)); // ✅ SYNC SEMESTER
 
-                        // Auto-select division if FE
-                        if (singleClass.year === 'FE' && singleClass.divisions) {
+                        // ✅ FIX: Auto-select division ONLY if it's an Engg college
+                        if (singleClass.year === 'FE' && singleClass.divisions && !isNonEngg) {
                             setSelectedDiv(singleClass.divisions.split(',')[0].trim());
+                        } else {
+                            setSelectedDiv('All'); // Force 'All' for non-engg
                         }
                     } else if (data.assignedYears && data.assignedYears.length === 1 && !data.assignedClasses) {
                         setSelectedYear(data.assignedYears[0]);
@@ -3218,14 +3230,13 @@ export default function TeacherDashboard() {
                     } else {
                         setSelectedYear('All');
                     }
-
                 }
-                // Notice: We completely removed the block that was forcing "Div A" on every re-render!
             }
         });
 
         return () => unsub();
-    }, [auth.currentUser, selectedYear]);
+    }, [auth.currentUser, selectedYear, isNonEngg]); // ✅ Added isNonEngg to dependencies
+
     // ✅ 1. REAL-TIME HOD SYNC (Academic Year & Semester)
     useEffect(() => {
         if (!teacherInfo?.instituteId || !teacherInfo?.department) return;
@@ -3719,7 +3730,7 @@ export default function TeacherDashboard() {
                                         border: '1px solid #e2e8f0', fontWeight: '600', color: '#334155',
                                         height: '48px', display: 'flex', alignItems: 'center', fontSize: '13px'
                                     }}>
-                                        {selectedYear} {selectedYear === 'FE' && selectedDiv ? `- Div ${selectedDiv}` : ''} • {getSubjectForHistory()}
+                                        {selectedYear} {selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All' ? `- Div ${selectedDiv}` : ''} • {getSubjectForHistory()}
                                     </div>
                                 </div>
 
@@ -3828,7 +3839,7 @@ export default function TeacherDashboard() {
                 );
             case 'announcements': return <TeacherAnnouncements teacherInfo={teacherInfo} />;
             case 'addTasks': return <AddTasks teacherInfo={teacherInfo} />;
-            case 'manageRoster': return <ManageRoster teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} currentSubject={currentSubject} />;
+           
             case 'marks':
                 // ✅ ADD selectedSubject prop here
                 return <MarksManager teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} selectedSubject={selectedSubject} />;
@@ -3959,9 +3970,9 @@ export default function TeacherDashboard() {
                         <h2 style={{ color: '#1e293b', marginBottom: '15px' }}>Select Classroom</h2>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
-                            {teacherInfo?.assignedClasses?.flatMap(cls => {
-                                // 1. If FE, generate separate buttons for each assigned Division
-                                if (cls.year === 'FE' && cls.divisions) {
+                           {teacherInfo?.assignedClasses?.flatMap(cls => {
+                                // 1. If FE, generate separate buttons for each assigned Division (ONLY for Engg)
+                                if (cls.year === 'FE' && cls.divisions && !isNonEngg) {
                                     if (cls.divisions.toLowerCase() === 'all') {
                                         return [{ ...cls, displayDiv: 'All', uniqueKey: `FE-All-${cls.subject}` }];
                                     }
@@ -3972,18 +3983,21 @@ export default function TeacherDashboard() {
                                         uniqueKey: `${cls.year}-${d.trim()}-${cls.subject}`
                                     }));
                                 }
-                                // 2. Default for SE/TE/BE (✅ FIX: Subject added to uniqueKey)
+                                // 2. Default for SE/TE/BE AND ALL Non-Engg Classes
                                 return [{ ...cls, displayDiv: null, uniqueKey: `${cls.year}-${cls.subject}` }];
                             }).map(cls => (
                                 <button
                                     key={cls.uniqueKey}
                                     onClick={() => {
                                         setSelectedYear(cls.year);
+                                        // ✅ Clear division if not applicable (forces 'All')
                                         if (cls.displayDiv) setSelectedDiv(cls.displayDiv);
-                                        setSelectedSubject(cls.subject); // ✅ Set exact subject for Live Class
-                                        if (cls.semester) setHistorySemester(Number(cls.semester)); // ✅ Sync reports to the class you clicked
+                                        else setSelectedDiv('All'); 
+                                        
+                                        setSelectedSubject(cls.subject); 
+                                        if (cls.semester) setHistorySemester(Number(cls.semester)); 
                                         setShowYearModal(false);
-                                        toast.success(`Entered ${cls.year} ${cls.displayDiv ? `(Div ${cls.displayDiv})` : ''} - ${cls.subject}`);
+                                        toast.success(`Entered ${cls.year} ${cls.displayDiv && cls.displayDiv !== 'All' ? `(Div ${cls.displayDiv})` : ''} - ${cls.subject}`);
                                     }}
                                     style={{
                                         padding: '15px', background: '#fff', border: '1px solid #e2e8f0',
@@ -4027,8 +4041,8 @@ export default function TeacherDashboard() {
                                 {selectedYear} • {selectedSubject || teacherInfo.assignedClasses?.find(c => c.year === selectedYear)?.subject || "Select Class"}
                             </p>
 
-                            {/* ✅ BEAUTIFUL DIV BADGE (Only for FE) */}
-                            {selectedYear === 'FE' && selectedDiv && (
+                            {/* ✅ BEAUTIFUL DIV BADGE (Only for Engineering FE) */}
+                            {selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All' && !isNonEngg && (
                                 <span style={{
                                     background: 'rgba(59, 130, 246, 0.1)',
                                     color: '#3b82f6',
@@ -4088,7 +4102,7 @@ export default function TeacherDashboard() {
                     <NavLink page="analytics" iconClass="fa-chart-bar" label="Analytics" />
                     <NavLink page="announcements" iconClass="fa-bullhorn" label="Announcements" />
                     <NavLink page="addTasks" iconClass="fa-tasks" label="Add Tasks" />
-                    <NavLink page="manageRoster" iconClass="fa-users-cog" label="Manage Roster" />
+                   
                    
                         <NavLink page="marks" iconClass="fa-clipboard-check" label="Marks & Results" />
                     

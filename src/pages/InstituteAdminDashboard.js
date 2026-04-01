@@ -1024,38 +1024,30 @@ const FaceRequestsManager = ({ user }) => {
                     </div>
                 )}
                 
-               <ul className="menu">
+             <ul className="menu">
                     {/* Always visible */}
                     <NavLink page="dashboard" iconClass="fa-tachometer-alt" label="Dashboard" />
                     
-                    {/* Guarded Modules */}
-                    <FeatureGuard requiredModule="departments">
+                    {/* Exclude Departments from Agriculture Colleges */}
+                    <FeatureGuard excludedDomain="AGRICULTURE">
                         <NavLink page="addDepartment" iconClass="fa-building" label="Departments" />
                     </FeatureGuard>
                     
-                    <FeatureGuard requiredModule="hod">
+                    {/* Show HOD for everyone */}
+                    <FeatureGuard>
                         <NavLink page="addHOD" iconClass="fa-user-tie" label="Add HOD" />
                     </FeatureGuard>
                     
-                    <FeatureGuard requiredModule="curriculum">
+                    {/* ✅ FIX: Removed requiredDomain so it shows for BOTH Agri and Engg */}
+                    <FeatureGuard>
                         <NavLink page="curriculum" iconClass="fa-book" label="Manage Curriculum" />
                     </FeatureGuard>
                     
-                    <FeatureGuard requiredModule="bulk_upload">
-                        <NavLink page="bulkStudents" iconClass="fa-file-upload" label="Bulk Upload" />
-                    </FeatureGuard>
-                    
-                    <FeatureGuard requiredModule="manage_users">
-                        <NavLink page="manageUsers" iconClass="fa-users" label="Manage Users" />
-                    </FeatureGuard>
-                    
-                    <FeatureGuard requiredModule="promote">
-                        <NavLink page="promote" iconClass="fa-level-up-alt" label="Promote Students" />
-                    </FeatureGuard>
-                    
-                    <FeatureGuard requiredModule="face_requests">
-                        <NavLink page="faceRequests" iconClass="fa-user-shield" label="Face ID Resets" />
-                    </FeatureGuard>
+                    {/* General tabs available to everyone */}
+                    <NavLink page="bulkStudents" iconClass="fa-file-upload" label="Bulk Upload" />
+                    <NavLink page="manageUsers" iconClass="fa-users" label="Manage Users" />
+                    <NavLink page="promote" iconClass="fa-level-up-alt" label="Promote Students" />
+                    <NavLink page="faceRequests" iconClass="fa-user-shield" label="Face ID Resets" />
 
                     {/* Always visible */}
                     <NavLink page="security" iconClass="fa-user-circle" label="Profile & Security" />

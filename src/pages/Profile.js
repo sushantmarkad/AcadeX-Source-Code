@@ -7,6 +7,7 @@ import './Dashboard.css';
 import ResumeBuilderModal from '../components/ResumeBuilderModal';
 import { Printer } from '@bcyesil/capacitor-plugin-printer';
 import { Capacitor } from '@capacitor/core';
+import { useInstitution } from '../contexts/InstitutionContext';
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
@@ -190,6 +191,7 @@ const downloadResumePDF = async (user) => {
     }
 };
 export default function Profile({ user }) {
+    const { config } = useInstitution();
     const [isResumeModalOpen, setIsResumeModalOpen] = useState(false);
     const [activeTab, setActiveTab] = useState('details');
     const [isEditing, setIsEditing] = useState(false);
@@ -368,16 +370,17 @@ export default function Profile({ user }) {
                     <div className="prof-info">
                         <h2 className="prof-name">{profileData.firstName} {profileData.lastName}</h2>
                         <div className="prof-badges">
+                            {/* Role Badge (Student/Teacher) */}
                             <span className="prof-badge-glass">{profileData.role?.toUpperCase()}</span>
-                            <span className="prof-badge-glass">{profileData.department}</span>
                             
-                            {/* Hide "Year" badge if it matches Department */}
-                            {profileData.year && profileData.year !== profileData.department && (
-                                <span className="prof-badge-glass">{profileData.year} Year</span>
+                            {/* Show Class Year (FE, SE, TE, etc.) */}
+                            {profileData.year && (
+                                <span className="prof-badge-glass">{profileData.year}</span>
                             )}
                             
-                            {/* Show Division Badge */}
-                            {(profileData.division || profileData.div) && (
+                            {/* Only show Division if assigned and valid */}
+                            {(profileData.division || profileData.div) && 
+                             !['All', 'None', 'N/A'].includes(profileData.division || profileData.div) && (
                                 <span className="prof-badge-glass">Div {profileData.division || profileData.div}</span>
                             )}
                         </div>
@@ -457,19 +460,21 @@ export default function Profile({ user }) {
                                 {/* ✅ UPDATED: Institute Name */}
                                 <ProfInput label="Institute" value={profileData.instituteName || "Not Set"} disabled={true} lockIcon={true} />
 
-                                {/* ✅ UPDATED: Dynamic Department Display */}
-                                <ProfInput 
-                                    label={profileData.department === 'COMMON' ? "Enrolled Departments" : "Department"} 
-                                    value={
-                                        profileData.department === 'COMMON' && profileData.enrolledDepartments?.length > 0
-                                            ? profileData.enrolledDepartments.join(', ')
-                                            : (profileData.department !== 'COMMON' ? profileData.department : "Common Pool (Awaiting Assignment)")
-                                    } 
-                                    disabled={true} 
-                                    lockIcon={true} 
-                                />
+                               {/* ✅ UPDATED: Hide Department completely for Agriculture Students */}
+                                {!(config?.domain === 'AGRICULTURE' && profileData.role === 'student') && (
+                                    <ProfInput 
+                                        label={profileData.department === 'COMMON' ? "Enrolled Departments" : "Department"} 
+                                        value={
+                                            profileData.department === 'COMMON' && profileData.enrolledDepartments?.length > 0
+                                                ? profileData.enrolledDepartments.join(', ')
+                                                : (profileData.department !== 'COMMON' ? profileData.department : "Common Pool (Awaiting Assignment)")
+                                        } 
+                                        disabled={true} 
+                                        lockIcon={true} 
+                                    />
+                                )}
                                 
-                                {user.role === 'student' && (
+                               {user.role === 'student' && (
                                     <>
                                         <ProfInput 
                                             label="Class Year" 
@@ -477,12 +482,16 @@ export default function Profile({ user }) {
                                             disabled={true} 
                                             lockIcon={true} 
                                         />
-                                        <ProfInput 
-                                            label="Division" 
-                                            value={profileData.division || profileData.div || "N/A"} 
-                                            disabled={true} 
-                                            lockIcon={true} 
-                                        />
+                                        {/* Only show Division input if a specific division is assigned */}
+                                        {(profileData.division || profileData.div) && 
+                                         !['All', 'None', 'N/A'].includes(profileData.division || profileData.div) && (
+                                            <ProfInput 
+                                                label="Division" 
+                                                value={profileData.division || profileData.div} 
+                                                disabled={true} 
+                                                lockIcon={true} 
+                                            />
+                                        )}
                                     </>
                                 )}
                             </div>
@@ -767,9 +776,9 @@ export default function Profile({ user }) {
         background: #db2777; border-radius: 3px 3px 0 0;
     }
 
-    /* --- Layout & Forms --- */
-    .prof-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 30px; }
-    
+   /* --- Layout & Forms --- */
+   .prof-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; align-items: start; }
+
     .prof-card {
         background: white; border-radius: 20px; padding: 30px;
         border: 1px solid #f1f5f9;
@@ -820,21 +829,22 @@ export default function Profile({ user }) {
         color: #94a3b8; pointer-events: none; font-size: 12px;
     }
 
-    /* --- MOBILE RESPONSIVE --- */
+   /* --- MOBILE RESPONSIVE --- */
     @media (max-width: 768px) {
         .prof-header-content { 
             flex-direction: column; 
             text-align: center; 
-            padding: 30px;
+            padding: 20px; /* Reduced from 30px to prevent overflow */
         }
         .prof-avatar { width: 90px; height: 90px; font-size: 32px; }
         .prof-name { font-size: 24px; }
         .prof-badges { justify-content: center; }
         .prof-btn { width: 100%; justify-content: center; margin-top: 10px; }
         
-        /* Grid Stacking */
+        /* Grid Stacking & Padding Fixes */
         .prof-grid { grid-template-columns: 1fr; }
         .prof-form-grid { grid-template-columns: 1fr; }
+        .prof-card { padding: 20px; } /* Prevents horizontal clipping inside the card */
         .prof-tabs { justify-content: space-between; }
         .prof-tab-item { flex: 1; text-align: center; }
     }
