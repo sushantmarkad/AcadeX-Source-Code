@@ -612,7 +612,7 @@ export default function HODDashboard() {
         setEnrolledStudentIds(alreadyEnrolled);
     }, [enrollmentYear, allCollegeStudents, hodInfo]);
 
-   // ✅ SAVE HOD ENROLLMENT (BATCH WRITE)
+ // ✅ SAVE HOD ENROLLMENT (BATCH WRITE)
     const handleSaveEnrollment = async () => {
         const toastId = toast.loading(`Saving enrollment for ${enrollmentYear}...`);
         try {
