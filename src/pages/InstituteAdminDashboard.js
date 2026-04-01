@@ -54,14 +54,19 @@ const DashboardHome = ({ instituteName, instituteId }) => {
         fetchCode();
     }, [instituteId]);
 
-   useEffect(() => {
+  useEffect(() => {
         if (!instituteId) return;
         const q = query(collection(db, 'users'), where('instituteId', '==', instituteId));
         const unsub = onSnapshot(q, (snap) => {
             const tempStats = {};
             snap.docs.forEach(doc => {
                 const data = doc.data();
-                const dept = data.department || 'Common'; // Default to Common
+                
+                // 🚨 FIX 1: Normalize "COMMON" to "Common"
+                let dept = data.department || 'Common';
+                if (dept.toUpperCase() === 'COMMON') {
+                    dept = 'Common';
+                }
                 
                 if (!tempStats[dept]) {
                     tempStats[dept] = { students: 0, teachers: 0, byYear: {} };

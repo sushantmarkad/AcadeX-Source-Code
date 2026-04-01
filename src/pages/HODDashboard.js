@@ -612,7 +612,7 @@ export default function HODDashboard() {
         setEnrolledStudentIds(alreadyEnrolled);
     }, [enrollmentYear, allCollegeStudents, hodInfo]);
 
-    // ✅ SAVE HOD ENROLLMENT (BATCH WRITE)
+   // ✅ SAVE HOD ENROLLMENT (BATCH WRITE)
     const handleSaveEnrollment = async () => {
         const toastId = toast.loading(`Saving enrollment for ${enrollmentYear}...`);
         try {
@@ -624,17 +624,35 @@ export default function HODDashboard() {
                 const isSelected = enrolledStudentIds.includes(student.id);
                 
                 let currentDepts = student.enrolledDepartments || [];
-                if (student.department && student.department !== 'COMMON' && !currentDepts.includes(student.department)) {
+                
+                // Add their original department to the array if it's not COMMON
+                if (student.department && student.department.toUpperCase() !== 'COMMON' && !currentDepts.includes(student.department)) {
                     currentDepts.push(student.department);
                 }
 
-                if (isSelected && !currentDepts.includes(hodInfo.department)) {
-                    currentDepts.push(hodInfo.department);
-                } else if (!isSelected && currentDepts.includes(hodInfo.department)) {
-                    currentDepts = currentDepts.filter(d => d !== hodInfo.department);
+                let newPrimaryDept = student.department;
+
+                if (isSelected) {
+                    if (!currentDepts.includes(hodInfo.department)) {
+                        currentDepts.push(hodInfo.department);
+                    }
+                    // 🚨 THE FIX: Change their primary department to the HOD's department 
+                    // This is what updates the Statistics cards in the Institute Dashboard!
+                    newPrimaryDept = hodInfo.department;
+                } else {
+                    if (currentDepts.includes(hodInfo.department)) {
+                        currentDepts = currentDepts.filter(d => d !== hodInfo.department);
+                    }
+                    // If they are deselected and this was their primary dept, revert them to Common
+                    if (student.department === hodInfo.department) {
+                         newPrimaryDept = currentDepts.length > 0 ? currentDepts[0] : 'Common';
+                    }
                 }
 
-                batch.update(studentRef, { enrolledDepartments: currentDepts });
+                batch.update(studentRef, { 
+                    enrolledDepartments: currentDepts,
+                    department: newPrimaryDept // <-- This triggers the Institute Dashboard count
+                });
             });
 
             await batch.commit();

@@ -228,7 +228,7 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                         "gender": idxSex !== -1 && row[idxSex] ? row[idxSex] : "",
                         "category": idxCat !== -1 && row[idxCat] ? row[idxCat] : "",
                         "division": showDivision ? divVal : null,
-                        "department": isAgri ? "COMMON" : deptVal,
+                        "department": isAgri ? "Common" : deptVal,
                         "enrolledDepartments": [], 
                         "year": yearVal,
                         "instituteId": instituteId,
