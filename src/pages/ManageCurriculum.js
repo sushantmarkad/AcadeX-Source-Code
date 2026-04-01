@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, addDoc, onSnapshot, query, where, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, onSnapshot, query, where, deleteDoc, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import toast from 'react-hot-toast';
 import { useInstitution } from '../contexts/InstitutionContext';
@@ -17,6 +17,7 @@ export default function ManageCurriculum({ instituteId }) {
         year: '', // This is the Class (e.g., First Year, FE)
         academicYear: '2024-2025' // Default Calendar Year
     });
+    const [editingSubject, setEditingSubject] = useState(null);
 
    const ACADEMIC_YEARS = ['2023-2024', '2024-2025', '2025-2026', '2026-2027'];
     
@@ -50,22 +51,42 @@ export default function ManageCurriculum({ instituteId }) {
             toast.success("Department Added!");
         } catch (err) { toast.error(err.message); }
     };
-
-    const handleAddSubject = async (e) => {
+// Rename this to handleAddOrUpdateSubject
+    const handleAddOrUpdateSubject = async (e) => {
         e.preventDefault();
-        if (!newSubject.name.trim() || !newSubject.departmentId || !newSubject.year || !newSubject.academicYear) {
+        
+        // Determine if we are editing or adding
+        const target = editingSubject || newSubject;
+
+        if (!target.name.trim() || !target.departmentId || !target.year || !target.academicYear) {
             return toast.error("Please fill all fields");
         }
+        
         try {
-            await addDoc(collection(db, 'subjects'), {
-                ...newSubject,
-                name: newSubject.name.trim(),
-                instituteId,
-                createdAt: serverTimestamp()
-            });
-            setNewSubject({ ...newSubject, name: '' }); // Keep dropdowns selected, clear text
-            toast.success("Subject Added!");
-        } catch (err) { toast.error(err.message); }
+            if (editingSubject) {
+                // UPDATE logic
+                await updateDoc(doc(db, 'subjects', editingSubject.id), {
+                    name: editingSubject.name.trim(),
+                    departmentId: editingSubject.departmentId,
+                    year: editingSubject.year,
+                    academicYear: editingSubject.academicYear
+                });
+                setEditingSubject(null);
+                toast.success("Subject Updated!");
+            } else {
+                // ADD logic
+                await addDoc(collection(db, 'subjects'), {
+                    ...newSubject,
+                    name: newSubject.name.trim(),
+                    instituteId,
+                    createdAt: serverTimestamp()
+                });
+                setNewSubject({ ...newSubject, name: '' }); 
+                toast.success("Subject Added!");
+            }
+        } catch (err) { 
+            toast.error(err.message); 
+        }
     };
 
     const handleDelete = async (collectionName, id) => {
@@ -135,11 +156,17 @@ export default function ManageCurriculum({ instituteId }) {
                         <h3>2. Subjects</h3>
                     </div>
 
-                    <form onSubmit={handleAddSubject} className="curr-form-col">
+                    {/* Update the form tag to call handleAddOrUpdateSubject */}
+                    <form onSubmit={handleAddOrUpdateSubject} className="curr-form-col" style={{ background: editingSubject ? '#fefce8' : 'transparent', padding: editingSubject ? '15px' : '0', borderRadius: '12px', border: editingSubject ? '1px dashed #eab308' : 'none' }}>
+                        
+                        {/* Add this indicator */}
+                        {editingSubject && <div style={{ fontSize: '13px', color: '#a16207', fontWeight: 'bold', marginBottom: '5px' }}><i className="fas fa-pen"></i> Editing Subject</div>}
+                        
                         <select 
                             className="curr-input" 
-                            value={newSubject.departmentId} 
-                            onChange={e => setNewSubject({...newSubject, departmentId: e.target.value})} 
+                            // Update value and onChange
+                            value={editingSubject ? editingSubject.departmentId : newSubject.departmentId} 
+                            onChange={e => editingSubject ? setEditingSubject({...editingSubject, departmentId: e.target.value}) : setNewSubject({...newSubject, departmentId: e.target.value})} 
                             required
                         >
                             <option value="">-- Select Department --</option>
@@ -147,11 +174,11 @@ export default function ManageCurriculum({ instituteId }) {
                         </select>
                         
                        <div style={{ display: 'flex', gap: '10px' }}>
-                            {/* ✅ FIX: Dynamic terminology for the placeholder */}
                             <select 
                                 className="curr-input" 
-                                value={newSubject.year} 
-                                onChange={e => setNewSubject({...newSubject, year: e.target.value})} 
+                                // Update value and onChange
+                                value={editingSubject ? editingSubject.year : newSubject.year} 
+                                onChange={e => editingSubject ? setEditingSubject({...editingSubject, year: e.target.value}) : setNewSubject({...newSubject, year: e.target.value})} 
                                 required
                             >
                                 <option value="">-- Select {levelNomenclature} --</option>
@@ -160,8 +187,9 @@ export default function ManageCurriculum({ instituteId }) {
 
                             <select 
                                 className="curr-input" 
-                                value={newSubject.academicYear} 
-                                onChange={e => setNewSubject({...newSubject, academicYear: e.target.value})} 
+                                // Update value and onChange
+                                value={editingSubject ? editingSubject.academicYear : newSubject.academicYear} 
+                                onChange={e => editingSubject ? setEditingSubject({...editingSubject, academicYear: e.target.value}) : setNewSubject({...newSubject, academicYear: e.target.value})} 
                                 required
                             >
                                 <option value="">-- Calendar Year --</option>
@@ -171,15 +199,28 @@ export default function ManageCurriculum({ instituteId }) {
 
                         <input 
                             className="curr-input" 
-                            value={newSubject.name} 
-                            onChange={e => setNewSubject({...newSubject, name: e.target.value})} 
+                            // Update value and onChange
+                            value={editingSubject ? editingSubject.name : newSubject.name} 
+                            onChange={e => editingSubject ? setEditingSubject({...editingSubject, name: e.target.value}) : setNewSubject({...newSubject, name: e.target.value})} 
                             placeholder="Subject Name (e.g. Soil Science)" 
                             required 
                         />
-                        <button type="submit" className="curr-btn curr-btn-green">Add Subject</button>
+                        
+                        {/* Update button text dynamically */}
+                        <div style={{display: 'flex', gap: '10px'}}>
+                            <button type="submit" className="curr-btn curr-btn-green" style={{flex: 1}}>
+                                {editingSubject ? 'Update Subject' : 'Add Subject'}
+                            </button>
+                            {editingSubject && (
+                                <button type="button" onClick={() => setEditingSubject(null)} className="curr-btn" style={{background: '#f1f5f9', color: '#475569'}}>
+                                    Cancel
+                                </button>
+                            )}
+                        </div>
                     </form>
 
-                    <div className="curr-list-container">
+                    {/* Add the scrollable-list class */}
+                    <div className="curr-list-container scrollable-list">
                         {subjects.length === 0 ? (
                             <p className="curr-empty">No subjects added yet.</p>
                         ) : (
@@ -191,9 +232,15 @@ export default function ManageCurriculum({ instituteId }) {
                                             {departments.find(d => d.id === sub.departmentId)?.name || 'Unknown'} • {sub.year} • {sub.academicYear}
                                         </span>
                                     </div>
-                                    <button onClick={() => handleDelete('subjects', sub.id)} className="curr-delete-btn" title="Delete Subject">
-                                        <i className="fas fa-trash-alt"></i>
-                                    </button>
+                                    <div style={{display: 'flex', gap: '5px'}}>
+                                        {/* Add Edit Button */}
+                                        <button onClick={() => setEditingSubject(sub)} className="curr-action-btn edit-btn" title="Edit Subject">
+                                            <i className="fas fa-pen"></i>
+                                        </button>
+                                        <button onClick={() => handleDelete('subjects', sub.id)} className="curr-action-btn delete-btn" title="Delete Subject">
+                                            <i className="fas fa-trash-alt"></i>
+                                        </button>
+                                    </div>
                                 </div>
                             ))
                         )}
@@ -222,6 +269,14 @@ export default function ManageCurriculum({ instituteId }) {
                 .curr-list-container::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 10px; }
                 .curr-empty { text-align: center; color: #94a3b8; font-size: 13px; font-style: italic; padding: 20px 0; }
                 .curr-list-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; margin-bottom: 10px; transition: all 0.2s; }
+                .scrollable-list { overflow-y: auto; max-height: 400px; padding-right: 8px; }
+                .scrollable-list::-webkit-scrollbar { width: 6px; }
+                .scrollable-list::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 10px; }
+                .curr-action-btn { width: 32px; height: 32px; border-radius: 8px; display: flex; justify-content: center; align-items: center; cursor: pointer; border: none; transition: 0.2s; }
+                .edit-btn { background: #fefce8; color: #ca8a04; }
+                .edit-btn:hover { background: #fef08a; }
+                .delete-btn { background: #fee2e2; color: #ef4444; }
+                .delete-btn:hover { background: #fecaca; }
                 .curr-item-text { font-weight: 600; color: #334155; font-size: 14px; }
                 .curr-subject-item { flex-direction: row; align-items: center; border-left: 4px solid #10b981; }
                 .curr-subject-info { display: flex; flex-direction: column; gap: 4px; }

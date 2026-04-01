@@ -184,7 +184,7 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                 let skippedCount = 0;
                 let hasErrors = false;
 
-                const cleanStudents = rows.slice(headerIndex + 1).map((row, index) => {
+               const cleanStudents = rows.slice(headerIndex + 1).map((row, index) => {
                     const rollNo = idxRoll !== -1 && row[idxRoll] ? String(row[idxRoll]).trim() : "";
                     if (!rollNo) return null;
 
@@ -218,6 +218,7 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                     const yearVal = idxYear !== -1 && row[idxYear] ? row[idxYear] : selectedYear;
 
                     return {
+                        "role": "student",      
                         "email": finalEmail,
                         "firstName": firstName,
                         "lastName": lastName,

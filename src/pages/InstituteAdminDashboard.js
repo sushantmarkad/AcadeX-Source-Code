@@ -54,17 +54,28 @@ const DashboardHome = ({ instituteName, instituteId }) => {
         fetchCode();
     }, [instituteId]);
 
-    useEffect(() => {
+   useEffect(() => {
         if (!instituteId) return;
         const q = query(collection(db, 'users'), where('instituteId', '==', instituteId));
         const unsub = onSnapshot(q, (snap) => {
             const tempStats = {};
             snap.docs.forEach(doc => {
                 const data = doc.data();
-                const dept = data.department || 'General';
-                if (!tempStats[dept]) tempStats[dept] = { students: 0, teachers: 0 };
-                if (data.role === 'student') tempStats[dept].students++;
-                if (data.role === 'teacher') tempStats[dept].teachers++;
+                const dept = data.department || 'Common'; // Default to Common
+                
+                if (!tempStats[dept]) {
+                    tempStats[dept] = { students: 0, teachers: 0, byYear: {} };
+                }
+                
+                if (data.role === 'student') {
+                    tempStats[dept].students++;
+                    const yr = data.year || 'Unknown';
+                    tempStats[dept].byYear[yr] = (tempStats[dept].byYear[yr] || 0) + 1;
+                }
+                
+                if (data.role === 'teacher') {
+                    tempStats[dept].teachers++;
+                }
             });
             setStats(tempStats);
             setStatsLoading(false);
@@ -124,7 +135,7 @@ const DashboardHome = ({ instituteName, instituteId }) => {
                 <i className="fas fa-chart-pie" style={{ color: '#64748b' }}></i> Department Statistics
             </h3>
             
-            {statsLoading ? <p>Loading stats...</p> : (
+           {statsLoading ? <p>Loading stats...</p> : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
                     {Object.keys(stats).sort().map((dept, index) => (
                         <div key={dept} style={{ 
@@ -137,10 +148,22 @@ const DashboardHome = ({ instituteName, instituteId }) => {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                     <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: '#eff6ff', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-user-graduate" style={{ fontSize: '12px' }}></i></div>
-                                    <span style={{ color: '#64748b', fontSize: '13px' }}>Students</span>
+                                    <span style={{ color: '#64748b', fontSize: '13px' }}>Total Students</span>
                                 </div>
                                 <span style={{ fontWeight: '700', color: '#1e293b', fontSize: '16px' }}>{stats[dept].students}</span>
                             </div>
+
+                            {/* --- ADDED: Year-wise breakdown pill boxes --- */}
+                            {stats[dept].students > 0 && (
+                                <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', marginBottom: '15px', display: 'flex', flexWrap: 'wrap', gap: '8px', border: '1px solid #e2e8f0' }}>
+                                    {Object.entries(stats[dept].byYear).map(([yr, count]) => (
+                                        <span key={yr} style={{ fontSize: '12px', background: '#e0e7ff', color: '#3730a3', padding: '4px 10px', borderRadius: '12px', fontWeight: '700' }}>
+                                            {yr}: {count}
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
+
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                     <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: '#ecfdf5', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-chalkboard-teacher" style={{ fontSize: '12px' }}></i></div>
