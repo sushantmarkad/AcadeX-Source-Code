@@ -217,13 +217,7 @@ export default function HODDashboard() {
                 const qRequests = query(collection(db, 'student_requests'), where('instituteId', '==', data.instituteId), where('department', '==', data.department), where('status', '==', 'pending'));
                 onSnapshot(qRequests, (snap) => setStudentRequests(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
-               // ✅ FIXED: Fetch all users for Agri so HOD can access the Common Pool
-                const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
-                const qUsers = isNonEngg 
-                    ? query(collection(db, 'users'), where('instituteId', '==', data.instituteId))
-                    : query(collection(db, 'users'), where('instituteId', '==', data.instituteId), where('department', '==', data.department));
-                
-                onSnapshot(qUsers, (snap) => setDeptUsers(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+               
 
                 // Fetch Leaves
                 const qLeaves = query(collection(db, 'leave_requests'), where('instituteId', '==', data.instituteId), where('department', '==', data.department), where('status', '==', 'pending'));
@@ -263,10 +257,31 @@ export default function HODDashboard() {
         }
     };
 
+    // ✅ NEW FIX: Wait for Config to load before fetching the Common Student Pool
     useEffect(() => {
+        if (!hodInfo || !config) return; // Wait until both profile and config are fully downloaded
+
+        // If not Engineering, fetch everyone in the institute (so HOD sees 'Common' pool)
+        const isNonEngg = config.domain !== 'ENGINEERING'; 
+        
+        const qUsers = isNonEngg 
+            ? query(collection(db, 'users'), where('instituteId', '==', hodInfo.instituteId))
+            : query(collection(db, 'users'), where('instituteId', '==', hodInfo.instituteId), where('department', '==', hodInfo.department));
+        
+        const unsub = onSnapshot(qUsers, (snap) => {
+            setDeptUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+
+        return () => unsub(); // Clean up listener to prevent memory leaks
+    }, [hodInfo, config]); // 🚨 This dependency array fixes the bug!
+
+   useEffect(() => {
         if (hodInfo && academicLevels.length > 0) {
             setAnalyticsYear(academicLevels[0]); // Dynamically select first level
             setAnalyticsDivision('All');
+            
+            // ✅ ADD THIS LINE: This forces the Enrollment tab to open on '1st Year' instead of 'FE'
+            setEnrollmentYear(academicLevels[0]); 
         }
     }, [hodInfo, academicLevels]);
 

@@ -41,6 +41,9 @@ const DashboardHome = ({ instituteName, instituteId }) => {
     const [loading, setLoading] = useState(false);
     const [stats, setStats] = useState({});
     const [statsLoading, setStatsLoading] = useState(true);
+    
+    // 🚨 ADD THIS: Get the config to know if it's an Agri/Medical college
+    const { config } = useInstitution(); 
 
     useEffect(() => {
         const fetchCode = async () => {
@@ -54,39 +57,68 @@ const DashboardHome = ({ instituteName, instituteId }) => {
         fetchCode();
     }, [instituteId]);
 
-  useEffect(() => {
-        if (!instituteId) return;
+    useEffect(() => {
+        // Wait until we have the config to determine college type
+        if (!instituteId || !config) return; 
+
+        const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+
         const q = query(collection(db, 'users'), where('instituteId', '==', instituteId));
         const unsub = onSnapshot(q, (snap) => {
             const tempStats = {};
+            
+            const initDept = (deptName) => {
+                if (!tempStats[deptName]) {
+                    tempStats[deptName] = { students: 0, teachers: 0, byYear: {} };
+                }
+            };
+
             snap.docs.forEach(doc => {
                 const data = doc.data();
                 
-                // 🚨 FIX 1: Normalize "COMMON" to "Common"
-                let dept = data.department || 'Common';
-                if (dept.toUpperCase() === 'COMMON') {
-                    dept = 'Common';
-                }
-                
-                if (!tempStats[dept]) {
-                    tempStats[dept] = { students: 0, teachers: 0, byYear: {} };
-                }
-                
                 if (data.role === 'student') {
-                    tempStats[dept].students++;
                     const yr = data.year || 'Unknown';
-                    tempStats[dept].byYear[yr] = (tempStats[dept].byYear[yr] || 0) + 1;
-                }
-                
-                if (data.role === 'teacher') {
+                    
+                    if (isNonEngg) {
+                        // 1. ALWAYS count Agri/Medical students in the 'Common' card
+                        initDept('Common');
+                        tempStats['Common'].students++;
+                        tempStats['Common'].byYear[yr] = (tempStats['Common'].byYear[yr] || 0) + 1;
+                        
+                        // 2. ALSO count them in their specific enrolled departments for the HOD cards
+                        if (data.enrolledDepartments && Array.isArray(data.enrolledDepartments)) {
+                            data.enrolledDepartments.forEach(dept => {
+                                if (dept.toUpperCase() === 'COMMON') return; // Skip to avoid double counting
+                                initDept(dept);
+                                tempStats[dept].students++;
+                                tempStats[dept].byYear[yr] = (tempStats[dept].byYear[yr] || 0) + 1;
+                            });
+                        }
+                    } else {
+                        // Engineering College Logic (Students belong to exactly ONE department)
+                        let dept = data.department || 'Common';
+                        if (dept.toUpperCase() === 'COMMON') dept = 'Common';
+                        
+                        initDept(dept);
+                        tempStats[dept].students++;
+                        tempStats[dept].byYear[yr] = (tempStats[dept].byYear[yr] || 0) + 1;
+                    }
+                } 
+                else if (data.role === 'teacher') {
+                    let dept = data.department || 'Common';
+                    if (dept.toUpperCase() === 'COMMON') dept = 'Common';
+                    
+                    initDept(dept);
                     tempStats[dept].teachers++;
                 }
             });
+            
             setStats(tempStats);
             setStatsLoading(false);
         });
+        
         return () => unsub();
-    }, [instituteId]);
+    }, [instituteId, config]); // <-- Depend on config
 
     const generateCode = async () => {
         if (!instituteId) return toast.error("Institute ID missing.");
@@ -158,7 +190,7 @@ const DashboardHome = ({ instituteName, instituteId }) => {
                                 <span style={{ fontWeight: '700', color: '#1e293b', fontSize: '16px' }}>{stats[dept].students}</span>
                             </div>
 
-                            {/* --- ADDED: Year-wise breakdown pill boxes --- */}
+                            {/* Year-wise breakdown pill boxes */}
                             {stats[dept].students > 0 && (
                                 <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', marginBottom: '15px', display: 'flex', flexWrap: 'wrap', gap: '8px', border: '1px solid #e2e8f0' }}>
                                     {Object.entries(stats[dept].byYear).map(([yr, count]) => (

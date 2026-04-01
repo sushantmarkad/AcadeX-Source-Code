@@ -4,6 +4,7 @@ import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/f
 import toast from 'react-hot-toast';
 import './Dashboard.css';
 import ReactDOM from 'react-dom';
+import { useInstitution } from '../contexts/InstitutionContext';
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
@@ -31,6 +32,7 @@ const Avatar = ({ name }) => {
 };
 
 export default function ManageInstituteUsers({ instituteId, showModal }) {
+    const { config } = useInstitution();
     const [groupedUsers, setGroupedUsers] = useState({});
     const [loading, setLoading] = useState(true);
     const [selectedIds, setSelectedIds] = useState([]);
@@ -39,7 +41,7 @@ export default function ManageInstituteUsers({ instituteId, showModal }) {
     const [editingUser, setEditingUser] = useState(null);
     const [editFormData, setEditFormData] = useState({ firstName: '', lastName: '', email: '', phone: '' });
 
-    useEffect(() => {
+   useEffect(() => {
         if (!instituteId) return;
 
         const usersQuery = query(collection(db, "users"), where("instituteId", "==", instituteId));
@@ -48,7 +50,10 @@ export default function ManageInstituteUsers({ instituteId, showModal }) {
 
             const groups = {};
             users.forEach(user => {
-                const dept = user.department || "General";
+                // 🚨 THE FIX: Force ALL students into the "Common" card, 
+                // but let teachers/HODs keep their specific departments
+                const dept = user.role === 'student' ? 'Common' : (user.department || "General");
+                
                 if (!groups[dept]) groups[dept] = { hods: [], teachers: [], studentsByYear: {} };
 
                 if (user.role === 'hod') groups[dept].hods.push(user);
@@ -64,6 +69,44 @@ export default function ManageInstituteUsers({ instituteId, showModal }) {
         });
         return () => unsubscribe();
     }, [instituteId]);
+
+    useEffect(() => {
+        // Wait until we have both the ID and the config loaded
+        if (!instituteId || !config) return; 
+
+        const usersQuery = query(collection(db, "users"), where("instituteId", "==", instituteId));
+        const unsubscribe = onSnapshot(usersQuery, (snapshot) => {
+            const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            // Check if this is an Agri or Medical college
+            const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+
+            const groups = {};
+            users.forEach(user => {
+                
+                // 🚨 THE FIX: If Agri/Medical student -> force to "Common"
+                // If Engineering student or ANY Teacher/HOD -> keep their real department
+                let dept = user.department || "General";
+                if (user.role === 'student' && isNonEngg) {
+                    dept = 'Common';
+                }
+                
+                if (!groups[dept]) groups[dept] = { hods: [], teachers: [], studentsByYear: {} };
+
+                if (user.role === 'hod') groups[dept].hods.push(user);
+                if (user.role === 'teacher') groups[dept].teachers.push(user);
+                if (user.role === 'student') {
+                    const year = user.year || "Unknown";
+                    if (!groups[dept].studentsByYear[year]) groups[dept].studentsByYear[year] = [];
+                    groups[dept].studentsByYear[year].push(user);
+                }
+            });
+            setGroupedUsers(groups);
+            setLoading(false);
+        });
+        
+        return () => unsubscribe();
+    }, [instituteId, config]);
 
     // --- ACTIONS ---
     const toggleSelect = (id) => {
