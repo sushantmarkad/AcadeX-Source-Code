@@ -4107,7 +4107,8 @@ export default function TeacherDashboard() {
                         <NavLink page="marks" iconClass="fa-clipboard-check" label="Marks & Results" />
                     
 
-                    <FeatureGuard requiredModule="cce_automation">
+                  {/* ✅ FIX: CCE Manager strictly limited to Engineering colleges */}
+                    <FeatureGuard requiredDomain="ENGINEERING">
                         <NavLink page="cce" iconClass="fa-calculator" label="CCE Manager" />
                     </FeatureGuard>
 
