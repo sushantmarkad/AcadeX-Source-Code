@@ -65,19 +65,24 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
         : [];
 
     useEffect(() => {
-        let unsubscribe;
         if (teacherInfo?.instituteId && auth.currentUser) {
-            const q = query(
-                collection(db, 'announcements'),
-                where('teacherId', '==', auth.currentUser.uid)
-            );
-            unsubscribe = onSnapshot(q, (snap) => {
-                const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                data.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
-                setAnnouncements(data);
-            });
+            // ✅ OPTIMIZATION: Replaced onSnapshot with getDocs
+            const fetchAnnouncements = async () => {
+                const q = query(
+                    collection(db, 'announcements'),
+                    where('teacherId', '==', auth.currentUser.uid)
+                );
+                try {
+                    const snap = await getDocs(q);
+                    const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                    data.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+                    setAnnouncements(data);
+                } catch(err) {
+                    console.error("Error fetching announcements", err);
+                }
+            };
+            fetchAnnouncements();
         }
-        return () => { if (unsubscribe) unsubscribe(); };
     }, [teacherInfo]);
 
     const handlePost = async (e) => {
@@ -2357,189 +2362,6 @@ const filterOptions = [{ id: 'all', label: 'All' }];
     );
 };
 
-// ------------------------------------
-//  COMPONENT: MANAGE STUDENT ROSTERS (For Electives & Custom Batches)
-// ------------------------------------
-const ManageRoster = ({ teacherInfo, selectedYear, selectedDiv, currentSubject }) => {
-    const [allStudents, setAllStudents] = useState([]);
-    const [rosters, setRosters] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [isCreating, setIsCreating] = useState(false);
-    
-    // New Roster Form
-    const [rosterName, setRosterName] = useState('');
-    const [selectedStudentIds, setSelectedStudentIds] = useState([]);
-
-    useEffect(() => {
-        const fetchData = async () => {
-            if (!teacherInfo?.instituteId || !selectedYear || !currentSubject) return;
-            setLoading(true);
-            try {
-                // 1. Fetch ALL Students in this Year/Div
-                const qStudents = query(
-                    collection(db, 'users'),
-                    where('instituteId', '==', teacherInfo.instituteId),
-                    where('role', '==', 'student'),
-                    where('year', '==', selectedYear),
-                    where('department', '==', teacherInfo.department)
-                );
-                const snapStudents = await getDocs(qStudents);
-                let students = snapStudents.docs.map(d => ({ id: d.id, ...d.data() }));
-                
-                if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
-                    students = students.filter(s => s.division === selectedDiv);
-                }
-                
-                // Sort alphabetically by Roll No string
-                students.sort((a, b) => String(a.rollNo).localeCompare(String(b.rollNo)));
-                setAllStudents(students);
-
-                // 2. Fetch Existing Rosters for this Subject
-                const qRosters = query(
-                    collection(db, 'subject_rosters'),
-                    where('instituteId', '==', teacherInfo.instituteId),
-                    where('subject', '==', currentSubject),
-                    where('year', '==', selectedYear)
-                );
-                const unsub = onSnapshot(qRosters, (snap) => {
-                    setRosters(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                });
-
-                return () => unsub();
-            } catch (err) {
-                console.error(err);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchData();
-    }, [teacherInfo, selectedYear, selectedDiv, currentSubject]);
-
-    const handleSaveRoster = async (e) => {
-        e.preventDefault();
-        if (!rosterName) return toast.error("Please name this group (e.g., 'Elective A' or 'Batch 1')");
-        if (selectedStudentIds.length === 0) return toast.error("Please select at least one student.");
-
-        const toastId = toast.loading("Saving roster...");
-        try {
-            await addDoc(collection(db, 'subject_rosters'), {
-                name: rosterName,
-                subject: currentSubject,
-                year: selectedYear,
-                division: selectedYear === 'FE' ? selectedDiv : null,
-                instituteId: teacherInfo.instituteId,
-                teacherId: auth.currentUser.uid,
-                studentIds: selectedStudentIds, // Array of assigned students!
-                createdAt: serverTimestamp()
-            });
-            toast.success("Roster Saved!", { id: toastId });
-            setIsCreating(false);
-            setRosterName('');
-            setSelectedStudentIds([]);
-        } catch (err) {
-            toast.error("Error: " + err.message, { id: toastId });
-        }
-    };
-
-    const handleDeleteRoster = async (id) => {
-        if(window.confirm("Delete this roster? This won't delete past attendance, but will remove the group.")) {
-            await deleteDoc(doc(db, 'subject_rosters', id));
-            toast.success("Roster deleted.");
-        }
-    };
-
-    const toggleStudent = (id) => {
-        setSelectedStudentIds(prev => 
-            prev.includes(id) ? prev.filter(sId => sId !== id) : [...prev, id]
-        );
-    };
-
-    if (loading) return <div style={{ padding: '20px', textAlign: 'center' }}>Loading students...</div>;
-
-    return (
-        <div className="content-section fade-in">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <div>
-                    <h2 className="content-title">Student Rosters</h2>
-                    <p className="content-subtitle">Create custom groups for Electives or Practicals for {currentSubject}.</p>
-                </div>
-                {!isCreating && (
-                    <button onClick={() => setIsCreating(true)} className="btn-primary" style={{ width: 'auto', padding: '10px 20px' }}>
-                        <i className="fas fa-plus"></i> Create New Group
-                    </button>
-                )}
-            </div>
-
-            {isCreating ? (
-                <div className="card fade-in">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '15px', marginBottom: '20px' }}>
-                        <h3 style={{ margin: 0, color: '#1e293b' }}>Create Custom Group</h3>
-                        <button onClick={() => setIsCreating(false)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontWeight: 'bold' }}>Cancel</button>
-                    </div>
-                    
-                    <input 
-                        type="text" 
-                        placeholder="Group Name (e.g., AI Elective, Practical Batch A)" 
-                        value={rosterName} 
-                        onChange={e => setRosterName(e.target.value)} 
-                        className="modern-input"
-                        style={{ width: '100%', marginBottom: '20px', padding: '12px' }} 
-                    />
-
-                    <div style={{ background: '#f8fafc', padding: '15px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}>
-                            <strong style={{ color: '#475569' }}>Select Students ({selectedStudentIds.length} selected)</strong>
-                            <button onClick={() => setSelectedStudentIds(allStudents.map(s => s.id))} style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontWeight: 'bold', fontSize: '12px' }}>Select All</button>
-                        </div>
-                        
-                        <div style={{ maxHeight: '400px', overflowY: 'auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '10px' }}>
-                            {allStudents.map(student => (
-                                <label key={student.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'white', padding: '10px', borderRadius: '8px', border: selectedStudentIds.includes(student.id) ? '2px solid #3b82f6' : '1px solid #cbd5e1', cursor: 'pointer', transition: 'all 0.2s' }}>
-                                    <input 
-                                        type="checkbox" 
-                                        checked={selectedStudentIds.includes(student.id)} 
-                                        onChange={() => toggleStudent(student.id)} 
-                                        style={{ width: '18px', height: '18px' }}
-                                    />
-                                    <div>
-                                        <div style={{ fontWeight: 'bold', color: '#1e293b', fontSize: '14px' }}>{student.firstName} {student.lastName}</div>
-                                        <div style={{ fontSize: '12px', color: '#64748b' }}>Roll: {student.rollNo}</div>
-                                    </div>
-                                </label>
-                            ))}
-                        </div>
-                    </div>
-                    <button onClick={handleSaveRoster} className="btn-primary" style={{ width: '100%', marginTop: '20px' }}>Save Roster</button>
-                </div>
-            ) : (
-                <div className="cards-grid">
-                    {rosters.length === 0 ? (
-                        <div className="card" style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
-                            <i className="fas fa-users-slash" style={{ fontSize: '40px', marginBottom: '15px', opacity: 0.5 }}></i>
-                            <h3>No Custom Groups</h3>
-                            <p>If this is an Elective, create a group so only enrolled students show up in attendance.</p>
-                        </div>
-                    ) : (
-                        rosters.map(roster => (
-                            <div key={roster.id} className="card" style={{ borderTop: '4px solid #3b82f6' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                    <div>
-                                        <h3 style={{ margin: '0 0 5px 0', color: '#1e293b' }}>{roster.name}</h3>
-                                        <span className="status-badge-pill" style={{ background: '#eff6ff', color: '#2563eb' }}>{roster.studentIds.length} Students</span>
-                                    </div>
-                                    <button onClick={() => handleDeleteRoster(roster.id)} style={{ background: '#fee2e2', color: '#ef4444', border: 'none', padding: '8px', borderRadius: '8px', cursor: 'pointer' }}>
-                                        <i className="fas fa-trash"></i>
-                                    </button>
-                                </div>
-                            </div>
-                        ))
-                    )}
-                </div>
-            )}
-        </div>
-    );
-};
-
 // --- 📱 MOBILE FOOTER COMPONENT ---
 const MobileFooter = ({ activePage, setActivePage, unreadNoticeCount }) => {
     return (
@@ -3331,28 +3153,31 @@ export default function TeacherDashboard() {
     useEffect(() => {
         if (!teacherInfo?.instituteId) return;
 
-        const q = query(
-            collection(db, 'announcements'),
-            where('instituteId', '==', teacherInfo.instituteId),
-            where('department', '==', teacherInfo.department),
-            where('targetYear', 'in', ['All', 'Teachers'])
-        );
+        const fetchAdminNotices = async () => {
+            const q = query(
+                collection(db, 'announcements'),
+                where('instituteId', '==', teacherInfo.instituteId),
+                where('department', '==', teacherInfo.department),
+                where('targetYear', 'in', ['All', 'Teachers'])
+            );
 
-        const unsubscribe = onSnapshot(q, (snap) => {
-            const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-            data.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
-            setAdminNotices(data);
+            try {
+                // ✅ OPTIMIZATION: Replaced onSnapshot with getDocs
+                const snap = await getDocs(q);
+                const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                data.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
+                setAdminNotices(data);
 
-            // --- 🟢 NEW LOGIC: Calculate Badge Count ---
-            const lastViewed = localStorage.getItem('lastViewedNoticesTime');
-            const lastViewedTime = lastViewed ? new Date(lastViewed).getTime() : 0;
+                const lastViewed = localStorage.getItem('lastViewedNoticesTime');
+                const lastViewedTime = lastViewed ? new Date(lastViewed).getTime() : 0;
+                const unread = data.filter(n => (n.createdAt?.toMillis() || 0) > lastViewedTime).length;
+                setUnreadNoticeCount(unread);
+            } catch(err) {
+                console.error("Error fetching admin notices", err);
+            }
+        };
 
-            // Count how many notices are NEWER than the last time we checked
-            const unread = data.filter(n => (n.createdAt?.toMillis() || 0) > lastViewedTime).length;
-            setUnreadNoticeCount(unread);
-        });
-
-        return () => unsubscribe();
+        fetchAdminNotices();
     }, [teacherInfo]);
 
     // ✅ NEW: Clear Count when entering the tab

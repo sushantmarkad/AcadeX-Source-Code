@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, getDocs } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import './Dashboard.css';
 import ReactDOM from 'react-dom';
@@ -70,42 +70,44 @@ export default function ManageInstituteUsers({ instituteId, showModal }) {
         return () => unsubscribe();
     }, [instituteId]);
 
-    useEffect(() => {
-        // Wait until we have both the ID and the config loaded
+   useEffect(() => {
         if (!instituteId || !config) return; 
 
-        const usersQuery = query(collection(db, "users"), where("instituteId", "==", instituteId));
-        const unsubscribe = onSnapshot(usersQuery, (snapshot) => {
-            const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // ✅ OPTIMIZATION: Replaced onSnapshot with getDocs. Combined duplicate useEffects.
+        const fetchInstituteUsers = async () => {
+            try {
+                const usersQuery = query(collection(db, "users"), where("instituteId", "==", instituteId));
+                const snapshot = await getDocs(usersQuery);
+                const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-            // Check if this is an Agri or Medical college
-            const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+                const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+                const groups = {};
 
-            const groups = {};
-            users.forEach(user => {
-                
-                // 🚨 THE FIX: If Agri/Medical student -> force to "Common"
-                // If Engineering student or ANY Teacher/HOD -> keep their real department
-                let dept = user.department || "General";
-                if (user.role === 'student' && isNonEngg) {
-                    dept = 'Common';
-                }
-                
-                if (!groups[dept]) groups[dept] = { hods: [], teachers: [], studentsByYear: {} };
+                users.forEach(user => {
+                    let dept = user.department || "General";
+                    if (user.role === 'student' && isNonEngg) {
+                        dept = 'Common';
+                    }
+                    
+                    if (!groups[dept]) groups[dept] = { hods: [], teachers: [], studentsByYear: {} };
 
-                if (user.role === 'hod') groups[dept].hods.push(user);
-                if (user.role === 'teacher') groups[dept].teachers.push(user);
-                if (user.role === 'student') {
-                    const year = user.year || "Unknown";
-                    if (!groups[dept].studentsByYear[year]) groups[dept].studentsByYear[year] = [];
-                    groups[dept].studentsByYear[year].push(user);
-                }
-            });
-            setGroupedUsers(groups);
-            setLoading(false);
-        });
-        
-        return () => unsubscribe();
+                    if (user.role === 'hod') groups[dept].hods.push(user);
+                    if (user.role === 'teacher') groups[dept].teachers.push(user);
+                    if (user.role === 'student') {
+                        const year = user.year || "Unknown";
+                        if (!groups[dept].studentsByYear[year]) groups[dept].studentsByYear[year] = [];
+                        groups[dept].studentsByYear[year].push(user);
+                    }
+                });
+                setGroupedUsers(groups);
+            } catch (error) {
+                console.error("Error fetching institute users:", error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchInstituteUsers();
     }, [instituteId, config]);
 
     // --- ACTIONS ---
