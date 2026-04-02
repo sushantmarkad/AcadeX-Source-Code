@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, sendPasswordResetEmail } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, enableIndexedDbPersistence } from "firebase/firestore"; // ✅ IMPORT CACHING
 import { getFunctions, httpsCallable } from "firebase/functions"; 
 import { getStorage } from "firebase/storage";
 
@@ -19,8 +19,17 @@ const functions = getFunctions(app);
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+
+// 🚀 ENABLE FIREBASE OFFLINE CACHING (Saves massive read costs)
+enableIndexedDbPersistence(db).catch((err) => {
+    if (err.code === 'failed-precondition') {
+        console.warn('Multiple tabs open, caching disabled in this tab.');
+    } else if (err.code === 'unimplemented') {
+        console.warn('Browser does not support Firestore caching.');
+    }
+});
+
 export const storage = getStorage(app);
 export const provider = new GoogleAuthProvider();
-
 
 export { httpsCallable, functions, signInWithPopup, sendPasswordResetEmail };

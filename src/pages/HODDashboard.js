@@ -199,12 +199,10 @@ export default function HODDashboard() {
                     setTotalClasses(statsDoc.data().totalClasses || 0);
                     setActiveSemesters(statsDoc.data().activeSemesters || { FE: 1, SE: 3, TE: 5, BE: 7 });
 
-                    // 👇 Load Active Year
                     if (statsDoc.data().currentAcademicYear) {
                         setCurrentAcademicYear(statsDoc.data().currentAcademicYear);
                     }
                 } else {
-                    // 👇 Create Default if missing
                     const defaultSems = { FE: 1, SE: 3, TE: 5, BE: 7 };
                     await setDoc(statsRef, {
                         activeSemesters: defaultSems,
@@ -213,28 +211,36 @@ export default function HODDashboard() {
                     }, { merge: true });
                     setActiveSemesters(defaultSems);
                 }
-                // Fetch Requests
+
+                // 🔴 KEEP ONSNAPSHOT: We need to see new student requests live
                 const qRequests = query(collection(db, 'student_requests'), where('instituteId', '==', data.instituteId), where('department', '==', data.department), where('status', '==', 'pending'));
                 onSnapshot(qRequests, (snap) => setStudentRequests(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
-               
+                // 🛑 OPTIMIZED: Fetch Leaves ONCE instead of listening
+                const fetchLeaves = async () => {
+                    const qLeaves = query(collection(db, 'leave_requests'), where('instituteId', '==', data.instituteId), where('department', '==', data.department), where('status', '==', 'pending'));
+                    const snap = await getDocs(qLeaves);
+                    setLeaves(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                };
+                fetchLeaves();
 
-                // Fetch Leaves
-                const qLeaves = query(collection(db, 'leave_requests'), where('instituteId', '==', data.instituteId), where('department', '==', data.department), where('status', '==', 'pending'));
-                onSnapshot(qLeaves, (snap) => setLeaves(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-
-                // Fetch Announcements
-                const qAnnouncements = query(collection(db, 'announcements'), where('instituteId', '==', data.instituteId), where('department', '==', data.department));
-                onSnapshot(qAnnouncements, (snap) => {
+                // 🛑 OPTIMIZED: Fetch Announcements ONCE
+                const fetchAnnouncements = async () => {
+                    const qAnnouncements = query(collection(db, 'announcements'), where('instituteId', '==', data.instituteId), where('department', '==', data.department));
+                    const snap = await getDocs(qAnnouncements);
                     const annData = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                     annData.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
                     setAnnouncements(annData);
-                });
-                // ✅ Fetch Master Subjects List for Dropdowns (Fixed to allow ManageCurriculum structure)
-                const qSubjects = query(collection(db, 'subjects'), where('instituteId', '==', data.instituteId));
-                onSnapshot(qSubjects, (snap) => {
+                };
+                fetchAnnouncements();
+
+                // 🛑 OPTIMIZED: Fetch Master Subjects List ONCE
+                const fetchSubjects = async () => {
+                    const qSubjects = query(collection(db, 'subjects'), where('instituteId', '==', data.instituteId));
+                    const snap = await getDocs(qSubjects);
                     setAvailableSubjects(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-                });
+                };
+                fetchSubjects();
             }
         };
         init();

@@ -283,13 +283,15 @@ const LeaveRequestForm = ({ user }) => {
 
     useEffect(() => {
         if (!user.uid) return;
-        const q = query(collection(db, 'leave_requests'), where('studentId', '==', user.uid));
-        const unsubscribe = onSnapshot(q, (snapshot) => {
+        // 🛑 OPTIMIZED: Fetch once instead of listening forever
+        const fetchLeaves = async () => {
+            const q = query(collection(db, 'leave_requests'), where('studentId', '==', user.uid));
+            const snapshot = await getDocs(q);
             const leavesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             leavesData.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
             setMyLeaves(leavesData);
-        });
-        return () => unsubscribe();
+        };
+        fetchLeaves();
     }, [user.uid]);
 
     const handleSubmit = async (e) => {
@@ -809,42 +811,35 @@ const StudentTestResults = ({ user }) => {
     useEffect(() => {
         if (!user?.uid) return;
 
-        // Fetch all exams where this student has a score
-        // Since exams are stored in 'exam_marks' and scores is a Map, we fetch relevant exams first
-        // Optimization: Filter by Year & Dept to reduce reads
-        const q = query(
-            collection(db, 'exam_marks'),
-            where('year', '==', user.year),
-            where('department', '==', user.department),
-            orderBy('date', 'desc'),
-            where('academicYear', '==', user.academicYear || '2025-2026'),
-            limit(5) // Show top 5 recent tests
-        );
+        // 🛑 OPTIMIZED: Fetch test results once
+        const fetchResults = async () => {
+            const q = query(
+                collection(db, 'exam_marks'),
+                where('year', '==', user.year),
+                where('department', '==', user.department),
+                orderBy('date', 'desc'),
+                where('academicYear', '==', user.academicYear || '2025-2026'),
+                limit(5)
+            );
 
-        const unsub = onSnapshot(q, (snapshot) => {
+            const snapshot = await getDocs(q);
             const myResults = [];
             snapshot.docs.forEach(doc => {
                 const data = doc.data();
-                // Check if this student's ID exists in the scores map
                 const studentScore = data.scores ? data.scores[user.uid] : null;
 
                 if (studentScore) {
                     myResults.push({
-                        id: doc.id,
-                        testName: data.testName,
-                        subject: data.subject,
-                        date: data.date,
-                        maxMarks: data.maxMarks,
-                        obtained: studentScore.marks,
-                        status: studentScore.status
+                        id: doc.id, testName: data.testName, subject: data.subject,
+                        date: data.date, maxMarks: data.maxMarks,
+                        obtained: studentScore.marks, status: studentScore.status
                     });
                 }
             });
             setResults(myResults);
             setLoading(false);
-        });
-
-        return () => unsub();
+        };
+        fetchResults();
     }, [user]);
 
     if (loading) return <div className="card" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Loading results...</div>;
@@ -904,16 +899,18 @@ const StudentAssignmentResults = ({ user }) => {
     useEffect(() => {
         if (!user?.uid) return;
 
-        const q = query(
-            collection(db, 'assignment_marks'),
-            where('year', '==', user.year),
-            where('department', '==', user.department),
-            where('academicYear', '==', user.academicYear || '2025-2026'),
-            orderBy('date', 'desc'),
-            limit(5)
-        );
+        // 🛑 OPTIMIZED: Fetch assignment marks once
+        const fetchAssignments = async () => {
+            const q = query(
+                collection(db, 'assignment_marks'),
+                where('year', '==', user.year),
+                where('department', '==', user.department),
+                where('academicYear', '==', user.academicYear || '2025-2026'),
+                orderBy('date', 'desc'),
+                limit(5)
+            );
 
-        const unsub = onSnapshot(q, (snapshot) => {
+            const snapshot = await getDocs(q);
             const myResults = [];
             snapshot.docs.forEach(doc => {
                 const data = doc.data();
@@ -921,21 +918,16 @@ const StudentAssignmentResults = ({ user }) => {
 
                 if (studentScore) {
                     myResults.push({
-                        id: doc.id,
-                        testName: data.testName,
-                        subject: data.subject,
-                        date: data.date,
-                        maxMarks: data.maxMarks,
-                        obtained: studentScore.marks,
-                        status: studentScore.status
+                        id: doc.id, testName: data.testName, subject: data.subject,
+                        date: data.date, maxMarks: data.maxMarks,
+                        obtained: studentScore.marks, status: studentScore.status
                     });
                 }
             });
             setResults(myResults);
             setLoading(false);
-        });
-
-        return () => unsub();
+        };
+        fetchAssignments();
     }, [user]);
 
     if (loading) return <div className="card" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Loading assignments...</div>;
@@ -1902,15 +1894,17 @@ export default function StudentDashboard() {
         const [myRequests, setMyRequests] = useState([]);
         const [loading, setLoading] = useState(false);
 
-        useEffect(() => {
+       useEffect(() => {
             if (!user?.uid) return;
-            const q = query(collection(db, 'face_update_requests'), where('studentId', '==', user.uid));
-            const unsub = onSnapshot(q, (snapshot) => {
+            // 🛑 OPTIMIZED: Fetch once
+            const fetchRequests = async () => {
+                const q = query(collection(db, 'face_update_requests'), where('studentId', '==', user.uid));
+                const snapshot = await getDocs(q);
                 const reqs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 reqs.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
                 setMyRequests(reqs);
-            });
-            return () => unsub();
+            };
+            fetchRequests();
         }, [user]);
 
         const handleSubmit = async (e) => {
@@ -2547,18 +2541,17 @@ export default function StudentDashboard() {
             localStorage.setItem('seenTasksCount', assignments.length.toString());
         }
     }, [activePage, notices, assignments, readCount, taskReadCount]);
-// ✅ MISSING LOGIC: FETCH NOTICES (Fixed for Agri Enrolled Depts & Engg FE)
+// ✅ OPTIMIZED: FETCH NOTICES ONCE (Saves thousands of reads)
     useEffect(() => {
         if (!user?.instituteId) return;
 
-        // 🚨 Fetch ALL institute announcements to handle cross-department (FE) and multi-department (Agri) logic
-        // We removed the 'academicYear' and strict 'department' query filters because they cause missing data issues
-        const q = query(
-            collection(db, 'announcements'),
-            where('instituteId', '==', user.instituteId)
-        );
-        
-        const unsub = onSnapshot(q, (snapshot) => {
+        const fetchNotices = async () => {
+            const q = query(
+                collection(db, 'announcements'),
+                where('instituteId', '==', user.instituteId)
+            );
+            
+            const snapshot = await getDocs(q); // 🛑 CHANGED FROM onSnapshot to getDocs
             const allNotices = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
             const relevantNotices = allNotices.filter(n => {
@@ -2572,24 +2565,22 @@ export default function StudentDashboard() {
 
                 // 1. Department Check
                 if (isUserFE && isNoticeFE) {
-                    // Match! (Both are FE)
+                    // Match!
                 } else if (isNonEngg) {
-                    // Agri/Medical Check: Does the notice department match ANY of the student's enrolled departments?
                     const myDepts = user.enrolledDepartments ? user.enrolledDepartments.map(d => d.trim().toLowerCase()) : [];
                     if (userDeptNorm && !myDepts.includes(userDeptNorm)) myDepts.push(userDeptNorm);
                     
                     if (!myDepts.includes(noticeDept) && noticeDept !== 'general' && noticeDept !== 'common') {
-                        return false; // Notice is not for any of their enrolled departments
+                        return false; 
                     }
                 } else if (userDeptNorm !== noticeDept && noticeDept !== 'general') {
-                    return false; // Standard Engineering Dept mismatch
+                    return false; 
                 }
 
-                // 2. Year Check (Hide Staff notices)
+                // 2. Year Check 
                 if (n.targetYear === 'Teachers') return false;
                 
                 if (n.targetYear !== 'All' && n.targetYear !== user.year) {
-                    // If user is FE and target is FE, allow it
                     if (!(isUserFE && n.targetYear === 'FE')) {
                          return false; 
                     }
@@ -2604,12 +2595,10 @@ export default function StudentDashboard() {
                 return true;
             });
 
-            // Sort by Date (Newest First)
             relevantNotices.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
             setNotices(relevantNotices);
-        });
-
-        return () => unsub();
+        };
+        fetchNotices();
     }, [user]);
 
     // ✅ 7. PUSH NOTIFICATION SETUP (Get Token & Save to DB)
