@@ -291,25 +291,30 @@ export default function HODDashboard() {
         }
     };
 
-    useEffect(() => {
-        if (!hodInfo || !config) return; 
+  // ✅ REAL-TIME OPTIMIZATION: Stable dependencies prevent the listener from restarting
+    const configDomain = config?.domain;
+    const instId = hodInfo?.instituteId;
+    const deptName = hodInfo?.department;
 
-        // ✅ FIXED: Changed to getDocs
-        const fetchUsers = async () => {
-            const isNonEngg = config.domain !== 'ENGINEERING'; 
-            const qUsers = isNonEngg 
-                ? query(collection(db, 'users'), where('instituteId', '==', hodInfo.instituteId))
-                : query(collection(db, 'users'), where('instituteId', '==', hodInfo.instituteId), where('department', '==', hodInfo.department));
-            
-            try {
-                const snap = await getDocs(qUsers);
-                setDeptUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-            } catch (err) {
-                console.error(err);
-            }
-        }
-        fetchUsers();
-    }, [hodInfo, config]);
+    useEffect(() => {
+        if (!instId || !configDomain || !deptName) return; 
+
+        const isNonEngg = configDomain !== 'ENGINEERING'; 
+        const qUsers = isNonEngg 
+            ? query(collection(db, 'users'), where('instituteId', '==', instId))
+            : query(collection(db, 'users'), where('instituteId', '==', instId), where('department', '==', deptName));
+        
+        // Attach real-time listener
+        const unsubscribe = onSnapshot(qUsers, (snap) => {
+            setDeptUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        }, (err) => {
+            console.error("Real-time fetch error for dept users: ", err);
+        });
+
+        // Clean up the listener when component unmounts
+        return () => unsubscribe();
+        
+    }, [instId, configDomain, deptName]); // 👈 FIXED: No longer depends on objects
 
  useEffect(() => {
         if (hodInfo && academicLevels.length > 0 && config) {
@@ -1666,16 +1671,22 @@ export default function HODDashboard() {
         } catch (e) { toast.error("Error rejecting", { id: toastId }); }
     };
 
-    const handleAddTeacher = async (e) => {
+   const handleAddTeacher = async (e) => {
         e.preventDefault();
 
         const toastId = toast.loading("Creating Teacher Account...");
         setLoading(true);
 
         try {
+            // ✅ ADDED TOKEN FOR SECURITY
+            const token = await auth.currentUser.getIdToken(); 
+            
             const response = await fetch(`${BACKEND_URL}/createUser`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}` // 👈 FIXED
+                },
                 body: JSON.stringify({
                     email: teacherForm.email,
                     password: teacherForm.password,
@@ -1690,9 +1701,8 @@ export default function HODDashboard() {
                     academicYear: teacherForm.academicYear,
                     assignedClasses: teacherForm.assignedClasses,
 
-                    // ✅ FIX: Add phone to 'extras' so it gets saved to Firestore
                     extras: {
-                        phone: teacherForm.phone, // <--- ADDED HERE
+                        phone: teacherForm.phone,
                         academicYear: teacherForm.academicYear,
                         createdAt: new Date().toISOString()
                     }
@@ -1718,11 +1728,14 @@ export default function HODDashboard() {
 
             toast.success("Teacher Added & Email Sent!", { id: toastId });
 
-            // ✅ Reset Form
+            // Reset Form
             setTeacherForm({
                 firstName: '', lastName: '', email: '', password: '', phone: '',
                 academicYear: '2025-2026', assignedClasses: []
             });
+
+            // ✅ AUTO-REDIRECT: Switch to "Dept Users" tab instantly to see the new teacher!
+            setActiveTab('manage');
 
         } catch (error) {
             console.error("Error adding teacher:", error);
