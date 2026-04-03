@@ -554,23 +554,17 @@ const SmartScheduleCard = ({ user, currentSlot, loading }) => {
         </>
     );
 };
-// --- COMPONENT: Attendance Overview (Split Theory & Practical) ---
-const AttendanceOverview = ({ user }) => {
-    const [stats, setStats] = useState({
-        overall: 0,
-        theory: 0,
-        practical: 0,
-        totalTheory: 0,
-        attendedTheory: 0,
-        totalPractical: 0,
-        attendedPractical: 0
-    });
+// --- COMPONENT: Unified Attendance Analytics (50% Fewer Reads, 100% Accurate) ---
+const StudentAttendanceAnalytics = ({ user }) => {
+    const [stats, setStats] = useState(null);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const fetchAccurateStats = async () => {
             if (!user?.instituteId || !user?.department || !user?.year) return;
 
             try {
+                // 1. Fetch exactly as you did originally, but only ONCE!
                 const myAttendanceQ = query(
                     collection(db, 'attendance'),
                     where('studentId', '==', user.uid),
@@ -586,28 +580,32 @@ const AttendanceOverview = ({ user }) => {
                     where('department', '==', user.department),
                     where('academicYear', '==', user.academicYear || '2025-2026')
                 );
-
                 const sessionsSnap = await getDocs(sessionsQ);
 
                 let tTotal = 0, tPresent = 0;
                 let pTotal = 0, pPresent = 0;
+                let subStats = {};
 
+                // 2. Loop through sessions and apply your exact original filters
                 sessionsSnap.forEach(doc => {
                     const data = doc.data();
                     const sessionId = doc.id;
 
-                    // 🚨 THE FIX: Ignore Deleted and Cancelled sessions!
+                    // Ignore deleted and cancelled
                     if (data.isDeleted === true || data.status === 'deleted' || data.status === 'cancelled') return;
                     if (data.type !== 'theory' && data.type !== 'practical') return;
 
+                    // Filter Year
                     const sYear = data.year || data.targetYear;
                     if (sYear !== 'All' && sYear !== user.year) return;
 
+                    // Filter Division
                     if (data.division && data.division !== 'All') {
                         const myDiv = user.division || user.div;
                         if (data.division !== myDiv) return;
                     }
 
+                    // Filter Practical Roll Range
                     if (data.type === 'practical' && data.rollRange) {
                         const myRoll = parseInt(user.rollNo);
                         const min = parseInt(data.rollRange.start);
@@ -615,191 +613,131 @@ const AttendanceOverview = ({ user }) => {
                         if (isNaN(myRoll) || myRoll < min || myRoll > max) return;
                     }
 
-                    if (data.type === 'theory') {
-                        tTotal++;
-                        if (myPresentSessionIds.has(sessionId)) tPresent++;
+                    const subject = data.subject || 'Unknown Subject';
+                    if (!subStats[subject]) {
+                        subStats[subject] = { tTotal: 0, pTotal: 0, tPresent: 0, pPresent: 0 };
                     }
 
-                    if (data.type === 'practical') {
+                    const isPresent = myPresentSessionIds.has(sessionId);
+
+                    if (data.type === 'theory') {
+                        tTotal++;
+                        subStats[subject].tTotal++;
+                        if (isPresent) {
+                            tPresent++;
+                            subStats[subject].tPresent++;
+                        }
+                    } else if (data.type === 'practical') {
                         pTotal++;
-                        if (myPresentSessionIds.has(sessionId)) pPresent++;
+                        subStats[subject].pTotal++;
+                        if (isPresent) {
+                            pPresent++;
+                            subStats[subject].pPresent++;
+                        }
                     }
                 });
 
                 setStats({
-                    theory: tTotal > 0 ? Math.round((tPresent / tTotal) * 100) : 0,
-                    practical: pTotal > 0 ? Math.round((pPresent / pTotal) * 100) : 0,
-                    overall: (tTotal + pTotal) > 0 ? Math.round(((tPresent + pPresent) / (tTotal + pTotal)) * 100) : 0,
-                    totalTheory: tTotal, attendedTheory: tPresent,
-                    totalPractical: pTotal, attendedPractical: pPresent
+                    overall: { tTotal, pTotal, tPresent, pPresent },
+                    subjects: subStats
                 });
 
-            } catch (err) { console.error("Stats Error:", err); }
-        };
-        fetchAccurateStats();
-    }, [user]);
-
-    const getColor = (pct) => pct >= 75 ? '#10b981' : pct >= 60 ? '#f59e0b' : '#ef4444';
-
-    return (
-        <div className="card">
-            <h3 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#1e293b' }}>Attendance Overview</h3>
-
-            <div style={{ display: 'flex', gap: '20px', justifyContent: 'space-around' }}>
-                <div style={{ textAlign: 'center' }}>
-                    <div style={{ position: 'relative', width: '70px', height: '70px', margin: '0 auto' }}>
-                        <svg width="70" height="70" viewBox="0 0 100 100">
-                            <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" strokeWidth="8" />
-                            <circle cx="50" cy="50" r="45" fill="none" stroke={getColor(stats.theory)} strokeWidth="8"
-                                strokeDasharray="283" strokeDashoffset={283 - (283 * stats.theory) / 100}
-                                transform="rotate(-90 50 50)" style={{ transition: 'stroke-dashoffset 1s' }} />
-                        </svg>
-                        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '14px' }}>
-                            {stats.theory}%
-                        </div>
-                    </div>
-                    <p style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', marginTop: '5px' }}>Theory</p>
-                    <p style={{ fontSize: '10px', color: '#94a3b8' }}>{stats.attendedTheory}/{stats.totalTheory}</p>
-                </div>
-
-                <div style={{ textAlign: 'center' }}>
-                    <div style={{ position: 'relative', width: '70px', height: '70px', margin: '0 auto' }}>
-                        <svg width="70" height="70" viewBox="0 0 100 100">
-                            <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" strokeWidth="8" />
-                            <circle cx="50" cy="50" r="45" fill="none" stroke={getColor(stats.practical)} strokeWidth="8"
-                                strokeDasharray="283" strokeDashoffset={283 - (283 * stats.practical) / 100}
-                                transform="rotate(-90 50 50)" style={{ transition: 'stroke-dashoffset 1s' }} />
-                        </svg>
-                        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '14px' }}>
-                            {stats.practical}%
-                        </div>
-                    </div>
-                    <p style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', marginTop: '5px' }}>Practical</p>
-                    <p style={{ fontSize: '10px', color: '#94a3b8' }}>{stats.attendedPractical}/{stats.totalPractical}</p>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-// --- COMPONENT: Subject-Wise Attendance (Optimized) ---
-const SubjectWiseAttendance = ({ user }) => {
-    const [subjectStats, setSubjectStats] = useState({});
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        const fetchSubjectStats = async () => {
-            if (!user?.instituteId || !user?.department || !user?.year) return;
-
-            try {
-                const myAttendanceQ = query(
-                    collection(db, 'attendance'),
-                    where('studentId', '==', user.uid)
-                );
-                const myAttendanceSnap = await getDocs(myAttendanceQ);
-                const myPresentSessionIds = new Set(myAttendanceSnap.docs.map(d => d.data().sessionId));
-
-                const sessionsQ = query(
-                    collection(db, 'live_sessions'),
-                    where('instituteId', '==', user.instituteId),
-                    where('department', '==', user.department),
-                    where('academicYear', '==', user.academicYear || '2025-2026')
-                );
-                const snap = await getDocs(sessionsQ);
-
-                let stats = {};
-
-                snap.docs.forEach(doc => {
-                    const data = doc.data();
-
-                    // 🚨 THE FIX: Ignore Deleted and Cancelled sessions!
-                    if (data.isDeleted === true || data.status === 'deleted' || data.status === 'cancelled') return;
-                    if (data.type !== 'theory' && data.type !== 'practical') return;
-
-                    const sessionYear = data.year || data.targetYear;
-                    if (sessionYear !== 'All' && sessionYear !== user.year) return;
-
-                    if (data.division && data.division !== 'All') {
-                        const myDiv = user.division || user.div;
-                        if (data.division !== myDiv) return;
-                    }
-
-                    const subject = data.subject || 'Unknown Subject';
-                    if (!stats[subject]) stats[subject] = { tTotal: 0, tPresent: 0, pTotal: 0, pPresent: 0 };
-
-                    const isPresent = myPresentSessionIds.has(doc.id);
-
-                    if (data.type === 'practical') {
-                        if (data.rollRange) {
-                            const r = parseInt(user.rollNo);
-                            if (r >= data.rollRange.start && r <= data.rollRange.end) {
-                                stats[subject].pTotal++;
-                                if (isPresent) stats[subject].pPresent++;
-                            }
-                        } else {
-                            stats[subject].pTotal++;
-                            if (isPresent) stats[subject].pPresent++;
-                        }
-                    } else {
-                        stats[subject].tTotal++;
-                        if (isPresent) stats[subject].tPresent++;
-                    }
-                });
-
-                setSubjectStats(stats);
-                setLoading(false);
-            } catch (error) {
-                console.error("Subject Stats Error:", error);
+            } catch (err) {
+                console.error("Stats Error:", err);
+            } finally {
                 setLoading(false);
             }
         };
-        fetchSubjectStats();
+
+        fetchAccurateStats();
     }, [user]);
 
-    if (loading) return <div className="card" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Loading Subject Analytics...</div>;
+    if (loading) return <div className="card" style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}><i className="fas fa-spinner fa-spin"></i> Loading Analytics...</div>;
+    if (!stats) return <div className="card" style={{ padding: '20px', textAlign: 'center', color: '#ef4444' }}>Failed to load attendance data.</div>;
 
-    const subjectsArray = Object.entries(subjectStats).filter(([_, stat]) => stat.tTotal > 0 || stat.pTotal > 0);
+    const { overall, subjects } = stats;
+
+    const tPct = overall.tTotal > 0 ? Math.round((overall.tPresent / overall.tTotal) * 100) : 0;
+    const pPct = overall.pTotal > 0 ? Math.round((overall.pPresent / overall.pTotal) * 100) : 0;
+    const getColor = (pct) => pct >= 75 ? '#10b981' : pct >= 60 ? '#f59e0b' : '#ef4444';
+
+    const subjectsArray = Object.entries(subjects).filter(([_, stat]) => stat.tTotal > 0 || stat.pTotal > 0);
 
     return (
-        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
-            <h3 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#1e293b' }}>Subject-wise Analytics</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {subjectsArray.length > 0 ? subjectsArray.map(([subject, stat]) => {
-                    const tPct = stat.tTotal > 0 ? Math.round((stat.tPresent / stat.tTotal) * 100) : 0;
-                    const pPct = stat.pTotal > 0 ? Math.round((stat.pPresent / stat.pTotal) * 100) : 0;
-
-                    return (
-                        <div key={subject} style={{ background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                            <h4 style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#334155' }}>{subject}</h4>
-
-                            {stat.tTotal > 0 && (
-                                <div style={{ marginBottom: stat.pTotal > 0 ? '10px' : '0' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>
-                                        <span>Theory ({stat.tPresent}/{stat.tTotal})</span>
-                                        <span style={{ fontWeight: 'bold', color: tPct >= 75 ? '#10b981' : tPct >= 60 ? '#f59e0b' : '#ef4444' }}>{tPct}%</span>
-                                    </div>
-                                    <div style={{ width: '100%', background: '#e2e8f0', borderRadius: '4px', height: '6px' }}>
-                                        <div style={{ width: `${tPct}%`, background: tPct >= 75 ? '#10b981' : tPct >= 60 ? '#f59e0b' : '#ef4444', height: '100%', borderRadius: '4px' }}></div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {stat.pTotal > 0 && (
-                                <div>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>
-                                        <span>Practical ({stat.pPresent}/{stat.pTotal})</span>
-                                        <span style={{ fontWeight: 'bold', color: pPct >= 75 ? '#10b981' : pPct >= 60 ? '#f59e0b' : '#ef4444' }}>{pPct}%</span>
-                                    </div>
-                                    <div style={{ width: '100%', background: '#e2e8f0', borderRadius: '4px', height: '6px' }}>
-                                        <div style={{ width: `${pPct}%`, background: pPct >= 75 ? '#10b981' : pPct >= 60 ? '#f59e0b' : '#ef4444', height: '100%', borderRadius: '4px' }}></div>
-                                    </div>
-                                </div>
-                            )}
+        <>
+            {/* OVERALL CARD */}
+            <div className="card" style={{ marginBottom: '20px' }}>
+                <h3 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#1e293b' }}>Attendance Overview</h3>
+                <div style={{ display: 'flex', gap: '20px', justifyContent: 'space-around' }}>
+                    <div style={{ textAlign: 'center' }}>
+                        <div style={{ position: 'relative', width: '70px', height: '70px', margin: '0 auto' }}>
+                            <svg width="70" height="70" viewBox="0 0 100 100">
+                                <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" strokeWidth="8" />
+                                <circle cx="50" cy="50" r="45" fill="none" stroke={getColor(tPct)} strokeWidth="8" strokeDasharray="283" strokeDashoffset={283 - (283 * tPct) / 100} transform="rotate(-90 50 50)" style={{ transition: 'stroke-dashoffset 1s' }} />
+                            </svg>
+                            <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '14px' }}>
+                                {tPct}%
+                            </div>
                         </div>
-                    )
-                }) : <div style={{ textAlign: 'center', padding: '10px', color: '#94a3b8', fontSize: '13px' }}>No subjects found.</div>}
+                        <p style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', marginTop: '5px' }}>Theory</p>
+                        <p style={{ fontSize: '10px', color: '#94a3b8' }}>{overall.tPresent}/{overall.tTotal}</p>
+                    </div>
+
+                    <div style={{ textAlign: 'center' }}>
+                        <div style={{ position: 'relative', width: '70px', height: '70px', margin: '0 auto' }}>
+                            <svg width="70" height="70" viewBox="0 0 100 100">
+                                <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" strokeWidth="8" />
+                                <circle cx="50" cy="50" r="45" fill="none" stroke={getColor(pPct)} strokeWidth="8" strokeDasharray="283" strokeDashoffset={283 - (283 * pPct) / 100} transform="rotate(-90 50 50)" style={{ transition: 'stroke-dashoffset 1s' }} />
+                            </svg>
+                            <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '14px' }}>
+                                {pPct}%
+                            </div>
+                        </div>
+                        <p style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', marginTop: '5px' }}>Practical</p>
+                        <p style={{ fontSize: '10px', color: '#94a3b8' }}>{overall.pPresent}/{overall.pTotal}</p>
+                    </div>
+                </div>
             </div>
-        </div>
+
+            {/* SUBJECT-WISE CARD */}
+            <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
+                <h3 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#1e293b' }}>Subject-wise Analytics</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {subjectsArray.length > 0 ? subjectsArray.map(([subject, stat]) => {
+                        const subTPct = stat.tTotal > 0 ? Math.round((stat.tPresent / stat.tTotal) * 100) : 0;
+                        const subPPct = stat.pTotal > 0 ? Math.round((stat.pPresent / stat.pTotal) * 100) : 0;
+
+                        return (
+                            <div key={subject} style={{ background: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                                <h4 style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#334155' }}>{subject}</h4>
+                                {stat.tTotal > 0 && (
+                                    <div style={{ marginBottom: stat.pTotal > 0 ? '10px' : '0' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>
+                                            <span>Theory ({stat.tPresent}/{stat.tTotal})</span>
+                                            <span style={{ fontWeight: 'bold', color: getColor(subTPct) }}>{subTPct}%</span>
+                                        </div>
+                                        <div style={{ width: '100%', background: '#e2e8f0', borderRadius: '4px', height: '6px' }}>
+                                            <div style={{ width: `${subTPct}%`, background: getColor(subTPct), height: '100%', borderRadius: '4px' }}></div>
+                                        </div>
+                                    </div>
+                                )}
+                                {stat.pTotal > 0 && (
+                                    <div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>
+                                            <span>Practical ({stat.pPresent}/{stat.pTotal})</span>
+                                            <span style={{ fontWeight: 'bold', color: getColor(subPPct) }}>{subPPct}%</span>
+                                        </div>
+                                        <div style={{ width: '100%', background: '#e2e8f0', borderRadius: '4px', height: '6px' }}>
+                                            <div style={{ width: `${subPPct}%`, background: getColor(subPPct), height: '100%', borderRadius: '4px' }}></div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )
+                    }) : <div style={{ textAlign: 'center', padding: '10px', color: '#94a3b8', fontSize: '13px' }}>No subjects found.</div>}
+                </div>
+            </div>
+        </>
     );
 };
 
@@ -1217,10 +1155,7 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                     </div>
                 </div>
 
-                {/* 4. Attendance Overview (Theory/Practical Circles) */}
-                <AttendanceOverview user={user} />
-
-                <SubjectWiseAttendance user={user} />
+               <StudentAttendanceAnalytics user={user} />
 
                 {/* 5. Test Results (Now at the bottom) */}
                 <StudentTestResults user={user} />
