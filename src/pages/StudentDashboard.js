@@ -566,36 +566,63 @@ const AttendanceOverview = ({ user }) => {
         attendedPractical: 0
     });
 
-   useEffect(() => {
+    useEffect(() => {
         const fetchAccurateStats = async () => {
-            if (!user?.instituteId || !user?.department) return;
+            if (!user?.instituteId || !user?.department || !user?.year) return;
 
             try {
-                // 1. Fetch Total Classes Held per Subject (Costs just ~5-10 reads total!)
-                const statsQ = query(
-                    collection(db, 'subject_stats'),
-                    where('instituteId', '==', user.instituteId),
-                    where('department', '==', user.department)
+                const myAttendanceQ = query(
+                    collection(db, 'attendance'),
+                    where('studentId', '==', user.uid),
+                    where('status', '==', 'Present'),
+                    where('academicYear', '==', user.academicYear || '2025-2026')
                 );
-                
-                const statsSnap = await getDocs(statsQ);
-                
-                let tTotal = 0, pTotal = 0;
-                let tPresent = 0, pPresent = 0;
-                
-                // 2. Get Student's Attended Classes (0 Extra Reads, already in the user profile!)
-                const userAtt = user.attendanceStats || {};
+                const myAttendanceSnap = await getDocs(myAttendanceQ);
+                const myPresentSessionIds = new Set(myAttendanceSnap.docs.map(doc => doc.data().sessionId));
 
-                statsSnap.forEach(doc => {
+                const sessionsQ = query(
+                    collection(db, 'live_sessions'),
+                    where('instituteId', '==', user.instituteId),
+                    where('department', '==', user.department),
+                    where('academicYear', '==', user.academicYear || '2025-2026')
+                );
+
+                const sessionsSnap = await getDocs(sessionsQ);
+
+                let tTotal = 0, tPresent = 0;
+                let pTotal = 0, pPresent = 0;
+
+                sessionsSnap.forEach(doc => {
                     const data = doc.data();
-                    const safeSubject = (data.subject || '').replace(/[^a-zA-Z0-9]/g, '_');
-                    
-                    // Only calculate percentages for subjects the student is actually taking
-                    if (userAtt[safeSubject]) {
-                        tTotal += (data.theoryClassesHeld || 0);
-                        pTotal += (data.practicalClassesHeld || 0);
-                        tPresent += (userAtt[safeSubject].theory || 0);
-                        pPresent += (userAtt[safeSubject].practical || 0);
+                    const sessionId = doc.id;
+
+                    // 🚨 THE FIX: Ignore Deleted and Cancelled sessions!
+                    if (data.isDeleted === true || data.status === 'deleted' || data.status === 'cancelled') return;
+                    if (data.type !== 'theory' && data.type !== 'practical') return;
+
+                    const sYear = data.year || data.targetYear;
+                    if (sYear !== 'All' && sYear !== user.year) return;
+
+                    if (data.division && data.division !== 'All') {
+                        const myDiv = user.division || user.div;
+                        if (data.division !== myDiv) return;
+                    }
+
+                    if (data.type === 'practical' && data.rollRange) {
+                        const myRoll = parseInt(user.rollNo);
+                        const min = parseInt(data.rollRange.start);
+                        const max = parseInt(data.rollRange.end);
+                        if (isNaN(myRoll) || myRoll < min || myRoll > max) return;
+                    }
+
+                    if (data.type === 'theory') {
+                        tTotal++;
+                        if (myPresentSessionIds.has(sessionId)) tPresent++;
+                    }
+
+                    if (data.type === 'practical') {
+                        pTotal++;
+                        if (myPresentSessionIds.has(sessionId)) pPresent++;
                     }
                 });
 
@@ -662,33 +689,60 @@ const SubjectWiseAttendance = ({ user }) => {
 
     useEffect(() => {
         const fetchSubjectStats = async () => {
-            if (!user?.instituteId || !user?.department) return;
+            if (!user?.instituteId || !user?.department || !user?.year) return;
 
             try {
-                // 1. Fetch Subject Totals (Costs ~5-10 reads)
-                const statsQ = query(
-                    collection(db, 'subject_stats'),
-                    where('instituteId', '==', user.instituteId),
-                    where('department', '==', user.department)
+                const myAttendanceQ = query(
+                    collection(db, 'attendance'),
+                    where('studentId', '==', user.uid)
                 );
-                const snap = await getDocs(statsQ);
+                const myAttendanceSnap = await getDocs(myAttendanceQ);
+                const myPresentSessionIds = new Set(myAttendanceSnap.docs.map(d => d.data().sessionId));
+
+                const sessionsQ = query(
+                    collection(db, 'live_sessions'),
+                    where('instituteId', '==', user.instituteId),
+                    where('department', '==', user.department),
+                    where('academicYear', '==', user.academicYear || '2025-2026')
+                );
+                const snap = await getDocs(sessionsQ);
 
                 let stats = {};
-                const userAtt = user.attendanceStats || {};
 
                 snap.docs.forEach(doc => {
                     const data = doc.data();
-                    const subjectName = data.subject || 'Unknown Subject';
-                    const safeSubject = subjectName.replace(/[^a-zA-Z0-9]/g, '_');
 
-                    // Only show subjects the student has attended
-                    if (userAtt[safeSubject]) {
-                        stats[subjectName] = {
-                            tTotal: data.theoryClassesHeld || 0,
-                            pTotal: data.practicalClassesHeld || 0,
-                            tPresent: userAtt[safeSubject].theory || 0,
-                            pPresent: userAtt[safeSubject].practical || 0
-                        };
+                    // 🚨 THE FIX: Ignore Deleted and Cancelled sessions!
+                    if (data.isDeleted === true || data.status === 'deleted' || data.status === 'cancelled') return;
+                    if (data.type !== 'theory' && data.type !== 'practical') return;
+
+                    const sessionYear = data.year || data.targetYear;
+                    if (sessionYear !== 'All' && sessionYear !== user.year) return;
+
+                    if (data.division && data.division !== 'All') {
+                        const myDiv = user.division || user.div;
+                        if (data.division !== myDiv) return;
+                    }
+
+                    const subject = data.subject || 'Unknown Subject';
+                    if (!stats[subject]) stats[subject] = { tTotal: 0, tPresent: 0, pTotal: 0, pPresent: 0 };
+
+                    const isPresent = myPresentSessionIds.has(doc.id);
+
+                    if (data.type === 'practical') {
+                        if (data.rollRange) {
+                            const r = parseInt(user.rollNo);
+                            if (r >= data.rollRange.start && r <= data.rollRange.end) {
+                                stats[subject].pTotal++;
+                                if (isPresent) stats[subject].pPresent++;
+                            }
+                        } else {
+                            stats[subject].pTotal++;
+                            if (isPresent) stats[subject].pPresent++;
+                        }
+                    } else {
+                        stats[subject].tTotal++;
+                        if (isPresent) stats[subject].tPresent++;
                     }
                 });
 

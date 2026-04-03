@@ -380,37 +380,78 @@ export default function HODDashboard() {
 
 
 
-   // --- 2. FETCH & PROCESS ATTENDANCE (Student Counts) - BLITZ FAST OPTIMIZED ---
+    // --- 3. FUNCTIONAL ATTENDANCE GRAPH (100% ACCURATE MATH) - OPTIMIZED ---
     useEffect(() => {
-        // We no longer wait for allSessions. We just need the deptUsers!
-        if (!hodInfo || deptUsers.length === 0) return;
+        if (!hodInfo || deptUsers.length === 0 || allSessions.length === 0) return;
 
-        const fetchAttendanceMap = async () => {
+        const fetchAttendanceStats = async () => {
+            const now = new Date();
+            const startDate = new Date();
+            if (timeRange === 'week') startDate.setDate(now.getDate() - 7);
+            else startDate.setDate(now.getDate() - 30);
+
             try {
-                const tempMap = {};
-                
-                // NO MORE getDocs(collection(db, 'attendance')) !!!
-                // We just read the pre-calculated stats from the users we already downloaded.
-                deptUsers.forEach(u => {
-                    if (u.role === 'student' && u.attendanceStats) {
-                        let theory = 0;
-                        let practical = 0;
-                        Object.values(u.attendanceStats).forEach(stat => {
-                            theory += (stat.theory || 0);
-                            practical += (stat.practical || 0);
-                        });
-                        tempMap[u.id] = { theory, practical };
+                const q = query(
+                    collection(db, 'attendance'),
+                    where('instituteId', '==', hodInfo.instituteId),
+                    where('timestamp', '>=', Timestamp.fromDate(startDate)),
+                    where('academicYear', '==', currentAcademicYear)
+                );
+
+                // Changed to getDocs to save reads
+                const snap = await getDocs(q);
+
+                const sessionIdsInTimeframe = new Set();
+                const groupAttended = {};
+
+                snap.docs.forEach(doc => {
+                    const data = doc.data();
+                    sessionIdsInTimeframe.add(data.sessionId);
+
+                    const u = deptUsers.find(user => user.id === data.studentId);
+                    if (u && u.role === 'student') {
+                        const key = isFE ? (u.division || 'A') : u.year;
+                        groupAttended[key] = (groupAttended[key] || 0) + 1;
                     }
                 });
-                
-                setStudentAttendanceMap(tempMap);
-            } catch (error) {
-                console.error("Error formatting attendance map:", error);
-            }
-        };
 
-        fetchAttendanceMap();
-    }, [hodInfo, deptUsers]);
+                const groupExpected = {};
+
+                sessionIdsInTimeframe.forEach(sid => {
+                    const session = allSessions.find(s => s.id === sid);
+                    if (!session) return;
+                    const sessionYear = session.targetYear || session.year;
+
+                    deptUsers.forEach(u => {
+                        if (u.role !== 'student') return;
+                        if (sessionYear !== 'All' && sessionYear !== u.year) return;
+
+                        const groupKey = isFE ? (u.division || 'A') : u.year;
+                        if (isFE && session.division && session.division !== 'All' && session.division !== u.division) return;
+
+                        if (session.type === 'practical' && session.rollRange) {
+                            const roll = parseInt(u.rollNo);
+                            if (roll < session.rollRange.start || roll > session.rollRange.end) return;
+                        }
+
+                        groupExpected[groupKey] = (groupExpected[groupKey] || 0) + 1;
+                    });
+                });
+
+              const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
+                const LABELS = isFE ? DIVISIONS : (isNonEngg ? academicLevels : academicLevels.slice(1));
+                const graphData = LABELS.map(label => {
+                    const attended = groupAttended[label] || 0;
+                    const expected = groupExpected[label] || 0;
+                    const avgPct = expected === 0 ? 0 : Math.round((attended / expected) * 100);
+                    return { name: label, attendance: avgPct };
+                });
+
+                setAttendanceGraph(graphData);
+            } catch (err) { console.error(err); }
+        };
+        fetchAttendanceStats();
+    }, [hodInfo, deptUsers, timeRange, isFE, allSessions, currentAcademicYear]);
 
     
     
