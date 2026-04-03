@@ -896,39 +896,55 @@ const StudentAssignmentResults = ({ user }) => {
     const [results, setResults] = useState([]);
     const [loading, setLoading] = useState(true);
 
+   // ✅ FIXED: FETCH ASSIGNMENTS (Optimized with getDocs)
     useEffect(() => {
-        if (!user?.uid) return;
+        if (!user?.instituteId) return;
 
-        // 🛑 OPTIMIZED: Fetch assignment marks once
         const fetchAssignments = async () => {
             const q = query(
-                collection(db, 'assignment_marks'),
-                where('year', '==', user.year),
+                collection(db, 'assignments'),
+                where('instituteId', '==', user.instituteId),
                 where('department', '==', user.department),
-                where('academicYear', '==', user.academicYear || '2025-2026'),
-                orderBy('date', 'desc'),
-                limit(5)
+                where('academicYear', '==', user.academicYear || '2025-2026')
             );
 
-            const snapshot = await getDocs(q);
-            const myResults = [];
-            snapshot.docs.forEach(doc => {
-                const data = doc.data();
-                const studentScore = data.scores ? data.scores[user.uid] : null;
+            try {
+                const snapshot = await getDocs(q);
+                const allTasks = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-                if (studentScore) {
-                    myResults.push({
-                        id: doc.id, testName: data.testName, subject: data.subject,
-                        date: data.date, maxMarks: data.maxMarks,
-                        obtained: studentScore.marks, status: studentScore.status
-                    });
-                }
-            });
-            setResults(myResults);
-            setLoading(false);
+                const relevantTasks = allTasks.filter(task => {
+                    const norm = (str) => str ? str.toString().trim().toLowerCase() : '';
+                    const userDept = norm(user.department);
+                    const taskDept = norm(task.department);
+                    const userYear = norm(user.year);
+                    const taskYear = norm(task.targetYear);
+
+                    if (taskDept !== userDept) return false;
+                    const isYearMatch = taskYear === 'all' || taskYear === userYear;
+                    if (!isYearMatch) return false;
+
+                    if (task.division && task.division !== 'All') {
+                        const userDiv = norm(user.division || user.div);
+                        const taskDiv = norm(task.division);
+                        if (!userDiv || userDiv !== taskDiv) return false;
+                    }
+                    return true;
+                });
+
+                relevantTasks.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                
+                // ✅ FIXED: Changed setAssignments to setResults
+                setResults(relevantTasks);
+            } catch (error) {
+                console.error("Error fetching assignments", error);
+            } finally {
+                // ✅ FIXED: Ensure loading state is set to false whether it succeeds or fails
+                setLoading(false);
+            }
         };
+
         fetchAssignments();
-    }, [user]);
+    }, [user?.instituteId, user?.department, user?.year, user?.division]);
 
     if (loading) return <div className="card" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Loading assignments...</div>;
 
@@ -942,7 +958,6 @@ const StudentAssignmentResults = ({ user }) => {
             </div>
 
             {results.length > 0 ? (
-                // ✅ ADDED: overflowY and paddingRight for the scrollbar
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', overflowY: 'auto', paddingRight: '5px', flex: 1 }}>
                     {results.map(res => (
                         <div key={res.id} style={{
@@ -953,18 +968,18 @@ const StudentAssignmentResults = ({ user }) => {
                             <div>
                                 <h4 style={{ margin: '0 0 4px 0', fontSize: '14px', color: '#334155' }}>{res.testName}</h4>
                                 <p style={{ margin: 0, fontSize: '11px', color: '#64748b' }}>
-                                    {res.subject} • {new Date(res.date).toLocaleDateString()}
+                                    {res.subject} • {new Date(res.createdAt || res.date).toLocaleDateString()}
                                 </p>
                             </div>
                             <div style={{ textAlign: 'right' }}>
                                 <span style={{ display: 'block', fontSize: '16px', fontWeight: 'bold', color: '#1e293b' }}>
-                                    {res.obtained} <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 'normal' }}>/ {res.maxMarks}</span>
+                                    {res.obtained || 0} <span style={{ fontSize: '11px', color: '#94a3b8', fontWeight: 'normal' }}>/ {res.maxMarks || 0}</span>
                                 </span>
                                 <span style={{
                                     fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase',
                                     color: res.status === 'Pass' ? '#16a34a' : '#dc2626'
                                 }}>
-                                    {res.status}
+                                    {res.status || 'Pending'}
                                 </span>
                             </div>
                         </div>
@@ -989,26 +1004,32 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
         const startOfDay = new Date();
         startOfDay.setHours(0, 0, 0, 0);
 
-        const q = query(
-            collection(db, "attendance"),
-            where("studentId", "==", auth.currentUser.uid),
-            where("timestamp", ">=", startOfDay),
-            orderBy("timestamp", "desc")
-        );
+        // ✅ FIXED: Changed from onSnapshot to getDocs
+        const fetchRecentAttendance = async () => {
+            const q = query(
+                collection(db, "attendance"),
+                where("studentId", "==", auth.currentUser.uid),
+                where("timestamp", ">=", startOfDay),
+                orderBy("timestamp", "desc")
+            );
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            setRecentAttendance(snapshot.docs.map(doc => {
-                const data = doc.data();
-                return {
-                    id: doc.id,
-                    ...data,
-                    timeDisplay: data.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                    dateDisplay: data.timestamp?.toDate().toLocaleDateString()
-                };
-            }));
-        });
+            try {
+                const snapshot = await getDocs(q);
+                setRecentAttendance(snapshot.docs.map(doc => {
+                    const data = doc.data();
+                    return {
+                        id: doc.id,
+                        ...data,
+                        timeDisplay: data.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                        dateDisplay: data.timestamp?.toDate().toLocaleDateString()
+                    };
+                }));
+            } catch (error) {
+                console.error("Error fetching recent attendance", error);
+            }
+        };
 
-        return () => unsubscribe();
+        fetchRecentAttendance();
     }, [setRecentAttendance]);
 
     return (

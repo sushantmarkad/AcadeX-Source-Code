@@ -93,6 +93,7 @@ const CustomMobileSelect = ({ label, value, onChange, options, icon }) => {
 export default function HODDashboard() {
     const [hodInfo, setHodInfo] = useState(null);
     const [studentRequests, setStudentRequests] = useState([]);
+    const [hodDeptId, setHodDeptId] = useState(null);
     const [deptUsers, setDeptUsers] = useState([]);
     const [leaves, setLeaves] = useState([]);
     const [totalClasses, setTotalClasses] = useState(0);
@@ -191,6 +192,15 @@ export default function HODDashboard() {
                     phone: data.phone || ''
                 });
 
+                // 🚨 ADD THIS BLOCK: Fetch the specific Department ID for this HOD
+                try {
+                    const deptQ = query(collection(db, 'departments'), where('instituteId', '==', data.instituteId), where('name', '==', data.department));
+                    const deptSnap = await getDocs(deptQ);
+                    if (!deptSnap.empty) {
+                        setHodDeptId(deptSnap.docs[0].id);
+                    }
+                } catch(err) { console.error("Could not fetch dept id", err); }
+
                 // ✅ UPDATED: Fetch Stats AND Active Academic Year
                 const statsRef = doc(db, "department_stats", `${data.instituteId}_${data.department}`);
                 const statsDoc = await getDoc(statsRef);
@@ -263,23 +273,25 @@ export default function HODDashboard() {
         }
     };
 
-    // ✅ NEW FIX: Wait for Config to load before fetching the Common Student Pool
     useEffect(() => {
-        if (!hodInfo || !config) return; // Wait until both profile and config are fully downloaded
+        if (!hodInfo || !config) return; 
 
-        // If not Engineering, fetch everyone in the institute (so HOD sees 'Common' pool)
-        const isNonEngg = config.domain !== 'ENGINEERING'; 
-        
-        const qUsers = isNonEngg 
-            ? query(collection(db, 'users'), where('instituteId', '==', hodInfo.instituteId))
-            : query(collection(db, 'users'), where('instituteId', '==', hodInfo.instituteId), where('department', '==', hodInfo.department));
-        
-        const unsub = onSnapshot(qUsers, (snap) => {
-            setDeptUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-        });
-
-        return () => unsub(); // Clean up listener to prevent memory leaks
-    }, [hodInfo, config]); // 🚨 This dependency array fixes the bug!
+        // ✅ FIXED: Changed to getDocs
+        const fetchUsers = async () => {
+            const isNonEngg = config.domain !== 'ENGINEERING'; 
+            const qUsers = isNonEngg 
+                ? query(collection(db, 'users'), where('instituteId', '==', hodInfo.instituteId))
+                : query(collection(db, 'users'), where('instituteId', '==', hodInfo.instituteId), where('department', '==', hodInfo.department));
+            
+            try {
+                const snap = await getDocs(qUsers);
+                setDeptUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+            } catch (err) {
+                console.error(err);
+            }
+        }
+        fetchUsers();
+    }, [hodInfo, config]);
 
    useEffect(() => {
         if (hodInfo && academicLevels.length > 0) {
@@ -294,16 +306,23 @@ export default function HODDashboard() {
     // --- 1. FETCH SESSIONS (Raw Data for Accurate Math) ---
     useEffect(() => {
         if (!hodInfo) return;
-        const qSessions = query(collection(db, 'live_sessions'),
-            where('instituteId', '==', hodInfo.instituteId),
-            where('department', '==', hodInfo.department),
-            where('academicYear', '==', currentAcademicYear)
-        );
-        const unsub = onSnapshot(qSessions, (snap) => {
-            setAllSessions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        });
-        return () => unsub();
-    }, [hodInfo]);
+
+        // ✅ FIXED: Changed to getDocs
+        const fetchSessions = async () => {
+            const qSessions = query(collection(db, 'live_sessions'),
+                where('instituteId', '==', hodInfo.instituteId),
+                where('department', '==', hodInfo.department),
+                where('academicYear', '==', currentAcademicYear)
+            );
+            try {
+                const snap = await getDocs(qSessions);
+                setAllSessions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            } catch(e) {
+                console.error(e);
+            }
+        };
+        fetchSessions();
+    }, [hodInfo, currentAcademicYear]);
 
     useEffect(() => {
         if (activeTab === 'feedback' && fbTab === 'view' && hodInfo) {
@@ -419,7 +438,7 @@ export default function HODDashboard() {
                     });
                 });
 
-                const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+              const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
                 const LABELS = isFE ? DIVISIONS : (isNonEngg ? academicLevels : academicLevels.slice(1));
                 const graphData = LABELS.map(label => {
                     const attended = groupAttended[label] || 0;
@@ -604,7 +623,7 @@ export default function HODDashboard() {
 
     // ✅ 2. ONLY students enrolled in THIS HOD's department (Used for Analytics, Dept Users tab, etc.)
     const studentsList = useMemo(() => {
-        const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+        const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
         if (!isNonEngg) return allCollegeStudents; 
         
         return allCollegeStudents.filter(s => 
@@ -615,7 +634,7 @@ export default function HODDashboard() {
 
     // ✅ 3. Teachers for this specific department
     const teachersList = useMemo(() => {
-        const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+        const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
         return deptUsers.filter(u => u.role === 'teacher' && (!isNonEngg || u.department === hodInfo?.department));
     }, [deptUsers, hodInfo, config]);
 
@@ -1954,7 +1973,7 @@ export default function HODDashboard() {
 
                                     {(() => {
                                         // ✅ LOGIC: Engg FE sees FE. Engg Depts see SE/TE/BE. Agri/Medical see ALL.
-                                        const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+                                        const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
                                         const levelsToShow = isFE ? [academicLevels[0]] : (isNonEngg ? academicLevels : academicLevels.slice(1));
 
                                         return levelsToShow.map(level => {
@@ -1998,7 +2017,7 @@ export default function HODDashboard() {
                         <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', marginBottom: '20px' }}>
 
                             {(() => {
-                                const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+                               const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
                                 // Safely hide FE if it's an Engineering Dept HOD
                                 const labelsToShow = isFE ? DIVISIONS : (isNonEngg ? academicLevels : academicLevels.filter(lvl => lvl !== 'FE'));
 
@@ -2640,7 +2659,7 @@ export default function HODDashboard() {
                                 ) : (
                                     <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '12px', display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
                                         {(() => {
-                                            const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+                                            const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
                                             const filterLevels = isNonEngg ? academicLevels : academicLevels.filter(lvl => lvl !== 'FE');
                                             
                                             return filterLevels.map(year => (
@@ -3551,7 +3570,7 @@ export default function HODDashboard() {
 
                         <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
                             {(() => {
-                                const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+                                const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
                                 // Safely hide FE if it's an Engineering Dept HOD
                                 const labelsToShow = isFE ? DIVISIONS : (isNonEngg ? academicLevels : academicLevels.filter(lvl => lvl !== 'FE'));
 
@@ -3799,7 +3818,7 @@ export default function HODDashboard() {
 
                                     {teacherForm.assignedClasses.map((cls, index) => {
                                         const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year' || hodInfo?.department === 'FirstYear';
-                                        const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+                                        const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
 
                                         // ✅ DYNAMIC YEAR OPTIONS
                                         let yearOptions = [];
@@ -3868,13 +3887,13 @@ export default function HODDashboard() {
                                                 {/* ✅ NEW: SUBJECT DROPDOWN (Shows all department subjects for Agri) */}
                                                 <div style={{ flex: '2 1 180px', position: 'relative', zIndex: 10 }}>
                                                     {(() => {
-                                                        const filteredSubs = isNonEngg 
-                                                            ? allKnownSubjects 
-                                                            : allKnownSubjects.filter(s => s.year === cls.year);
-                                                        
-                                                        const subOptions = filteredSubs.length > 0 
-                                                            ? filteredSubs.map(s => ({ value: s.name, label: s.isLegacy ? `${s.name} (Legacy)` : s.name })) 
-                                                            : [{ value: '', label: 'No subjects found' }];
+                                                       const filteredSubs = isNonEngg 
+                                                        ? allKnownSubjects.filter(s => s.isLegacy || s.departmentId === hodDeptId) 
+                                                        : allKnownSubjects.filter(s => s.year === cls.year);
+                                                    
+                                                    const subOptions = filteredSubs.length > 0 
+                                                        ? filteredSubs.map(s => ({ value: s.name, label: s.isLegacy ? `${s.name} (Legacy)` : s.name })) 
+                                                        : [{ value: '', label: 'No subjects found' }];
 
                                                         if (cls.subject && !subOptions.find(o => o.value === cls.subject)) {
                                                             subOptions.unshift({ value: cls.subject, label: `${cls.subject} (Typed)` });
@@ -3901,7 +3920,7 @@ export default function HODDashboard() {
 
                                     <button type="button" className="add-subject-btn" onClick={() => {
                                         const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year' || hodInfo?.department === 'FirstYear';
-                                        const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+                                        const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
                                         
                                         let defaultYear = isFE ? 'FE' : 'SE';
                                         if (isNonEngg) defaultYear = academicLevels[0] || 'First Year';
@@ -4040,7 +4059,7 @@ export default function HODDashboard() {
 
                                 {editTeacherData.assignedClasses.map((cls, index) => {
                                     const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year' || hodInfo?.department === 'FirstYear';
-                                    const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+                                    const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
 
                                     // ✅ DYNAMIC YEAR OPTIONS
                                     let yearOptions = [];
@@ -4109,7 +4128,7 @@ export default function HODDashboard() {
                                             <div style={{ flex: '2 1 150px', position: 'relative', zIndex: 10 }}>
                                                 {(() => {
                                                     const filteredSubs = isNonEngg 
-                                                        ? allKnownSubjects 
+                                                        ? allKnownSubjects.filter(s => s.isLegacy || s.departmentId === hodDeptId) 
                                                         : allKnownSubjects.filter(s => s.year === cls.year);
                                                     
                                                     const subOptions = filteredSubs.length > 0 
@@ -4140,7 +4159,7 @@ export default function HODDashboard() {
                                 })}
                                 <button type="button" className="add-subject-btn" onClick={() => {
                                     const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year' || hodInfo?.department === 'FirstYear';
-                                    const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+                                    const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
                                     
                                     let defaultYear = isFE ? 'FE' : 'SE';
                                     if (isNonEngg) defaultYear = academicLevels[0] || 'First Year';

@@ -41,34 +41,7 @@ export default function ManageInstituteUsers({ instituteId, showModal }) {
     const [editingUser, setEditingUser] = useState(null);
     const [editFormData, setEditFormData] = useState({ firstName: '', lastName: '', email: '', phone: '' });
 
-   useEffect(() => {
-        if (!instituteId) return;
-
-        const usersQuery = query(collection(db, "users"), where("instituteId", "==", instituteId));
-        const unsubscribe = onSnapshot(usersQuery, (snapshot) => {
-            const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-            const groups = {};
-            users.forEach(user => {
-                // 🚨 THE FIX: Force ALL students into the "Common" card, 
-                // but let teachers/HODs keep their specific departments
-                const dept = user.role === 'student' ? 'Common' : (user.department || "General");
-                
-                if (!groups[dept]) groups[dept] = { hods: [], teachers: [], studentsByYear: {} };
-
-                if (user.role === 'hod') groups[dept].hods.push(user);
-                if (user.role === 'teacher') groups[dept].teachers.push(user);
-                if (user.role === 'student') {
-                    const year = user.year || "Unknown";
-                    if (!groups[dept].studentsByYear[year]) groups[dept].studentsByYear[year] = [];
-                    groups[dept].studentsByYear[year].push(user);
-                }
-            });
-            setGroupedUsers(groups);
-            setLoading(false);
-        });
-        return () => unsubscribe();
-    }, [instituteId]);
+   
 
    useEffect(() => {
         if (!instituteId || !config) return; 

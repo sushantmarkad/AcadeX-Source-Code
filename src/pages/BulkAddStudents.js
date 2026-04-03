@@ -21,7 +21,7 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
 
     // 👇 1. PULL CONFIGURATION RULES 👇
     const { config } = useInstitution();
-    const isAgri = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+    const isAgri = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
     const academicYears = config?.academicConfig?.levels || ['FE', 'SE', 'TE', 'BE'];
 
     // ✅ STRICT LOGIC: 

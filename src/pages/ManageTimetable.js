@@ -3,6 +3,7 @@ import { db } from '../firebase';
 import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import './Dashboard.css';
+import { useInstitution } from '../contexts/InstitutionContext';
 
 // --- 🎨 INTERNAL CSS ---
 const styles = `
@@ -123,14 +124,14 @@ const CustomMobileSelect = ({ label, value, onChange, options, icon }) => {
             <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                 {label}
             </label>
-            
-            <div 
+
+            <div
                 onClick={() => setIsOpen(!isOpen)}
                 style={{
                     padding: '14px 16px', borderRadius: '12px', background: '#f8fafc',
-                    border: isOpen ? '2px solid #3b82f6' : '2px solid #e2e8f0', 
-                    color: '#1e293b', fontWeight: '700', cursor: 'pointer', 
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
+                    border: isOpen ? '2px solid #3b82f6' : '2px solid #e2e8f0',
+                    color: '#1e293b', fontWeight: '700', cursor: 'pointer',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     transition: 'all 0.2s ease', width: '100%'
                 }}
             >
@@ -152,7 +153,7 @@ const CustomMobileSelect = ({ label, value, onChange, options, icon }) => {
                         zIndex: 100, maxHeight: '250px', overflowY: 'auto'
                     }}>
                         {options.map((opt) => (
-                            <div 
+                            <div
                                 key={opt.value}
                                 onClick={() => { onChange(opt.value); setIsOpen(false); }}
                                 style={{
@@ -179,7 +180,7 @@ const CustomTimePicker = ({ label, value, onChange }) => {
     const [h, m] = (value || "09:00").split(':');
     let hour = parseInt(h);
     const ampm = hour >= 12 ? 'PM' : 'AM';
-    hour = hour % 12 || 12; 
+    hour = hour % 12 || 12;
 
     const handleUpdate = (type, val) => {
         let newH = parseInt(h);
@@ -188,7 +189,7 @@ const CustomTimePicker = ({ label, value, onChange }) => {
         if (type === 'hour') {
             const isPM = newH >= 12;
             newH = (parseInt(val) % 12) + (isPM ? 12 : 0);
-            if (newH === 12 && !isPM) newH = 0; 
+            if (newH === 12 && !isPM) newH = 0;
             if (newH === 12 && isPM) newH = 12;
         }
         if (type === 'minute') newM = parseInt(val);
@@ -208,28 +209,28 @@ const CustomTimePicker = ({ label, value, onChange }) => {
             {/* ✅ FIXED: Changed to flex-end alignment to prevent mobile overlap */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 80px', gap: '8px', alignItems: 'flex-end' }}>
                 <div style={{ marginBottom: 0 }}>
-                    <CustomMobileSelect 
-                        value={hour.toString()} 
-                        options={Array.from({length:12}, (_, i) => ({ value: (i+1).toString(), label: (i+1).toString() }))} 
-                        onChange={(v) => handleUpdate('hour', v)} 
+                    <CustomMobileSelect
+                        value={hour.toString()}
+                        options={Array.from({ length: 12 }, (_, i) => ({ value: (i + 1).toString(), label: (i + 1).toString() }))}
+                        onChange={(v) => handleUpdate('hour', v)}
                     />
                 </div>
                 <div style={{ marginBottom: 0 }}>
-                    <CustomMobileSelect 
-                        value={parseInt(m).toString()} 
-                        options={['00', '15', '30', '45', '10', '20', '50'].map(min => ({ value: parseInt(min).toString(), label: min }))} 
-                        onChange={(v) => handleUpdate('minute', v)} 
+                    <CustomMobileSelect
+                        value={parseInt(m).toString()}
+                        options={['00', '15', '30', '45', '10', '20', '50'].map(min => ({ value: parseInt(min).toString(), label: min }))}
+                        onChange={(v) => handleUpdate('minute', v)}
                     />
                 </div>
                 {/* ✅ FIXED: Removed hardcoded marginTop, added fixed height to match dropdowns */}
                 <div style={{ display: 'flex', borderRadius: '12px', overflow: 'hidden', border: '2px solid #e2e8f0', height: '46px' }}>
                     {['AM', 'PM'].map((p) => (
-                        <button key={p} onClick={() => handleUpdate('ampm', p)} 
-                            style={{ 
+                        <button key={p} onClick={() => handleUpdate('ampm', p)}
+                            style={{
                                 flex: 1, border: 'none', padding: '0',
-                                background: ampm === p ? '#3b82f6' : '#f8fafc', 
-                                color: ampm === p ? 'white' : '#64748b', 
-                                fontWeight: '800', fontSize: '12px' 
+                                background: ampm === p ? '#3b82f6' : '#f8fafc',
+                                color: ampm === p ? 'white' : '#64748b',
+                                fontWeight: '800', fontSize: '12px'
                             }}>
                             {p}
                         </button>
@@ -249,22 +250,32 @@ export default function ManageTimetable({ hodInfo }) {
         return () => document.head.removeChild(styleSheet);
     }, []);
 
+
+    // 🚨 ADD THIS: Pull config
+    const { config } = useInstitution();
+    const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
+    const academicLevels = config?.academicConfig?.levels || ['FE', 'SE', 'TE', 'BE'];
+
     const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year';
 
-    const yearOptions = isFE 
-        ? [{ value: 'FE', label: 'First Year (FE)' }] 
-        : [
-            { value: 'SE', label: 'Second Year (SE)' },
-            { value: 'TE', label: 'Third Year (TE)' },
-            { value: 'BE', label: 'Final Year (BE)' }
-          ];
+    // 🚨 UPDATED: Dynamic Year Options based on Domain
+    const yearOptions = isNonEngg
+        ? academicLevels.map(lvl => ({ value: lvl, label: lvl })) // Agri/Medical/Pharmacy shows ALL years
+        : (isFE
+            ? [{ value: 'FE', label: 'First Year (FE)' }]
+            : [
+                { value: 'SE', label: 'Second Year (SE)' },
+                { value: 'TE', label: 'Third Year (TE)' },
+                { value: 'BE', label: 'Final Year (BE)' }
+            ]
+        );
 
     const [viewMode, setViewMode] = useState('edit'); // 'edit' or 'table'
     const [year, setYear] = useState(isFE ? 'FE' : 'SE');
-    const [division, setDivision] = useState('A'); 
+    const [division, setDivision] = useState('A');
     const [day, setDay] = useState('Monday');
     const [loading, setLoading] = useState(false);
-    
+
     // Data States
     const [slots, setSlots] = useState([]); // Current Day Slots (For Edit Mode)
     const [fullSchedule, setFullSchedule] = useState({}); // Entire Week Data (For Table Mode)
@@ -284,7 +295,7 @@ export default function ManageTimetable({ hodInfo }) {
                 );
                 const snap = await getDocs(q);
                 const subjectsSet = new Set();
-                
+
                 snap.docs.forEach(doc => {
                     const data = doc.data();
                     if (data.assignedClasses) {
@@ -305,10 +316,12 @@ export default function ManageTimetable({ hodInfo }) {
     }, [hodInfo]);
 
     useEffect(() => {
-        if(isFE && year !== 'FE') setYear('FE');
-        if(!isFE && year === 'FE') setYear('SE');
-    }, [isFE]);
-
+        // Only force the year for Engineering colleges
+        if (!isNonEngg) {
+            if (isFE && year !== 'FE') setYear('FE');
+            if (!isFE && year === 'FE') setYear('SE');
+        }
+    }, [isFE, isNonEngg]);
     const weekDays = [
         { value: 'Monday', label: 'Monday' },
         { value: 'Tuesday', label: 'Tuesday' },
@@ -331,7 +344,7 @@ export default function ManageTimetable({ hodInfo }) {
             setLoading(true);
             try {
                 let docId = `${hodInfo.instituteId}_${hodInfo.department}_${year}_Timetable`;
-                if (year === 'FE') {
+                if (year === 'FE' && !isNonEngg) {
                     docId = `${hodInfo.instituteId}_${hodInfo.department}_${year}_${division}_Timetable`;
                 }
 
@@ -354,7 +367,7 @@ export default function ManageTimetable({ hodInfo }) {
             }
         };
         fetchTimetable();
-    }, [hodInfo, year, day, division]); 
+    }, [hodInfo, year, day, division]);
 
     // --- UPDATE HANDLERS ---
     const handleSlotChange = (index, field, value) => {
@@ -376,12 +389,12 @@ export default function ManageTimetable({ hodInfo }) {
         setLoading(true);
         try {
             let docId = `${hodInfo.instituteId}_${hodInfo.department}_${year}_Timetable`;
-            if (year === 'FE') {
+            if (year === 'FE' && !isNonEngg) {
                 docId = `${hodInfo.instituteId}_${hodInfo.department}_${year}_${division}_Timetable`;
             }
 
             const docRef = doc(db, 'timetables', docId);
-            
+
             // We update ONLY the specific day's array within the full document
             await setDoc(docRef, {
                 [day]: slots,
@@ -405,15 +418,15 @@ export default function ManageTimetable({ hodInfo }) {
     };
 
     return (
-        <div className="card fade-in-up" style={{ 
-            background: 'white', borderRadius: '24px', border: 'none', 
-            boxShadow: '0 20px 50px -10px rgba(0,0,0,0.1)', overflow: 'visible', 
-            position: 'relative', marginBottom: '30px', zIndex: 5 
+        <div className="card fade-in-up" style={{
+            background: 'white', borderRadius: '24px', border: 'none',
+            boxShadow: '0 20px 50px -10px rgba(0,0,0,0.1)', overflow: 'visible',
+            position: 'relative', marginBottom: '30px', zIndex: 5
         }}>
-            
+
             {/* --- HEADER --- */}
-            <div style={{ 
-                background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)', 
+            <div style={{
+                background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)',
                 padding: '25px', position: 'relative', borderRadius: '24px 24px 0 0', overflow: 'hidden'
             }}>
                 <div style={{ position: 'relative', zIndex: 2 }}>
@@ -430,11 +443,16 @@ export default function ManageTimetable({ hodInfo }) {
 
             {/* --- CONTROLS --- */}
             <div className="timetable-card-body" style={{ padding: '20px' }}>
-                
+
                 {/* 1. Filter Controls */}
                 <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '20px' }}>
                     <div style={{ flex: '1 1 120px' }}><CustomMobileSelect label="Class" icon="fa-graduation-cap" value={year} onChange={setYear} options={yearOptions} /></div>
-                    {year === 'FE' && (<div style={{ flex: '1 1 100px' }}><CustomMobileSelect label="Division" icon="fa-users" value={division} onChange={setDivision} options={divisions} /></div>)}
+                    {/* 🚨 THE FIX: Only show Division selector for Engineering FE */}
+                    {(year === 'FE' && !isNonEngg) && (
+                        <div style={{ flex: '1 1 100px' }}>
+                            <CustomMobileSelect label="Division" icon="fa-users" value={division} onChange={setDivision} options={divisions} />
+                        </div>
+                    )}
                     {/* Only show Day Selector in Edit Mode */}
                     {viewMode === 'edit' && (
                         <div style={{ flex: '1 1 120px' }}><CustomMobileSelect label="Day to Edit" icon="fa-calendar-day" value={day} onChange={setDay} options={weekDays} /></div>
@@ -454,7 +472,7 @@ export default function ManageTimetable({ hodInfo }) {
                 <div style={{ borderTop: '1px solid #f1f5f9', margin: '10px 0 20px 0' }}></div>
 
                 {/* --- MAIN CONTENT AREA --- */}
-                
+
                 {loading ? (
                     <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}><i className="fas fa-circle-notch fa-spin fa-2x"></i></div>
                 ) : (
@@ -483,7 +501,7 @@ export default function ManageTimetable({ hodInfo }) {
                                                                 {daySlots.map((s, i) => (
                                                                     <div key={i} className={`slot-badge ${s.type || 'Lecture'}`}>
                                                                         <b>{s.startTime} - {s.endTime}</b>
-                                                                        <br/>
+                                                                        <br />
                                                                         {s.subject || 'Untitled'}
                                                                     </div>
                                                                 ))}
@@ -508,9 +526,9 @@ export default function ManageTimetable({ hodInfo }) {
                                 )}
 
                                 {slots.map((slot, index) => (
-                                    <div key={index} className="fade-in-up" style={{ 
-                                        background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px', 
-                                        padding: '20px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', position: 'relative', zIndex: 1 
+                                    <div key={index} className="fade-in-up" style={{
+                                        background: 'white', border: '1px solid #e2e8f0', borderRadius: '16px',
+                                        padding: '20px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)', position: 'relative', zIndex: 1
                                     }}>
                                         <button onClick={() => removeSlot(index)} style={{ position: 'absolute', top: '15px', right: '15px', background: '#fee2e2', color: '#ef4444', width: '32px', height: '32px', borderRadius: '50%', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-trash-alt" style={{ fontSize: '14px' }}></i></button>
 
@@ -524,20 +542,20 @@ export default function ManageTimetable({ hodInfo }) {
                                             {slot.type === 'Break' ? (
                                                 <>
                                                     <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', marginBottom: '8px', display: 'block', textTransform: 'uppercase' }}>Break Name</label>
-                                                    <input 
-                                                        type="text" 
-                                                        placeholder="e.g. Lunch Break, Recess" 
-                                                        value={slot.subject} 
-                                                        onChange={(e) => handleSlotChange(index, 'subject', e.target.value)} 
-                                                        style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '2px solid #e2e8f0', fontWeight: '600', fontSize: '14px', outline: 'none' }} 
+                                                    <input
+                                                        type="text"
+                                                        placeholder="e.g. Lunch Break, Recess"
+                                                        value={slot.subject}
+                                                        onChange={(e) => handleSlotChange(index, 'subject', e.target.value)}
+                                                        style={{ width: '100%', padding: '14px', borderRadius: '12px', border: '2px solid #e2e8f0', fontWeight: '600', fontSize: '14px', outline: 'none' }}
                                                     />
                                                 </>
                                             ) : (
-                                                <CustomMobileSelect 
-                                                    label="Subject Name" 
-                                                    value={slot.subject} 
-                                                    onChange={(val) => handleSlotChange(index, 'subject', val)} 
-                                                    options={availableSubjects.length > 0 ? availableSubjects : [{ value: '', label: 'No subjects assigned to teachers yet' }]} 
+                                                <CustomMobileSelect
+                                                    label="Subject Name"
+                                                    value={slot.subject}
+                                                    onChange={(val) => handleSlotChange(index, 'subject', val)}
+                                                    options={availableSubjects.length > 0 ? availableSubjects : [{ value: '', label: 'No subjects assigned to teachers yet' }]}
                                                 />
                                             )}
                                         </div>

@@ -2925,7 +2925,7 @@ export default function TeacherDashboard() {
     const { downloadFile } = useFileDownloader();
     const [allStudentsReport, setAllStudentsReport] = useState([]);
     const { config } = useInstitution();
-    const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+    const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
     const allowedSessionTypes = config?.academicConfig?.sessionTypes || ['Theory', 'Practical'];
 
 

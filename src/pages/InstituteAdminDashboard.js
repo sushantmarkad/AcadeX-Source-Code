@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
-import { doc, getDoc, setDoc, updateDoc, collection, query, where, onSnapshot } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc, collection, query, where, onSnapshot,getDocs } from "firebase/firestore";
 import toast from 'react-hot-toast';
 import './Dashboard.css';
 import logo from "../assets/logo.png";
@@ -57,14 +57,15 @@ const DashboardHome = ({ instituteName, instituteId }) => {
         fetchCode();
     }, [instituteId]);
 
-    useEffect(() => {
-        // Wait until we have the config to determine college type
+   useEffect(() => {
         if (!instituteId || !config) return; 
 
         const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
 
-        const q = query(collection(db, 'users'), where('instituteId', '==', instituteId));
-        const unsub = onSnapshot(q, (snap) => {
+        // ✅ FIXED: Changed to getDocs
+        const fetchStats = async () => {
+            const q = query(collection(db, 'users'), where('instituteId', '==', instituteId));
+            const snap = await getDocs(q);
             const tempStats = {};
             
             const initDept = (deptName) => {
@@ -75,30 +76,23 @@ const DashboardHome = ({ instituteName, instituteId }) => {
 
             snap.docs.forEach(doc => {
                 const data = doc.data();
-                
                 if (data.role === 'student') {
                     const yr = data.year || 'Unknown';
-                    
                     if (isNonEngg) {
-                        // 1. ALWAYS count Agri/Medical students in the 'Common' card
                         initDept('Common');
                         tempStats['Common'].students++;
                         tempStats['Common'].byYear[yr] = (tempStats['Common'].byYear[yr] || 0) + 1;
-                        
-                        // 2. ALSO count them in their specific enrolled departments for the HOD cards
                         if (data.enrolledDepartments && Array.isArray(data.enrolledDepartments)) {
                             data.enrolledDepartments.forEach(dept => {
-                                if (dept.toUpperCase() === 'COMMON') return; // Skip to avoid double counting
+                                if (dept.toUpperCase() === 'COMMON') return; 
                                 initDept(dept);
                                 tempStats[dept].students++;
                                 tempStats[dept].byYear[yr] = (tempStats[dept].byYear[yr] || 0) + 1;
                             });
                         }
                     } else {
-                        // Engineering College Logic (Students belong to exactly ONE department)
                         let dept = data.department || 'Common';
                         if (dept.toUpperCase() === 'COMMON') dept = 'Common';
-                        
                         initDept(dept);
                         tempStats[dept].students++;
                         tempStats[dept].byYear[yr] = (tempStats[dept].byYear[yr] || 0) + 1;
@@ -107,7 +101,6 @@ const DashboardHome = ({ instituteName, instituteId }) => {
                 else if (data.role === 'teacher') {
                     let dept = data.department || 'Common';
                     if (dept.toUpperCase() === 'COMMON') dept = 'Common';
-                    
                     initDept(dept);
                     tempStats[dept].teachers++;
                 }
@@ -115,10 +108,10 @@ const DashboardHome = ({ instituteName, instituteId }) => {
             
             setStats(tempStats);
             setStatsLoading(false);
-        });
-        
-        return () => unsub();
-    }, [instituteId, config]); // <-- Depend on config
+        };
+
+        fetchStats();
+    }, [instituteId, config]);
 
     const generateCode = async () => {
         if (!instituteId) return toast.error("Institute ID missing.");

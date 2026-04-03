@@ -272,7 +272,21 @@ const generateDomainTemplate = (domain, instituteName) => {
             // ☝️ ------------------------------------------------------------------ ☝️
 
             await updateDoc(doc(db, "applications", app.id), { status: 'approved', adminUid: data.uid });
-            await sendPasswordResetEmail(auth, app.email);
+            
+            // 🚨 THE FIX: Trigger the beautiful custom Nodemailer template
+            try {
+                await fetch(`${BACKEND_URL}/sendInstituteApprovalEmail`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: app.email,
+                        instituteName: app.instituteName,
+                        adminName: app.contactName
+                    })
+                });
+            } catch (emailError) {
+                console.error("Failed to send modern email:", emailError);
+            }
             
             // Updated success message to show the domain it was configured for
             toast.success(`Approved! Configured as ${instituteConfig.domain}. Login email sent.`, { id: toastId });
@@ -303,9 +317,22 @@ const generateDomainTemplate = (domain, instituteName) => {
         }, true);
     };
 
-    const handleSendLoginLink = async (email) => {
-        const toastId = toast.loading("Sending email...");
-        try { await sendPasswordResetEmail(auth, email); toast.success(`Link sent to ${email}`, { id: toastId }); } 
+  // 🚨 UPDATED: Resend using the beautiful modern email template
+    const handleSendLoginLink = async (app) => {
+        const toastId = toast.loading("Sending login link...");
+        try { 
+            const response = await fetch(`${BACKEND_URL}/sendInstituteApprovalEmail`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    email: app.email,
+                    instituteName: app.instituteName,
+                    adminName: app.contactName
+                })
+            });
+            if (!response.ok) throw new Error("Failed");
+            toast.success(`Link sent to ${app.email}`, { id: toastId }); 
+        } 
         catch (e) { toast.error("Failed to send email", { id: toastId }); }
     };
 
@@ -600,7 +627,7 @@ const generateDomainTemplate = (domain, instituteName) => {
                                                 </td>
                                                 <td>
                                                     <div style={{display:'flex', gap:'8px'}}>
-                                                        <button onClick={() => handleSendLoginLink(app.email)} className="btn-action btn-action-link" title="Resend Login Link"><i className="fas fa-paper-plane"></i></button>
+                                                        <button onClick={() => handleSendLoginLink(app)} className="btn-action btn-action-link" title="Resend Login Link"><i className="fas fa-paper-plane"></i></button>
                                                         <button onClick={() => handleDeleteInstitute(app)} className="btn-action btn-action-deny" style={{backgroundColor: '#fee2e2', color: '#dc2626', border:'1px solid #fecaca'}} title="Delete Institute"><i className="fas fa-trash-alt"></i></button>
                                                     </div>
                                                 </td>
