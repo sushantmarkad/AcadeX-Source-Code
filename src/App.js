@@ -10,6 +10,7 @@ import IOSSplashScreen from "./components/IOSSplashScreen";
 import logo from "./assets/logo.png"; 
 import DashboardSkeleton from "./components/DashboardSkeleton";
 import { App as CapApp } from '@capacitor/app';
+import { Network } from '@capacitor/network';
 
 // ✅ ADDED: Import the InstitutionProvider you created
 import { InstitutionProvider } from './contexts/InstitutionContext'; 
@@ -45,6 +46,7 @@ function App() {
   const location = useLocation();
   const [showSplash, setShowSplash] = useState(true);
   const navigate = useNavigate();
+  const [isOnline, setIsOnline] = useState(true);
   
   const [user, setUser] = useState(null);
   const [userRole, setUserRole] = useState(null);
@@ -54,6 +56,30 @@ function App() {
   const [is2FARequired, setIs2FARequired] = useState(false);
   const [is2FAVerified, setIs2FAVerified] = useState(false);
   const [verifying, setVerifying] = useState(false);
+
+ useEffect(() => {
+    let networkListener;
+
+    const setupNetworkListener = async () => {
+      // Get the current status as soon as the app opens
+      const status = await Network.getStatus();
+      setIsOnline(status.connected);
+
+      // Listen for any changes (e.g., user turns on airplane mode or drops signal)
+      networkListener = await Network.addListener('networkStatusChange', (status) => {
+        setIsOnline(status.connected);
+      });
+    };
+
+    setupNetworkListener();
+
+    return () => {
+      // Cleanup the listener when the component unmounts
+      if (networkListener) {
+        networkListener.remove();
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -180,9 +206,25 @@ function App() {
 
   const hasSeenOnboarding = localStorage.getItem('hasSeenOnboarding');
 
+
+
   // ✅ Keep Splash Screen fast and simple
   if (showSplash) {
     return <IOSSplashScreen logoSrc={logo} onComplete={() => setShowSplash(false)} />;
+  }
+
+  if (!isOnline) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 p-6 z-50">
+        <div className="bg-white p-8 rounded-2xl shadow-xl text-center max-w-sm w-full border border-slate-100">
+          <svg className="w-20 h-20 mx-auto text-red-500 mb-6 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M18.364 5.636a9 9 0 010 12.728m-12.728 0a9 9 0 010-12.728m10.606 2.121a6 6 0 010 8.486m-8.486 0a6 6 0 010-8.486m6.364 2.121a3 3 0 010 4.242m-4.242 0a3 3 0 010-4.242"></path>
+          </svg>
+          <h2 className="text-2xl font-bold text-slate-800 mb-3">No Internet Connection</h2>
+          <p className="text-slate-500 mb-6 text-sm">Please check your Wi-Fi or mobile data network. The app will automatically resume when connected.</p>
+        </div>
+      </div>
+    );
   }
 
   if (authLoading) {

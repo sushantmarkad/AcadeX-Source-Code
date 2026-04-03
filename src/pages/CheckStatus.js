@@ -1,19 +1,19 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import logo from "../assets/logo.png";
-import './Login.css'; 
+import './Login.css'; // Re-using the premium layout
 
 // ✅ Animation Imports
 import IOSPage from "../components/IOSPage";
 import useIOSSound from "../hooks/useIOSSound";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { buttonTap } from "../animations/interactionVariants";
 
-const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com"; // ✅ Use your Backend URL
+const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com"; 
 
 export default function CheckStatus() {
   const [email, setEmail] = useState('');
-  const [result, setResult] = useState(null); // Stores the backend response
+  const [result, setResult] = useState(null); 
   const [loading, setLoading] = useState(false);
   
   const navigate = useNavigate();
@@ -33,7 +33,6 @@ export default function CheckStatus() {
     }
 
     try {
-      // ✅ Call Backend API instead of direct Firestore
       const response = await fetch(`${BACKEND_URL}/checkStatus`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -46,7 +45,6 @@ export default function CheckStatus() {
           throw new Error(data.error || "Failed to check status");
       }
 
-      // ✅ Handle Response
       if (data.found) {
           playSound('success');
           setResult({ 
@@ -73,10 +71,10 @@ export default function CheckStatus() {
 
   // Helper for status colors
   const getStatusColor = (status) => {
-      if (status === 'approved') return '#dcfce7'; // Green
-      if (status === 'pending') return '#fef9c3'; // Yellow
-      if (status === 'denied') return '#fee2e2'; // Red
-      return '#f3f4f6'; // Grey
+      if (status === 'approved') return '#dcfce7'; 
+      if (status === 'pending') return '#fef9c3'; 
+      if (status === 'denied') return '#fee2e2'; 
+      return '#f3f4f6'; 
   };
 
   const getStatusTextColor = (status) => {
@@ -86,65 +84,103 @@ export default function CheckStatus() {
       return '#374151';
   };
 
+  const themeColor = "#6366f1"; // Indigo theme for status check
+
   return (
     <IOSPage>
-      <div className="login-wrapper">
-        <div className="login-container">
-          <div className="login-header">
-            <img className="login-logo" src={logo} alt="App Logo" />
-            <h1>Check Application Status</h1>
-            <p>Enter your email to track your request.</p>
+      <div className="split-layout-wrapper">
+        <div className="split-layout-container">
+          
+          {/* 🎭 LEFT PANEL */}
+          <div className="left-panel" style={{ background: "linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)" }}>
+            <img className="panel-logo" src={logo} alt="trackee Logo" />
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="graphic-content">
+              <div className="hero-icon" style={{ color: themeColor }}>
+                <i className="fas fa-clipboard-check"></i>
+              </div>
+              <h2>Track Your<br/>Application</h2>
+              <p>Check the real-time approval status of your institute registration or student account request.</p>
+            </motion.div>
           </div>
 
-          <form className="login-form" onSubmit={handleCheckStatus}>
-            <div className="input-group">
-              <label>Email Address</label>
-              <input
-                type="email"
-                placeholder="Enter your registered email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
+          {/* 🔐 RIGHT PANEL */}
+          <div className="right-panel" style={{ '--theme-color': themeColor }}>
+            
+            {/* Mobile Header */}
+            <div className="login-header-mobile">
+              <img className="mobile-logo" src={logo} alt="trackee Logo" />
+              <h1>Welcome to <span style={{ color: themeColor }}>trackee</span></h1>
             </div>
-            
-            {/* ✅ Result Display */}
-            {result && (
-                <motion.div 
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    style={{ 
-                        padding: '15px', 
-                        borderRadius: '10px', 
-                        textAlign: 'center', 
-                        fontWeight: '600', 
-                        marginBottom: '15px',
-                        backgroundColor: result.success ? getStatusColor(result.status) : '#fee2e2',
-                        color: result.success ? getStatusTextColor(result.status) : '#991b1b',
-                        border: '1px solid rgba(0,0,0,0.05)'
-                    }}
-                >
-                    {result.message}
-                </motion.div>
-            )}
 
-            <motion.button 
-                type="submit" 
-                className="btn-primary"
-                disabled={loading}
-                variants={buttonTap}
-                whileTap="tap"
-            >
-                {loading ? 'Checking...' : 'Check Status'}
-            </motion.button>
-            
-            <p style={{ marginTop: '15px', textAlign: 'center' }}>
-              Back to{" "}
-              <span style={{ color: "#075eec", cursor: "pointer", fontWeight:'600' }} onClick={() => { playSound('tap'); navigate("/"); }}>
-                Sign In
-              </span>
-            </p>
-          </form>
+            {/* Desktop Brand Header */}
+            <div className="desktop-brand-header">
+              <img className="desktop-brand-logo" src={logo} alt="trackee Logo" />
+              <h1 className="desktop-brand-name" style={{ color: themeColor }}>trackee</h1>
+            </div>
+
+            <div className="form-header">
+              <h3 className="form-title">Check Status</h3>
+              <p className="form-subtitle">Enter your registered email to track your request.</p>
+            </div>
+
+            <form className="login-form" onSubmit={handleCheckStatus}>
+              <div className="input-group">
+                <label>Email Address</label>
+                <div className="input-with-icon">
+                  <i className="fas fa-envelope input-icon"></i>
+                  <input
+                    type="email"
+                    placeholder="Enter your registered email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    required
+                  />
+                </div>
+              </div>
+              
+              {/* ✅ Result Display */}
+              <AnimatePresence>
+                  {result && (
+                      <motion.div 
+                          initial={{ opacity: 0, height: 0, y: -10 }}
+                          animate={{ opacity: 1, height: 'auto', y: 0 }}
+                          exit={{ opacity: 0, height: 0 }}
+                          style={{ 
+                              padding: '16px', 
+                              borderRadius: '16px', 
+                              textAlign: 'center', 
+                              fontWeight: '600', 
+                              fontSize: '15px',
+                              backgroundColor: result.success ? getStatusColor(result.status) : '#fef2f2',
+                              color: result.success ? getStatusTextColor(result.status) : '#ef4444',
+                              border: `1px solid ${result.success ? 'rgba(0,0,0,0.05)' : '#fca5a5'}`
+                          }}
+                      >
+                          {result.success && result.status === 'approved' && <i className="fas fa-check-circle mr-2"></i>}
+                          {result.success && result.status === 'pending' && <i className="fas fa-clock mr-2"></i>}
+                          {result.success && result.status === 'denied' && <i className="fas fa-times-circle mr-2"></i>}
+                          {!result.success && <i className="fas fa-exclamation-circle mr-2"></i>}
+                          {result.message}
+                      </motion.div>
+                  )}
+              </AnimatePresence>
+
+              <motion.button 
+                  type="submit" 
+                  className="btn-primary main-submit-btn"
+                  disabled={loading}
+                  variants={buttonTap}
+                  whileTap="tap"
+                  style={{ marginTop: '10px' }}
+              >
+                  {loading ? 'Checking...' : 'Check Status'} <i className="fas fa-arrow-right ml-2"></i>
+              </motion.button>
+              
+              <div className="global-footer-links" style={{ marginTop: '24px' }}>
+                <p>Back to <span className="text-link" onClick={() => { playSound('tap'); navigate("/"); }}>Sign In</span></p>
+              </div>
+            </form>
+          </div>
         </div>
       </div>
     </IOSPage>
