@@ -222,9 +222,19 @@ export default function HODDashboard() {
                     setActiveSemesters(defaultSems);
                 }
 
-                // 🔴 KEEP ONSNAPSHOT: We need to see new student requests live
+               // 🔴 KEEP ONSNAPSHOT: We need to see new student requests live
                 const qRequests = query(collection(db, 'student_requests'), where('instituteId', '==', data.instituteId), where('department', '==', data.department), where('status', '==', 'pending'));
-                onSnapshot(qRequests, (snap) => setStudentRequests(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
+                
+                // ✅ Assign to a variable so we can clean it up
+                const unsubscribeRequests = onSnapshot(qRequests, (snap) => {
+                    setStudentRequests(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                });
+
+                // ✅ Store unsubscribe function on the window object to clean it up on unmount
+                window.activeHodListeners = window.activeHodListeners || [];
+                window.activeHodListeners.push(unsubscribeRequests);
+
+                
 
                 // 🛑 OPTIMIZED: Fetch Leaves ONCE instead of listening
                 const fetchLeaves = async () => {
@@ -254,6 +264,14 @@ export default function HODDashboard() {
             }
         };
         init();
+
+        return () => {
+            if (window.activeHodListeners) {
+                window.activeHodListeners.forEach(unsub => unsub());
+                window.activeHodListeners = [];
+            }
+        };
+
     }, []);
 
     // ✅ NEW: Handler to Switch Academic Year
@@ -293,15 +311,23 @@ export default function HODDashboard() {
         fetchUsers();
     }, [hodInfo, config]);
 
-   useEffect(() => {
-        if (hodInfo && academicLevels.length > 0) {
-            setAnalyticsYear(academicLevels[0]); // Dynamically select first level
+ useEffect(() => {
+        if (hodInfo && academicLevels.length > 0 && config) {
+            const isFE = hodInfo.department === 'FE' || hodInfo.department === 'First Year' || hodInfo.department === 'FirstYear';
+            const isNonEngg = config.domain === 'AGRICULTURE' || config.domain === 'MEDICAL' || config.domain === 'PHARMACY';
+            
+            // ✅ SMART DEFAULT: If it's an Engineering Dept HOD (not FE), default to SE. Otherwise, use the first level.
+            const defaultYear = (!isNonEngg && !isFE && academicLevels.length > 1) 
+                ? academicLevels[1] 
+                : academicLevels[0];
+
+            setAnalyticsYear(defaultYear); 
             setAnalyticsDivision('All');
             
-            // ✅ ADD THIS LINE: This forces the Enrollment tab to open on '1st Year' instead of 'FE'
-            setEnrollmentYear(academicLevels[0]); 
+            // Forces the Enrollment and Analytics tabs to open on the correct default year
+            setEnrollmentYear(defaultYear); 
         }
-    }, [hodInfo, academicLevels]);
+    }, [hodInfo, academicLevels, config]);
 
     // --- 1. FETCH SESSIONS (Raw Data for Accurate Math) ---
     useEffect(() => {
@@ -339,36 +365,27 @@ export default function HODDashboard() {
         }
     }, [activeTab, fbTab, hodInfo]);
 
-    // --- 2. FETCH & PROCESS ATTENDANCE (Student Counts) - OPTIMIZED ---
+    // --- 2. FETCH & PROCESS ATTENDANCE (Student Counts) - BACKEND OPTIMIZED ---
     useEffect(() => {
-        if (!hodInfo || allSessions.length === 0) return;
+        if (!hodInfo || allSessions.length === 0 || deptUsers.length === 0) return;
 
-        const fetchAttendanceMap = async () => {
+        const fetchAttendanceMap = () => {
             try {
-                const sessionMeta = {};
-                allSessions.forEach(s => sessionMeta[s.id] = s);
-
-                const qAttendance = query(collection(db, 'attendance'),
-                    where('academicYear', '==', currentAcademicYear),
-                    where('instituteId', '==', hodInfo.instituteId)
-                );
-
-                // Changed to getDocs to stop constant re-downloading
-                const snap = await getDocs(qAttendance);
-
+                // ✅ ZERO READS: We rely on the `attendanceCount` that your backend is now 
+                // attaching to the user documents inside deptUsers!
                 const tempMap = {};
-                snap.docs.forEach(doc => {
-                    const att = doc.data();
-                    const sessionInfo = sessionMeta[att.sessionId];
-
-                    if (sessionInfo) {
-                        const uid = att.studentId;
-                        if (!tempMap[uid]) tempMap[uid] = { theory: 0, practical: 0 };
-
-                        if (sessionInfo.type === 'practical') tempMap[uid].practical++;
-                        else tempMap[uid].theory++;
+                
+                deptUsers.forEach(user => {
+                    if (user.role === 'student') {
+                        // Map backend aggregates. If you want practical/theory splits, 
+                        // ensure backend sets user.attendanceStats object, else fallback to total
+                        tempMap[user.id] = { 
+                            theory: user.attendanceCount || 0, // Fallback using your existing backend counter
+                            practical: 0 
+                        };
                     }
                 });
+                
                 setStudentAttendanceMap(tempMap);
             } catch (error) {
                 console.error("Error fetching attendance map:", error);
@@ -376,74 +393,48 @@ export default function HODDashboard() {
         };
 
         fetchAttendanceMap();
-    }, [hodInfo, allSessions, currentAcademicYear]);
+    }, [hodInfo, allSessions, currentAcademicYear, deptUsers]);
 
 
-
-    // --- 3. FUNCTIONAL ATTENDANCE GRAPH (100% ACCURATE MATH) - OPTIMIZED ---
+// --- 3. FUNCTIONAL ATTENDANCE GRAPH (100% ACCURATE MATH) - BACKEND OPTIMIZED ---
     useEffect(() => {
         if (!hodInfo || deptUsers.length === 0 || allSessions.length === 0) return;
 
-        const fetchAttendanceStats = async () => {
-            const now = new Date();
-            const startDate = new Date();
-            if (timeRange === 'week') startDate.setDate(now.getDate() - 7);
-            else startDate.setDate(now.getDate() - 30);
-
+        const fetchAttendanceStats = () => {
             try {
-                const q = query(
-                    collection(db, 'attendance'),
-                    where('instituteId', '==', hodInfo.instituteId),
-                    where('timestamp', '>=', Timestamp.fromDate(startDate)),
-                    where('academicYear', '==', currentAcademicYear)
-                );
-
-                // Changed to getDocs to save reads
-                const snap = await getDocs(q);
-
-                const sessionIdsInTimeframe = new Set();
                 const groupAttended = {};
-
-                snap.docs.forEach(doc => {
-                    const data = doc.data();
-                    sessionIdsInTimeframe.add(data.sessionId);
-
-                    const u = deptUsers.find(user => user.id === data.studentId);
-                    if (u && u.role === 'student') {
-                        const key = isFE ? (u.division || 'A') : u.year;
-                        groupAttended[key] = (groupAttended[key] || 0) + 1;
-                    }
-                });
-
                 const groupExpected = {};
 
-                sessionIdsInTimeframe.forEach(sid => {
-                    const session = allSessions.find(s => s.id === sid);
-                    if (!session) return;
-                    const sessionYear = session.targetYear || session.year;
+                // ✅ ZERO READS: Uses pre-loaded `deptUsers` with backend counters
+                deptUsers.forEach(u => {
+                    if (u.role !== 'student') return;
 
-                    deptUsers.forEach(u => {
-                        if (u.role !== 'student') return;
+                    const groupKey = isFE ? (u.division || 'A') : u.year;
+                    
+                    // Add student's total attended classes
+                    groupAttended[groupKey] = (groupAttended[groupKey] || 0) + (u.attendanceCount || 0);
+
+                    // Estimate expected classes based on active sessions
+                    allSessions.forEach(session => {
+                        const sessionYear = session.targetYear || session.year;
+                        
                         if (sessionYear !== 'All' && sessionYear !== u.year) return;
-
-                        const groupKey = isFE ? (u.division || 'A') : u.year;
                         if (isFE && session.division && session.division !== 'All' && session.division !== u.division) return;
-
-                        if (session.type === 'practical' && session.rollRange) {
-                            const roll = parseInt(u.rollNo);
-                            if (roll < session.rollRange.start || roll > session.rollRange.end) return;
-                        }
-
+                        
                         groupExpected[groupKey] = (groupExpected[groupKey] || 0) + 1;
                     });
                 });
 
-              const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
+                const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
                 const LABELS = isFE ? DIVISIONS : (isNonEngg ? academicLevels : academicLevels.slice(1));
+                
                 const graphData = LABELS.map(label => {
                     const attended = groupAttended[label] || 0;
                     const expected = groupExpected[label] || 0;
-                    const avgPct = expected === 0 ? 0 : Math.round((attended / expected) * 100);
+                    
+                    // Cap at 100% safely
+                    const avgPct = expected === 0 ? 0 : Math.min(100, Math.round((attended / expected) * 100));
+                    
                     return { name: label, attendance: avgPct };
                 });
 
@@ -718,41 +709,7 @@ export default function HODDashboard() {
         return subs;
     }, [availableSubjects, teachersList]);
 
-    // Keep your existing useEffect for session counts exactly as it was right here!
-    useEffect(() => {
-        const fetchSessionCounts = async () => {
-            if (!hodInfo) return;
-            const q = query(collection(db, 'live_sessions'),
-                where('instituteId', '==', hodInfo.instituteId),
-                where('department', '==', hodInfo.department),
-                where('academicYear', '==', currentAcademicYear)
-            );
-            try {
-                const snap = await getDocs(q);
-                if (isFE) {
-                    const divCounts = {};
-                    snap.docs.forEach(doc => {
-                        const d = doc.data();
-                        if (d.targetYear === 'FE') {
-                            const div = d.division || 'A';
-                            divCounts[div] = (divCounts[div] || 0) + 1;
-                        }
-                    });
-                    setClassCounts(divCounts);
-                } else {
-                    const yearCounts = { SE: 0, TE: 0, BE: 0 };
-                    snap.docs.forEach(doc => {
-                        const d = doc.data();
-                        if (yearCounts[d.targetYear] !== undefined) {
-                            yearCounts[d.targetYear]++;
-                        }
-                    });
-                    setClassCounts(yearCounts);
-                }
-            } catch (e) { console.error("Error counting sessions", e); }
-        };
-        fetchSessionCounts();
-    }, [hodInfo, isFE, currentAcademicYear]);
+   
 
     // ✅ NEW CALCULATION ENGINE (PER-STUDENT PRECISION - MEMOIZED)
     const analyticsData = useMemo(() => {

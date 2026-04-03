@@ -1,62 +1,80 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db, auth } from '../firebase';
-import { collection, query, where, getDocs, deleteDoc, doc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot } from 'firebase/firestore'; // ✅ Changed to onSnapshot
 import toast from 'react-hot-toast';
 import './Dashboard.css';
 import { useInstitution } from '../contexts/InstitutionContext';
 
 export default function ManageUsers({ instituteId }) {
-    // 🚨 OPTIMIZATION: We store ALL users here, so we only pay for the read ONCE.
     const [allUsers, setAllUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [roleFilter, setRoleFilter] = useState('student'); 
 
     const { config } = useInstitution();
 
-    // Fetch users ONLY ONCE when the component mounts
+    // ✅ OPTIMIZATION: Real-time listener that instantly updates on Create/Delete
     useEffect(() => {
-        const fetchAllUsers = async () => {
-            if (!instituteId) return;
-            setLoading(true);
-            try {
-                // Fetch every user for this institute in a single, one-time query
-                const q = query(collection(db, 'users'), where('instituteId', '==', instituteId));
-                const snapshot = await getDocs(q);
-                
-                const userList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                userList.sort((a, b) => (a.firstName || '').localeCompare(b.firstName || ''));
-                
-                setAllUsers(userList);
-            } catch (err) {
-                console.error(err);
-                toast.error("Failed to load users.");
-            } finally {
-                setLoading(false);
-            }
-        };
+        if (!instituteId) return;
+        setLoading(true);
 
-        fetchAllUsers();
-    }, [instituteId]); // Notice roleFilter is NO LONGER in this dependency array!
+        const q = query(collection(db, 'users'), where('instituteId', '==', instituteId));
+        
+        // Listen to live changes in the database
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const userList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            
+            // Sort alphabetically
+            userList.sort((a, b) => (a.firstName || '').localeCompare(b.firstName || ''));
+            
+            setAllUsers(userList);
+            setLoading(false);
+        }, (error) => {
+            console.error("Real-time fetch error:", error);
+            toast.error("Failed to sync users.");
+            setLoading(false);
+        });
 
-    // 🚨 OPTIMIZATION: Filter instantly in memory (Costs 0 Firebase Reads)
+        // ✅ CRITICAL: Clean up the listener when navigating away to prevent memory leaks
+        return () => unsubscribe();
+
+    }, [instituteId]);
+
+    // Filter instantly in memory
     const displayedUsers = useMemo(() => {
         return allUsers.filter(u => u.role === roleFilter);
     }, [allUsers, roleFilter]);
 
-
     const handleDelete = async (userId) => {
         if(!window.confirm("Are you sure? This will delete the user permanently.")) return;
+        
         try {
-            await deleteDoc(doc(db, 'users', userId));
-            // Remove from local state instantly without re-fetching
-            setAllUsers(prev => prev.filter(u => u.id !== userId));
-            toast.success("User deleted from database.");
+            const token = await auth.currentUser.getIdToken();
+            const response = await fetch(`${process.env.REACT_APP_API_URL || 'https://acadex-backend-n2wh.onrender.com'}/deleteUsers`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ userIds: [userId] })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || "Failed to delete user");
+            }
+
+            // ✅ Notice we REMOVED the manual setAllUsers(.filter) here!
+            // Because onSnapshot is running, the moment the backend deletes the user,
+            // the table will instantly update itself automatically.
+            toast.success("User deleted successfully!");
+
         } catch (err) {
-            toast.error("Error deleting user.");
+            console.error("Error deleting user:", err);
+            toast.error(err.message || "Error deleting user.");
         }
     };
 
-    // --- GROUP STUDENTS BY YEAR LOGIC (Costs 0 reads) ---
+    // --- GROUP STUDENTS BY YEAR LOGIC ---
     const groupedStudents = useMemo(() => {
         if (roleFilter !== 'student') return {};
         
@@ -165,7 +183,6 @@ export default function ManageUsers({ instituteId }) {
                         )}
                     </div>
                 ) : (
-                    /* Existing Teacher Table */
                     <div className="table-wrapper" style={{ border: 'none' }}>
                         <table className="attendance-table">
                             <thead style={{ background: '#f8fafc' }}>
