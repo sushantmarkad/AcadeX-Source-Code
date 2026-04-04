@@ -558,98 +558,88 @@ const SmartScheduleCard = ({ user, currentSlot, loading }) => {
 const StudentAttendanceAnalytics = ({ user }) => {
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
+useEffect(() => {
+        if (!user?.instituteId || !user?.department || !user?.year) return;
 
-    useEffect(() => {
-        const fetchAccurateStats = async () => {
-            if (!user?.instituteId || !user?.department || !user?.year) return;
+        let sessionsCache = null; // ✅ Cache sessions so attendance snapshot doesn't re-fetch them
 
-            try {
-                // 1. Fetch exactly as you did originally, but only ONCE!
-                const myAttendanceQ = query(
-                    collection(db, 'attendance'),
-                    where('studentId', '==', user.uid),
-                    where('status', '==', 'Present'),
-                    where('academicYear', '==', user.academicYear || '2025-2026')
-                );
-                const myAttendanceSnap = await getDocs(myAttendanceQ);
-                const myPresentSessionIds = new Set(myAttendanceSnap.docs.map(doc => doc.data().sessionId));
+        const computeStats = (sessions, attendanceDocs) => {
+            const myPresentSessionIds = new Set(attendanceDocs.map(d => d.data().sessionId));
+            let tTotal = 0, tPresent = 0, pTotal = 0, pPresent = 0;
+            const subStats = {};
 
-                const sessionsQ = query(
-                    collection(db, 'live_sessions'),
-                    where('instituteId', '==', user.instituteId),
-                    where('department', '==', user.department),
-                    where('academicYear', '==', user.academicYear || '2025-2026')
-                );
-                const sessionsSnap = await getDocs(sessionsQ);
+            sessions.forEach(doc => {
+                const data = doc.data();
+                const sessionId = doc.id;
 
-                let tTotal = 0, tPresent = 0;
-                let pTotal = 0, pPresent = 0;
-                let subStats = {};
+                if (data.isDeleted === true || data.status === 'deleted' || data.status === 'cancelled') return;
+                if (data.type !== 'theory' && data.type !== 'practical') return;
 
-                // 2. Loop through sessions and apply your exact original filters
-                sessionsSnap.forEach(doc => {
-                    const data = doc.data();
-                    const sessionId = doc.id;
+                const sYear = data.year || data.targetYear;
+                if (sYear !== 'All' && sYear !== user.year) return;
 
-                    // Ignore deleted and cancelled
-                    if (data.isDeleted === true || data.status === 'deleted' || data.status === 'cancelled') return;
-                    if (data.type !== 'theory' && data.type !== 'practical') return;
+                if (data.division && data.division !== 'All') {
+                    const myDiv = user.division || user.div;
+                    if (data.division !== myDiv) return;
+                }
 
-                    // Filter Year
-                    const sYear = data.year || data.targetYear;
-                    if (sYear !== 'All' && sYear !== user.year) return;
+                if (data.type === 'practical' && data.rollRange) {
+                    const myRoll = parseInt(user.rollNo);
+                    const min = parseInt(data.rollRange.start);
+                    const max = parseInt(data.rollRange.end);
+                    if (isNaN(myRoll) || myRoll < min || myRoll > max) return;
+                }
 
-                    // Filter Division
-                    if (data.division && data.division !== 'All') {
-                        const myDiv = user.division || user.div;
-                        if (data.division !== myDiv) return;
-                    }
+                const subject = data.subject || 'Unknown Subject';
+                if (!subStats[subject]) subStats[subject] = { tTotal: 0, pTotal: 0, tPresent: 0, pPresent: 0 };
 
-                    // Filter Practical Roll Range
-                    if (data.type === 'practical' && data.rollRange) {
-                        const myRoll = parseInt(user.rollNo);
-                        const min = parseInt(data.rollRange.start);
-                        const max = parseInt(data.rollRange.end);
-                        if (isNaN(myRoll) || myRoll < min || myRoll > max) return;
-                    }
+                const isPresent = myPresentSessionIds.has(sessionId);
+                if (data.type === 'theory') {
+                    tTotal++; subStats[subject].tTotal++;
+                    if (isPresent) { tPresent++; subStats[subject].tPresent++; }
+                } else {
+                    pTotal++; subStats[subject].pTotal++;
+                    if (isPresent) { pPresent++; subStats[subject].pPresent++; }
+                }
+            });
 
-                    const subject = data.subject || 'Unknown Subject';
-                    if (!subStats[subject]) {
-                        subStats[subject] = { tTotal: 0, pTotal: 0, tPresent: 0, pPresent: 0 };
-                    }
-
-                    const isPresent = myPresentSessionIds.has(sessionId);
-
-                    if (data.type === 'theory') {
-                        tTotal++;
-                        subStats[subject].tTotal++;
-                        if (isPresent) {
-                            tPresent++;
-                            subStats[subject].tPresent++;
-                        }
-                    } else if (data.type === 'practical') {
-                        pTotal++;
-                        subStats[subject].pTotal++;
-                        if (isPresent) {
-                            pPresent++;
-                            subStats[subject].pPresent++;
-                        }
-                    }
-                });
-
-                setStats({
-                    overall: { tTotal, pTotal, tPresent, pPresent },
-                    subjects: subStats
-                });
-
-            } catch (err) {
-                console.error("Stats Error:", err);
-            } finally {
-                setLoading(false);
-            }
+            setStats({ overall: { tTotal, pTotal, tPresent, pPresent }, subjects: subStats });
+            setLoading(false);
         };
 
-        fetchAccurateStats();
+        // Step 1: Fetch sessions once (they don't change mid-class)
+        const sessionsQ = query(
+            collection(db, 'live_sessions'),
+            where('instituteId', '==', user.instituteId),
+            where('department', '==', user.department),
+            where('academicYear', '==', user.academicYear || '2025-2026')
+        );
+
+        let unsubAttendance = null;
+
+        getDocs(sessionsQ).then(sessionsSnap => {
+            sessionsCache = sessionsSnap.docs;
+
+            // Step 2: LIVE listener on this student's attendance — fires instantly when they mark
+            const myAttendanceQ = query(
+                collection(db, 'attendance'),
+                where('studentId', '==', user.uid),
+                where('status', '==', 'Present'),
+                where('academicYear', '==', user.academicYear || '2025-2026')
+            );
+
+            unsubAttendance = onSnapshot(myAttendanceQ, (attSnap) => {
+                computeStats(sessionsCache, attSnap.docs);
+            }, (err) => {
+                console.error("Attendance snapshot error:", err);
+                setLoading(false);
+            });
+        }).catch(err => {
+            console.error("Sessions fetch error:", err);
+            setLoading(false);
+        });
+
+        return () => { if (unsubAttendance) unsubAttendance(); };
     }, [user]);
 
     if (loading) return <div className="card" style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}><i className="fas fa-spinner fa-spin"></i> Loading Analytics...</div>;
@@ -942,33 +932,30 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
         const startOfDay = new Date();
         startOfDay.setHours(0, 0, 0, 0);
 
-        // ✅ FIXED: Changed from onSnapshot to getDocs
-        const fetchRecentAttendance = async () => {
-            const q = query(
-                collection(db, "attendance"),
-                where("studentId", "==", auth.currentUser.uid),
-                where("timestamp", ">=", startOfDay),
-                orderBy("timestamp", "desc")
-            );
+      // ✅ LIVE: Today's history must update immediately when student marks attendance
+        const q = query(
+            collection(db, "attendance"),
+            where("studentId", "==", auth.currentUser.uid),
+            where("timestamp", ">=", startOfDay),
+            orderBy("timestamp", "desc")
+        );
 
-            try {
-                const snapshot = await getDocs(q);
-                setRecentAttendance(snapshot.docs.map(doc => {
-                    const data = doc.data();
-                    return {
-                        id: doc.id,
-                        ...data,
-                        timeDisplay: data.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                        dateDisplay: data.timestamp?.toDate().toLocaleDateString()
-                    };
-                }));
-            } catch (error) {
-                console.error("Error fetching recent attendance", error);
-            }
-        };
+        const unsub = onSnapshot(q, (snapshot) => {
+            setRecentAttendance(snapshot.docs.map(doc => {
+                const data = doc.data();
+                return {
+                    id: doc.id,
+                    ...data,
+                    timeDisplay: data.timestamp?.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    dateDisplay: data.timestamp?.toDate().toLocaleDateString()
+                };
+            }));
+        }, (error) => {
+            console.error("Error listening to recent attendance", error);
+        });
 
-        fetchRecentAttendance();
-    }, [setRecentAttendance]);
+        return () => unsub();
+    }, []);
 
     return (
         <div className="content-section">
