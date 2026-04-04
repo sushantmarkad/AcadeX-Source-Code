@@ -370,24 +370,35 @@ export default function HODDashboard() {
         }
     }, [activeTab, fbTab, hodInfo]);
 
-    // --- 2. FETCH & PROCESS ATTENDANCE (Student Counts) - BACKEND OPTIMIZED ---
+   // --- 2. FETCH & PROCESS ATTENDANCE (Student Counts) - ACCURATE FIRESTORE FETCH ---
     useEffect(() => {
         if (!hodInfo || allSessions.length === 0 || deptUsers.length === 0) return;
 
-        const fetchAttendanceMap = () => {
+        const fetchAttendanceMap = async () => {
             try {
-                // ✅ ZERO READS: We rely on the `attendanceCount` that your backend is now 
-                // attaching to the user documents inside deptUsers!
+                // Fetch actual attendance records for the current academic year
+                // This ensures we get Theory/Practical splits AND ignores old lifetime data
+                const qAttendance = query(
+                    collection(db, 'attendance'),
+                    where('instituteId', '==', hodInfo.instituteId),
+                    where('academicYear', '==', currentAcademicYear)
+                );
+
+                const snap = await getDocs(qAttendance);
                 const tempMap = {};
-                
-                deptUsers.forEach(user => {
-                    if (user.role === 'student') {
-                        // Map backend aggregates. If you want practical/theory splits, 
-                        // ensure backend sets user.attendanceStats object, else fallback to total
-                        tempMap[user.id] = { 
-                            theory: user.attendanceCount || 0, // Fallback using your existing backend counter
-                            practical: 0 
-                        };
+
+                snap.docs.forEach(doc => {
+                    const data = doc.data();
+                    const sId = data.studentId;
+                    
+                    if (!tempMap[sId]) {
+                        tempMap[sId] = { theory: 0, practical: 0 };
+                    }
+                    
+                    if (data.type === 'practical') {
+                        tempMap[sId].practical += 1;
+                    } else {
+                        tempMap[sId].theory += 1;
                     }
                 });
                 
@@ -401,7 +412,7 @@ export default function HODDashboard() {
     }, [hodInfo, allSessions, currentAcademicYear, deptUsers]);
 
 
-// --- 3. FUNCTIONAL ATTENDANCE GRAPH (100% ACCURATE MATH) - BACKEND OPTIMIZED ---
+// --- 3. FUNCTIONAL ATTENDANCE GRAPH (100% ACCURATE MATH) ---
     useEffect(() => {
         if (!hodInfo || deptUsers.length === 0 || allSessions.length === 0) return;
 
@@ -410,20 +421,21 @@ export default function HODDashboard() {
                 const groupAttended = {};
                 const groupExpected = {};
 
-                // ✅ ZERO READS: Uses pre-loaded `deptUsers` with backend counters
+                // ✅ Use studentAttendanceMap which is properly scoped to current year
                 deptUsers.forEach(u => {
                     if (u.role !== 'student') return;
 
-                    const groupKey = isFE ? (u.division || 'A') : u.year;
+                    const groupKey = isFE ? (u.division || 'A') : (u.year || u.level);
+                    const myStats = studentAttendanceMap[u.id || u.uid] || { theory: 0, practical: 0 };
                     
-                    // Add student's total attended classes
-                    groupAttended[groupKey] = (groupAttended[groupKey] || 0) + (u.attendanceCount || 0);
+                    // Add student's accurate attended classes for this year
+                    groupAttended[groupKey] = (groupAttended[groupKey] || 0) + (myStats.theory + myStats.practical);
 
                     // Estimate expected classes based on active sessions
                     allSessions.forEach(session => {
                         const sessionYear = session.targetYear || session.year;
                         
-                        if (sessionYear !== 'All' && sessionYear !== u.year) return;
+                        if (sessionYear !== 'All' && sessionYear !== u.year && sessionYear !== u.level) return;
                         if (isFE && session.division && session.division !== 'All' && session.division !== u.division) return;
                         
                         groupExpected[groupKey] = (groupExpected[groupKey] || 0) + 1;
@@ -447,8 +459,7 @@ export default function HODDashboard() {
             } catch (err) { console.error(err); }
         };
         fetchAttendanceStats();
-    }, [hodInfo, deptUsers, timeRange, isFE, allSessions, currentAcademicYear]);
-
+    }, [hodInfo, deptUsers, timeRange, isFE, allSessions, currentAcademicYear, studentAttendanceMap, config, academicLevels]);
     
     
 
@@ -715,8 +726,7 @@ export default function HODDashboard() {
     }, [availableSubjects, teachersList]);
 
    
-
-    // ✅ NEW CALCULATION ENGINE (PER-STUDENT PRECISION - MEMOIZED)
+// ✅ NEW CALCULATION ENGINE (PER-STUDENT PRECISION - MEMOIZED)
     const analyticsData = useMemo(() => {
         if (!deptUsers || deptUsers.length === 0) return { total: 0, safe: [], defaulters: [], threshold: 75 };
 
@@ -743,7 +753,9 @@ export default function HODDashboard() {
 
             allSessions.forEach(session => {
                 const sessionYear = session.targetYear || session.year;
-                if (sessionYear !== 'All' && sessionYear !== s.year) return;
+                
+                // ✅ FIXED: Check both s.year and s.level to prevent breaking on Non-Engg domains
+                if (sessionYear !== 'All' && sessionYear !== s.year && sessionYear !== s.level) return;
 
                 if (isFE && session.division && session.division !== 'All') {
                     if (session.division !== userDiv) return;
