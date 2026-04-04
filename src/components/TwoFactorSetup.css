@@ -1,207 +1,233 @@
 /* src/components/TwoFactorSetup.css */
 
-/* Main Glassmorphism Container */
-.tfa-container {
-  background: rgba(255, 255, 255, 0.85); /* Slightly transparent */
-  backdrop-filter: blur(12px);            /* Blur effect */
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  border-radius: 24px;
-  padding: 30px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08); /* Soft shadow */
-  text-align: center;
-  max-width: 100%;
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
-  overflow: hidden;
-  position: relative;
+/* Premium Main Card */
+.tfa-premium-card {
+    background: #ffffff;
+    border-radius: 32px;
+    padding: 40px;
+    border: 1px solid #f1f5f9;
+    box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.05), 
+                0 0 0 1px rgba(0, 0, 0, 0.02);
+    text-align: center;
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    max-width: 440px;
+    margin: 0 auto;
+    position: relative;
 }
 
-.tfa-container:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 15px 50px rgba(37, 99, 235, 0.15); /* Blue glow on hover */
+.tfa-premium-card:hover {
+    box-shadow: 0 30px 60px -15px rgba(99, 102, 241, 0.15), 
+                0 0 0 1px rgba(99, 102, 241, 0.05);
+    transform: translateY(-4px);
 }
 
-/* Header Section */
-.tfa-header {
-  margin-bottom: 25px;
+/* Premium Header Icons */
+.tfa-shield-icon {
+    width: 80px;
+    height: 80px;
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border: 1px solid #e2e8f0;
+    border-radius: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 20px auto;
+    color: #475569;
+    font-size: 32px;
+    box-shadow: inset 0 2px 4px rgba(255, 255, 255, 0.5),
+                0 10px 20px -5px rgba(0, 0, 0, 0.05);
 }
 
-.tfa-icon {
-  font-size: 42px;
-  margin-bottom: 12px;
-  display: inline-block;
-  background: #f1f5f9;
-  width: 70px;
-  height: 70px;
-  line-height: 70px;
-  border-radius: 50%;
-  box-shadow: inset 0 2px 5px rgba(0,0,0,0.05);
+.tfa-shield-icon.active {
+    background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+    border-color: #a7f3d0;
+    color: #10b981;
+    box-shadow: 0 15px 30px -10px rgba(16, 185, 129, 0.3);
 }
 
+.tfa-shield-icon.success {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white;
+    border: none;
+    box-shadow: 0 15px 30px -10px rgba(16, 185, 129, 0.4);
+}
+
+/* Typography */
 .tfa-title {
-  font-size: 22px;
-  font-weight: 800;
-  color: #1e293b;
-  margin: 0;
-  letter-spacing: -0.5px;
+    font-size: 26px;
+    font-weight: 800;
+    color: #0f172a;
+    margin-bottom: 10px;
+    letter-spacing: -0.8px;
 }
 
-.tfa-subtitle {
-  font-size: 14px;
-  color: #64748b;
-  margin-top: 6px;
-  line-height: 1.5;
+.tfa-desc {
+    font-size: 15px;
+    color: #64748b;
+    line-height: 1.6;
+    margin-bottom: 30px;
+    padding: 0 10px;
 }
 
-/* QR Code Wrapper */
-.qr-wrapper {
-  background: white;
-  padding: 15px;
-  border-radius: 18px;
-  box-shadow: 0 8px 20px rgba(0,0,0,0.06);
-  display: inline-block;
-  margin-bottom: 20px;
-  border: 2px solid #f8fafc;
+/* Status Badge */
+.tfa-status-badge {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: #ecfdf5;
+    color: #059669;
+    padding: 8px 16px;
+    border-radius: 30px;
+    font-weight: 700;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid #a7f3d0;
 }
 
-.qr-image {
-  width: 160px;
-  height: 160px;
-  display: block;
-  border-radius: 8px;
+.tfa-step-badge {
+    background: #e0e7ff;
+    color: #4f46e5;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    display: inline-block;
+    margin-bottom: 15px;
 }
 
-/* Manual Code Box (Click to Copy) */
-.manual-code-box {
-  background: #f8fafc;
-  border: 1px dashed #cbd5e1;
-  border-radius: 12px;
-  padding: 12px;
-  margin: 15px 0 25px 0;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  user-select: none;
+/* QR Code Section */
+.qr-premium-container {
+    background: #ffffff;
+    padding: 16px;
+    border-radius: 24px;
+    display: inline-block;
+    border: 2px solid #f1f5f9;
+    margin-bottom: 20px;
+    box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05);
 }
 
-.manual-code-box:hover {
-  background: #eff6ff;
-  border-color: #3b82f6;
+.qr-img {
+    width: 170px;
+    height: 170px;
+    display: block;
+    border-radius: 8px;
 }
 
-.code-label {
-  font-size: 10px;
-  text-transform: uppercase;
-  color: #94a3b8;
-  letter-spacing: 1px;
-  font-weight: 700;
-  display: block;
-  margin-bottom: 4px;
+/* OTP Input */
+.otp-premium-input {
+    width: 100%;
+    padding: 18px 0;
+    font-size: 28px;
+    font-weight: 800;
+    text-align: center;
+    letter-spacing: 14px;
+    border: 2px solid #e2e8f0;
+    border-radius: 20px;
+    background: #f8fafc;
+    margin-bottom: 25px;
+    transition: all 0.3s ease;
+    font-family: 'SF Pro Rounded', 'Nunito', sans-serif;
+    color: #0f172a;
+    box-sizing: border-box;
 }
 
-.code-value {
-  font-family: 'Courier New', monospace;
-  font-size: 18px;
-  font-weight: 700;
-  color: #334155;
-  letter-spacing: 1.5px;
+.otp-premium-input:focus {
+    border-color: #6366f1;
+    background: #ffffff;
+    box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
+    outline: none;
+    transform: translateY(-2px);
 }
 
-.copy-hint {
-  font-size: 11px;
-  color: #2563eb;
-  margin-top: 4px;
-  display: block;
-  font-weight: 600;
+.otp-premium-input::placeholder {
+    color: #cbd5e1;
+    letter-spacing: 8px;
 }
 
-/* 6-Digit Input Field */
-.tfa-input {
-  width: 100%;
-  padding: 16px;
-  border-radius: 14px;
-  border: 2px solid #e2e8f0;
-  background: #fff;
-  font-size: 24px;
-  text-align: center;
-  letter-spacing: 8px;
-  font-weight: 700;
-  color: #1e293b;
-  margin-bottom: 15px;
-  transition: all 0.3s;
-  font-family: monospace;
+/* Buttons */
+.tfa-btn {
+    width: 100%;
+    padding: 18px;
+    border-radius: 20px;
+    border: none;
+    font-size: 16px;
+    font-weight: 800;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
 }
 
-.tfa-input:focus {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
-  outline: none;
+.tfa-btn-primary {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    color: white;
+    box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.4);
 }
 
-.tfa-input::placeholder {
-  color: #cbd5e1;
-  letter-spacing: 4px;
-  font-size: 18px;
+.tfa-btn-primary:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 15px 35px -5px rgba(15, 23, 42, 0.5);
 }
 
-/* Modern Gradient Buttons */
-.btn-modern {
-  width: 100%;
-  padding: 14px;
-  border-radius: 14px;
-  border: none;
-  font-size: 16px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  position: relative;
-  overflow: hidden;
+.tfa-btn-deactivate {
+    background: #ffffff;
+    border: 2px solid #fee2e2;
+    color: #dc2626;
+    margin-top: 10px;
 }
 
-.btn-start {
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-  color: white;
-  box-shadow: 0 4px 15px rgba(37, 99, 235, 0.4);
+.tfa-btn-deactivate:hover {
+    background: #fef2f2;
+    border-color: #fecaca;
+    transform: translateY(-2px);
+    box-shadow: 0 10px 20px -5px rgba(220, 38, 38, 0.15);
 }
 
-.btn-start:hover {
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5);
+/* Animations */
+.animate-fade-in {
+    animation: tfaFade 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.btn-verify {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  color: white;
-  box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+@keyframes tfaFade {
+    from { opacity: 0; transform: translateY(15px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-.btn-verify:hover {
-  background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.5);
-}
+/* --- MOBILE RESPONSIVENESS --- */
+@media (max-width: 480px) {
+    .tfa-premium-card {
+        padding: 35px 20px 25px 20px;
+        border-radius: 28px;
+    }
+    
+    .tfa-title { font-size: 24px; }
+    
+    .tfa-status-badge {
+        top: 15px; right: 15px; font-size: 10px; padding: 6px 12px;
+    }
 
-.btn-verify:disabled {
-  background: #cbd5e1;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
-}
+    .qr-img { width: 150px; height: 150px; }
 
-/* Success Badge */
-.active-badge {
-  background: #dcfce7;
-  color: #166534;
-  padding: 8px 16px;
-  border-radius: 30px;
-  font-size: 13px;
-  font-weight: 700;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid #bbf7d0;
+    .otp-premium-input {
+        font-size: 24px;
+        letter-spacing: 8px;
+        padding: 16px 0;
+    }
+    
+    .tfa-btn {
+        padding: 16px;
+        font-size: 15px;
+    }
+
+    .tfa-shield-icon {
+        width: 65px; height: 65px; font-size: 26px;
+    }
 }

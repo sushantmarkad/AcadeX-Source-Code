@@ -1,17 +1,20 @@
 import React, { useState } from 'react';
 import { auth } from '../firebase'; 
 import toast from 'react-hot-toast';
+import ConfirmModal from './ConfirmModal';
+import './TwoFactorSetup.css';
 
-// REPLACE WITH YOUR RENDER BACKEND URL
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com"; 
 
 const TwoFactorSetup = ({ user }) => {
     const [qrCode, setQrCode] = useState(null);
     const [code, setCode] = useState('');
     const [step, setStep] = useState(1); 
+    const [isModalOpen, setIsModalOpen] = useState(false);
 
+    // --- SETUP LOGIC ---
     const startSetup = async () => {
-        const toastId = toast.loading("Generating Secure Key...");
+        const toastId = toast.loading("Generating Key...");
         try {
             const token = await auth.currentUser.getIdToken();
             const res = await fetch(`${BACKEND_URL}/setup2FA`, {
@@ -22,14 +25,15 @@ const TwoFactorSetup = ({ user }) => {
             if(data.qrImage) {
                 setQrCode(data.qrImage);
                 setStep(2);
-                toast.success("Key Generated!", { id: toastId });
+                toast.success("Ready to Scan!", { id: toastId });
             }
-        } catch (e) { toast.error("Setup Failed", { id: toastId }); }
+        } catch (e) { 
+            toast.error("Setup Failed", { id: toastId }); 
+        }
     };
 
     const verifySetup = async () => {
-        if(!code) return toast.error("Enter the code first");
-        
+        if(!code || code.length !== 6) return toast.error("Enter a valid 6-digit code");
         const toastId = toast.loading("Verifying Code...");
         try {
             const token = await auth.currentUser.getIdToken();
@@ -41,83 +45,120 @@ const TwoFactorSetup = ({ user }) => {
             const data = await res.json();
             if (data.success) {
                 setStep(3);
-                toast.success("2FA Activated Successfully!", { id: toastId });
+                toast.success("Security Activated!", { id: toastId });
+                setTimeout(() => window.location.reload(), 1500);
             } else {
                 toast.error("Invalid Code. Try again.", { id: toastId });
             }
-        } catch (e) { toast.error("Verification Error", { id: toastId }); }
+        } catch (e) { 
+            toast.error("Error verifying", { id: toastId }); 
+        }
     };
 
-    // --- ALREADY ENABLED STATE ---
-    if (user?.is2FAEnabled) return (
-        <div style={{ background: '#f0fdf4', padding: '20px', borderRadius: '12px', border: '1px solid #bbf7d0', textAlign: 'center' }}>
-            <div style={{ width: '60px', height: '60px', background: '#dcfce7', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 15px auto' }}>
-                <i className="fas fa-shield-alt" style={{ fontSize: '24px', color: '#16a34a' }}></i>
-            </div>
-            <h3 style={{ margin: '0 0 5px 0', color: '#166534', fontSize: '18px' }}>Security Active</h3>
-            <p style={{ margin: 0, color: '#15803d', fontSize: '14px' }}>Two-Factor Authentication is currently enabled on your account.</p>
-        </div>
-    );
+    // --- DEACTIVATION LOGIC ---
+    const handleDeactivate = async () => {
+        setIsModalOpen(false); 
+        const toastId = toast.loading("Deactivating 2FA...");
+        try {
+            const token = await auth.currentUser.getIdToken();
+            const res = await fetch(`${BACKEND_URL}/deactivate2FA`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success("Security Disabled", { id: toastId });
+                setTimeout(() => window.location.reload(), 1000);
+            } else {
+                toast.error("Failed to deactivate", { id: toastId });
+            }
+        } catch (e) { 
+            toast.error("Network Error", { id: toastId }); 
+        }
+    };
 
-    // --- SETUP FLOW ---
     return (
-        <div style={{ textAlign: 'center' }}>
-            {step === 1 && (
-                <div>
-                    <p style={{ color: '#64748b', fontSize: '14px', marginBottom: '20px' }}>
-                        Add an extra layer of security. You will need a code from Google Authenticator to log in.
-                    </p>
-                    <button className="btn-primary" onClick={startSetup} style={{ width: '100%', justifyContent: 'center' }}>
-                        <i className="fas fa-qrcode"></i> Setup 2FA Now
-                    </button>
-                </div>
-            )}
-
-            {step === 2 && (
-                <div className="animate-fade-in">
-                    <div style={{ background: 'white', padding: '10px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'inline-block', marginBottom: '15px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
-                        <img src={qrCode} alt="QR" style={{ width: '180px', height: '180px', display: 'block' }} />
+        <>
+            <div className="tfa-premium-card">
+                {user?.is2FAEnabled ? (
+                    /* ENABLED STATE */
+                    <div className="animate-fade-in">
+                        <div className="tfa-status-badge">
+                            <i className="fas fa-shield-check"></i> 2FA Active
+                        </div>
+                        <div className="tfa-shield-icon active">
+                            <i className="fas fa-lock"></i>
+                        </div>
+                        <h3 className="tfa-title">Protection Enabled</h3>
+                        <p className="tfa-desc">Your account is highly secured with Google Authenticator. A code is required for every login.</p>
+                        <button className="tfa-btn tfa-btn-deactivate" onClick={() => setIsModalOpen(true)}>
+                            Deactivate Security
+                        </button>
                     </div>
-                    
-                    <p style={{ fontSize: '13px', color: '#475569', marginBottom: '15px' }}>
-                        1. Open <strong>Google Authenticator</strong><br/>
-                        2. Scan this QR Code<br/>
-                        3. Enter the 6-digit code below
-                    </p>
-                    
-                    <input 
-                        type="text" 
-                        placeholder="000 000" 
-                        value={code} 
-                        onChange={e => setCode(e.target.value)} 
-                        style={{ 
-                            width: '80%', padding: '12px', fontSize: '20px', textAlign: 'center', 
-                            borderRadius: '8px', border: '2px solid #e2e8f0', marginBottom: '15px',
-                            letterSpacing: '5px', fontWeight: 'bold'
-                        }} 
-                    />
-                    
-                    <button className="btn-primary" onClick={verifySetup} style={{ width: '100%', justifyContent: 'center' }}>
-                        Verify & Activate
-                    </button>
-                </div>
-            )}
+                ) : (
+                    /* SETUP STATE */
+                    <div>
+                        {step === 1 && (
+                            <div className="animate-fade-in">
+                                <div className="tfa-shield-icon">
+                                    <i className="fas fa-shield-alt"></i>
+                                </div>
+                                <h3 className="tfa-title">Two-Factor Security</h3>
+                                <p className="tfa-desc">Protect your account from unauthorized access by requiring a secondary code when you log in.</p>
+                                <button className="tfa-btn tfa-btn-primary" onClick={startSetup}>
+                                    Enable Security
+                                </button>
+                            </div>
+                        )}
 
-            {step === 3 && (
-                <div className="animate-fade-in" style={{ padding: '20px 0' }}>
-                    <div style={{ width: '60px', height: '60px', background: '#dcfce7', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 15px auto' }}>
-                        <i className="fas fa-check" style={{ fontSize: '24px', color: '#16a34a' }}></i>
+                        {step === 2 && (
+                            <div className="animate-fade-in">
+                                <span className="tfa-step-badge">Step 2 of 3</span>
+                                <h3 className="tfa-title" style={{ fontSize: '20px' }}>Scan & Verify</h3>
+                                <div className="qr-premium-container">
+                                    <img src={qrCode} alt="QR" className="qr-img" />
+                                </div>
+                                <p className="tfa-desc" style={{ marginBottom: '15px' }}>Scan using <b>Google Authenticator</b> and enter the 6-digit code below.</p>
+                                
+                                <input 
+                                    type="text" 
+                                    inputMode="numeric"
+                                    pattern="[0-9]*"
+                                    maxLength="6"
+                                    placeholder="000000" 
+                                    className="otp-premium-input"
+                                    value={code} 
+                                    onChange={e => setCode(e.target.value.replace(/\D/g, ''))} // strictly numbers
+                                />
+                                
+                                <button className="tfa-btn tfa-btn-primary" onClick={verifySetup}>
+                                    Verify & Activate
+                                </button>
+                            </div>
+                        )}
+
+                        {step === 3 && (
+                            <div className="animate-fade-in">
+                                <div className="tfa-shield-icon success">
+                                    <i className="fas fa-check"></i>
+                                </div>
+                                <h3 className="tfa-title">Setup Complete!</h3>
+                                <p className="tfa-desc">Your account is now secured. Page will refresh shortly.</p>
+                            </div>
+                        )}
                     </div>
-                    <h3 style={{ color: '#166534', margin: '0 0 10px 0' }}>All Set!</h3>
-                    <p style={{ color: '#64748b' }}>Your account is now secured with 2FA.</p>
-                </div>
-            )}
-            
-            <style>{`
-                .animate-fade-in { animation: fadeIn 0.4s ease-out; }
-                @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-            `}</style>
-        </div>
+                )}
+            </div>
+
+            <ConfirmModal 
+                isOpen={isModalOpen}
+                title="Disable Security?"
+                message="Turning off 2FA will remove the extra layer of protection from your account."
+                onConfirm={handleDeactivate}
+                onCancel={() => setIsModalOpen(false)}
+            />
+        </>
     );
 };
+
 export default TwoFactorSetup;
