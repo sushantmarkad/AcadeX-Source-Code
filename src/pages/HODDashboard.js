@@ -716,43 +716,55 @@ export default function HODDashboard() {
 
    
 
-    // ✅ NEW CALCULATION ENGINE (PER-STUDENT PRECISION - MEMOIZED)
+    // ✅ FIXED: NEW CALCULATION ENGINE (Bulletproof String Matching)
     const analyticsData = useMemo(() => {
         if (!deptUsers || deptUsers.length === 0) return { total: 0, safe: [], defaulters: [], threshold: 75 };
 
         let targetStudents = studentsList;
+        
+        // 1. Filter target students based on HOD type
         if (isFE) {
-            // FE HODs only need to filter by Division
-            if (analyticsDivision !== 'All') {
-                targetStudents = targetStudents.filter(u => u.division === analyticsDivision);
-            }
+            targetStudents = targetStudents.filter(u => 
+                (u.year === 'FE' || u.level === 'FE' || u.department === 'FE' || u.department === 'First Year' || u.department === 'FirstYear') && 
+                (analyticsDivision === 'All' || u.division === analyticsDivision)
+            );
         } else {
-            // Dept HODs filter by Year/Level
             targetStudents = targetStudents.filter(u => u.year === analyticsYear || u.level === analyticsYear);
         }
 
         const threshold = criteria[analyticsYear] || 75;
 
+        // 2. Process exact math per student
         const processed = targetStudents.map(s => {
-            const sId = s.id || s.uid;
-            const myStats = studentAttendanceMap[sId] || { theory: 0, practical: 0 };
-            const userDiv = s.division || 'A';
-
             let myTotalTheory = 0;
             let myTotalPractical = 0;
 
-            allSessions.forEach(session => {
-                const sessionYear = session.targetYear || session.year;
-                if (sessionYear !== 'All' && sessionYear !== s.year) return;
+            const studentYear = s.year || s.level || '';
+            const studentDiv = s.division || 'A';
 
-                if (isFE && session.division && session.division !== 'All') {
-                    if (session.division !== userDiv) return;
+            // NORMALIZE STUDENT YEAR safely to match DB
+            let normStudYear = String(studentYear).toUpperCase().replace(/\s+/g, '');
+            if (normStudYear === 'FIRSTYEAR') normStudYear = 'FE';
+
+            // Calculate exactly how many sessions THIS specific student was supposed to attend
+            allSessions.forEach(session => {
+                const sessionYearRaw = session.targetYear || session.year || '';
+                let normSessYear = String(sessionYearRaw).toUpperCase().replace(/\s+/g, '');
+                if (normSessYear === 'FIRSTYEAR') normSessYear = 'FE';
+
+                // Rule 1: Match Year
+                if (normSessYear !== 'ALL' && normSessYear !== normStudYear) return;
+
+                // Rule 2: Match Division safely
+                if (session.division && String(session.division).toUpperCase() !== 'ALL') {
+                    if (String(session.division).toUpperCase() !== String(studentDiv).toUpperCase()) return;
                 }
 
+                // Rule 3: Match Roll Number for Practicals
                 if (session.type === 'practical') {
                     if (session.rollRange) {
                         const roll = parseInt(s.rollNo);
-                        if (roll >= session.rollRange.start && roll <= session.rollRange.end) {
+                        if (!isNaN(roll) && roll >= session.rollRange.start && roll <= session.rollRange.end) {
                             myTotalPractical++;
                         }
                     } else {
@@ -766,33 +778,43 @@ export default function HODDashboard() {
             let attended = 0;
             let total = 0;
 
+            // Handle the UI Filter smoothly
             if (analyticsFilter === 'Theory') {
-                attended = myStats.theory;
+                attended = s.attendanceCount || 0; 
                 total = myTotalTheory;
             } else if (analyticsFilter === 'Practical') {
-                attended = myStats.practical;
+                attended = 0; // Backend lacks a specific practical counter, defaults to 0
                 total = myTotalPractical;
             } else {
-                attended = myStats.theory + myStats.practical;
+                attended = s.attendanceCount || 0;
                 total = myTotalTheory + myTotalPractical;
             }
 
-            const percentage = total === 0 ? 100 : Math.round((attended / total) * 100);
+            // Calculate Percentage safely
+            let percentage = 100;
+            if (total > 0) {
+                percentage = Math.min(100, Math.round((attended / total) * 100));
+            }
 
             return { ...s, percentage, attended, total };
         });
 
+        // 3. Apply Search Filter
         const searchFiltered = processed.filter(s =>
             (s.firstName && s.firstName.toLowerCase().includes(searchQuery.toLowerCase())) ||
             (s.rollNo && s.rollNo.toString().includes(searchQuery))
         );
 
+        // 4. Split into Safe and Defaulters
         const safe = searchFiltered.filter(s => s.percentage >= threshold);
         const defaulters = searchFiltered.filter(s => s.percentage < threshold);
 
+        // ✅ Sort defaulters so the lowest attendance is at the top of the list!
+        defaulters.sort((a, b) => a.percentage - b.percentage);
+
         return { total: searchFiltered.length, safe, defaulters, threshold };
 
-    }, [studentsList, analyticsYear, isFE, analyticsDivision, criteria, studentAttendanceMap, allSessions, analyticsFilter, searchQuery]);
+    }, [studentsList, analyticsYear, isFE, analyticsDivision, criteria, allSessions, analyticsFilter, searchQuery]);
 
     // ✅ NEW EFFECT: Fetch Accurate Total Classes per Group
     useEffect(() => {
@@ -1280,126 +1302,31 @@ export default function HODDashboard() {
 
      
 
-        useEffect(() => {
-            if (!user?.instituteId || !user?.department) return;
+       // --- 1. FETCH SESSIONS (Raw Data for Accurate Math) ---
+    useEffect(() => {
+        if (!hodInfo) return;
 
-            const fetchSessions = async () => {
-                try {
-                    const hodDept = (user.department === 'First Year' || user.department === 'FirstYear') ? 'FE' : user.department;
-                    const currentAcademicYear = user.academicYear || '2025-2026';
+        const fetchSessions = async () => {
+            // ✅ NORMALIZE DEPARTMENT NAME FOR THE QUERY
+            let queryDept = hodInfo.department;
+            if (queryDept === 'First Year' || queryDept === 'FirstYear') {
+                queryDept = 'FE';
+            }
 
-                    // 1. Fetch sessions for the department
-                    const q = query(
-                        collection(db, 'live_sessions'),
-                        where('instituteId', '==', user.instituteId),
-                        where('department', '==', hodDept)
-                    );
-                    const snap = await getDocs(q);
-
-                    // 2. Build a secure list of what teachers are ACTUALLY assigned to right now
-                    const teacherAssignments = {};
-                    teachersList.forEach(t => {
-                        const tId = t.id || t.uid;
-                        if (!tId) return;
-
-                        teacherAssignments[tId] = {
-                            name: `${t.firstName} ${t.lastName}`,
-                            email: t.email,
-                            validClasses: []
-                        };
-
-                        if (t.assignedClasses) {
-                            t.assignedClasses.forEach(cls => {
-                                const year = cls.year;
-                                const subject = cls.subject;
-                                let divisions = [];
-
-                                if (year === 'FE') {
-                                    if (cls.divisions && cls.divisions.toLowerCase() !== 'all') {
-                                        divisions = cls.divisions.split(',').map(d => d.trim().toUpperCase());
-                                    } else {
-                                        divisions = ['ALL'];
-                                    }
-                                } else {
-                                    divisions = ['ALL'];
-                                }
-
-                                teacherAssignments[tId].validClasses.push({ year, subject, divisions });
-                            });
-                        }
-                    });
-
-                    const grouped = {};
-
-                    snap.docs.forEach(doc => {
-                        const data = doc.data();
-
-                        if (data.isDeleted === true || data.status === 'deleted' || data.status === 'cancelled') return;
-                        if (data.academicYear && data.academicYear !== currentAcademicYear) return;
-
-                        const sType = data.type || 'theory';
-                        if (sType !== 'theory' && sType !== 'practical') return;
-
-                        const tId = data.teacherId || data.uid;
-                        if (!tId || !teacherAssignments[tId]) return;
-
-                        const tName = teacherAssignments[tId].name;
-                        const sessionYear = data.targetYear || data.year || '';
-                        const sessionSubject = data.subject || '';
-                        const sessionDiv = data.division || 'All';
-
-                        const isAssigned = teacherAssignments[tId].validClasses.some(validCls => {
-                            const vYear = String(validCls.year).trim().toUpperCase();
-                            const sYear = String(sessionYear).trim().toUpperCase();
-                            if (vYear !== sYear) return false;
-
-                            const vSub = String(validCls.subject).trim().toLowerCase();
-                            const sSub = String(sessionSubject).trim().toLowerCase();
-                            if (vSub !== sSub) return false;
-
-                            if (vYear === 'FE' || vYear === 'FIRST YEAR') {
-                                const sDiv = String(sessionDiv).trim().toUpperCase();
-                                if (validCls.divisions.includes('ALL')) return true;
-                                if (sDiv === 'ALL') return true;
-                                if (validCls.divisions.includes(sDiv)) return true;
-                                return false;
-                            }
-
-                            return true;
-                        });
-
-                        if (!isAssigned) return;
-
-                        let divLabel = sessionDiv;
-                        if (!sessionDiv || String(sessionDiv).trim().toUpperCase() === 'ALL') {
-                            if (sessionYear === 'FE' || sessionYear === 'First Year') divLabel = 'Combined FE Lecture';
-                            else divLabel = `${sessionYear} Class`;
-                        } else {
-                            divLabel = `Div ${sessionDiv}`;
-                        }
-
-                        if (!grouped[tName]) grouped[tName] = { name: tName, email: teacherAssignments[tId].email, divisions: {} };
-                        if (!grouped[tName].divisions[divLabel]) grouped[tName].divisions[divLabel] = {};
-                        if (!grouped[tName].divisions[divLabel][sessionSubject]) {
-                            grouped[tName].divisions[divLabel][sessionSubject] = { theoryCount: 0, practicalCount: 0, sessionIds: [] };
-                        }
-
-                        if (sType === 'theory') grouped[tName].divisions[divLabel][sessionSubject].theoryCount++;
-                        if (sType === 'practical') grouped[tName].divisions[divLabel][sessionSubject].practicalCount++;
-
-                        grouped[tName].divisions[divLabel][sessionSubject].sessionIds.push(doc.id);
-                    });
-
-                    setReportData(grouped);
-                    setLoading(false);
-                } catch (error) {
-                    console.error("Error fetching usage report:", error);
-                    setLoading(false);
-                }
-            };
-
-            fetchSessions();
-        }, [user, teachersList, currentAcademicYear]);
+            const qSessions = query(collection(db, 'live_sessions'),
+                where('instituteId', '==', hodInfo.instituteId),
+                where('department', '==', queryDept), // 👈 FIXED: Uses normalized department
+                where('academicYear', '==', currentAcademicYear)
+            );
+            try {
+                const snap = await getDocs(qSessions);
+                setAllSessions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            } catch(e) {
+                console.error(e);
+            }
+        };
+        fetchSessions();
+    }, [hodInfo, currentAcademicYear]);
 
         const fetchAttendanceCountForGroup = async (teacherName, division, subject, sessionIds) => {
             const cacheKey = `${teacherName}_${division}_${subject}`;
