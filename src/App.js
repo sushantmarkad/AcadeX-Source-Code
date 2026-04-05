@@ -213,15 +213,26 @@ function App() {
     return <IOSSplashScreen logoSrc={logo} onComplete={() => setShowSplash(false)} />;
   }
 
-  if (!isOnline) {
+if (!isOnline) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 p-6 z-50">
-        <div className="bg-white p-8 rounded-2xl shadow-xl text-center max-w-sm w-full border border-slate-100">
-          <svg className="w-20 h-20 mx-auto text-red-500 mb-6 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M18.364 5.636a9 9 0 010 12.728m-12.728 0a9 9 0 010-12.728m10.606 2.121a6 6 0 010 8.486m-8.486 0a6 6 0 010-8.486m6.364 2.121a3 3 0 010 4.242m-4.242 0a3 3 0 010-4.242"></path>
-          </svg>
-          <h2 className="text-2xl font-bold text-slate-800 mb-3">No Internet Connection</h2>
-          <p className="text-slate-500 mb-6 text-sm">Please check your Wi-Fi or mobile data network. The app will automatically resume when connected.</p>
+      <div className="offline-container">
+        <div className="offline-card">
+          <div className="offline-icon-wrapper">
+            <i className="fas fa-wifi offline-icon"></i>
+            <div className="offline-slash"></div>
+          </div>
+          
+          <h2 className="offline-title">Whoops! No Internet</h2>
+          <p className="offline-subtitle">
+            It seems you're offline. Please check your Wi-Fi or mobile data connection.
+          </p>
+          
+          <div className="offline-status-box">
+            <div className="offline-loader">
+              <span></span><span></span><span></span>
+            </div>
+            <p className="offline-auto-text">Waiting for connection...</p>
+          </div>
         </div>
       </div>
     );
