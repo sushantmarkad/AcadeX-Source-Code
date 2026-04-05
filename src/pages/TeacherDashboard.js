@@ -902,7 +902,8 @@ const DashboardHome = ({
     // 👇 ADDED PROPS HERE 👇
     batchSelectionMethod, setBatchSelectionMethod,
     selectedRosterId, setSelectedRosterId,
-    availableRosters
+    availableRosters,lectureCount, 
+    setLectureCount
 }) => {
 
     const [qrCodeValue, setQrCodeValue] = useState('');
@@ -922,6 +923,8 @@ const DashboardHome = ({
     const [pastLoading, setPastLoading] = useState(false);
     const [reportBatchFilter, setReportBatchFilter] = useState('All');
     const { config } = useInstitution();
+    // Add this near your other state declarations in DashboardHome
+   
 
     const theoryLabel = config?.terminology?.theory || "Theory";
     const practicalLabel = config?.terminology?.practical || "Practical";
@@ -930,6 +933,7 @@ const DashboardHome = ({
     const [liveAbsentRolls, setLiveAbsentRolls] = useState([]);
     const [pastAbsentRolls, setPastAbsentRolls] = useState([]);
     const [manualPresentRolls, setManualPresentRolls] = useState([]);
+    
 
     useEffect(() => {
         const fetchStudents = async () => {
@@ -1321,6 +1325,7 @@ const DashboardHome = ({
         setPastLoading(true);
 
         try {
+          // Inside handlePastAttendance, replace the fetch block with this:
             const response = await fetch(`${BACKEND_URL}/markPastAttendance`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1335,9 +1340,10 @@ const DashboardHome = ({
                     date: pastDate,
                     type: pastType,
                     batchName: pastType === 'practical' ? selectedBatch : 'All',
-                    absentRolls: absentees, // ✅ Sending the correct array
+                    absentRolls: absentees, 
                     rollRange: pastType === 'practical' ? { start: parseInt(rollStart), end: parseInt(rollEnd) } : null,
-                    academicYear: currentAcademicYear
+                    academicYear: currentAcademicYear,
+                    lectureCount: lectureCount // ✅ ADDED THIS
                 })
             });
 
@@ -1801,6 +1807,14 @@ const DashboardHome = ({
                                                 );
                                             });
                                         })()}
+                                        
+                                    </div>
+                                    <div style={{ marginBottom: '10px' }}>
+                                        <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '4px', display: 'block', textTransform: 'uppercase' }}>Number of Lectures</label>
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                            <button onClick={() => setLectureCount(1)} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: '1px solid #bfdbfe', background: lectureCount === 1 ? '#eff6ff' : 'white', color: lectureCount === 1 ? '#2563eb' : '#64748b', fontWeight: 'bold', cursor: 'pointer' }}>1 Lecture</button>
+                                            <button onClick={() => setLectureCount(2)} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: '1px solid #bfdbfe', background: lectureCount === 2 ? '#eff6ff' : 'white', color: lectureCount === 2 ? '#2563eb' : '#64748b', fontWeight: 'bold', cursor: 'pointer' }}>2 Lectures</button>
+                                        </div>
                                     </div>
 
                                     {/* Practical Config (Restored Roll Nos) */}
@@ -2113,6 +2127,13 @@ const DashboardHome = ({
                                 <div style={{ display: 'flex', gap: '8px' }}>
                                     <button onClick={() => setPastType('theory')} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: pastType === 'theory' ? '#2563eb' : 'white', color: pastType === 'theory' ? 'white' : '#64748b', fontWeight: 'bold', cursor: 'pointer', transition: 'all 0.2s' }}>Theory</button>
                                     <button onClick={() => setPastType('practical')} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: pastType === 'practical' ? '#2563eb' : 'white', color: pastType === 'practical' ? 'white' : '#64748b', fontWeight: 'bold', cursor: 'pointer', transition: 'all 0.2s' }}>Practical</button>
+                                </div>
+                            </div>
+                            <div>
+                                <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>Number of Lectures</label>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <button onClick={() => setLectureCount(1)} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: lectureCount === 1 ? '#2563eb' : 'white', color: lectureCount === 1 ? 'white' : '#64748b', fontWeight: 'bold', cursor: 'pointer', transition: 'all 0.2s' }}>1 Lecture</button>
+                                    <button onClick={() => setLectureCount(2)} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', background: lectureCount === 2 ? '#2563eb' : 'white', color: lectureCount === 2 ? 'white' : '#64748b', fontWeight: 'bold', cursor: 'pointer', transition: 'all 0.2s' }}>2 Lectures (Double)</button>
                                 </div>
                             </div>
 
@@ -3377,6 +3398,7 @@ export default function TeacherDashboard() {
 
     // History State
     const [viewMode, setViewMode] = useState('live');
+    const [lectureCount, setLectureCount] = useState(1);
     const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
     const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -3835,7 +3857,7 @@ export default function TeacherDashboard() {
 
                 // ✅ 2. Location Found - Proceed to Start
                 toast.loading("Starting Session...", { id: startToast });
-
+// Inside handleSession, replace the fetch block with this:
                 const response = await fetch(`${BACKEND_URL}/startSession`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -3855,7 +3877,8 @@ export default function TeacherDashboard() {
                         division: selectedYear === 'FE' ? selectedDiv : null,
                         rollRange: sessionType === 'practical'
                             ? { start: parseInt(rollStart), end: parseInt(rollEnd) }
-                            : null
+                            : null,
+                        lectureCount: lectureCount // ✅ ADDED THIS
                     })
                 });
 
@@ -3926,6 +3949,8 @@ export default function TeacherDashboard() {
                 selectedRosterId={selectedRosterId}
                 setSelectedRosterId={setSelectedRosterId}
                 availableRosters={availableRosters}
+                lectureCount={lectureCount}
+                setLectureCount={setLectureCount}
             />;
             case 'analytics': return <TeacherAnalytics teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} currentAcademicYear={currentAcademicYear} selectedSubject={selectedSubject} />;
             case 'reports':
