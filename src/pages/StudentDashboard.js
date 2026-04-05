@@ -558,7 +558,7 @@ const SmartScheduleCard = ({ user, currentSlot, loading }) => {
 const StudentAttendanceAnalytics = ({ user }) => {
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(true);
-useEffect(() => {
+    useEffect(() => {
         if (!user?.instituteId || !user?.department || !user?.year) return;
 
         let sessionsCache = null; // ✅ Cache sessions so attendance snapshot doesn't re-fetch them
@@ -580,25 +580,38 @@ useEffect(() => {
 
                 if (data.division && data.division !== 'All') {
                     const myDiv = user.division || user.div;
-                    if (data.division !== myDiv) return;
+                    if (String(data.division).trim().toUpperCase() !== String(myDiv).trim().toUpperCase()) return;
                 }
 
-                if (data.type === 'practical' && data.rollRange) {
-                    const myRoll = parseInt(user.rollNo);
-                    const min = parseInt(data.rollRange.start);
-                    const max = parseInt(data.rollRange.end);
-                    if (isNaN(myRoll) || myRoll < min || myRoll > max) return;
+                if (data.type === 'practical') {
+                    const extractInt = (val) => {
+                        if (!val) return NaN;
+                        const match = String(val).match(/\d+/);
+                        return match ? parseInt(match[0], 10) : NaN;
+                    };
+                    if (data.rollRange && data.rollRange.start && data.rollRange.end) {
+                        const myRoll = extractInt(user.rollNo);
+                        const min = extractInt(data.rollRange.start);
+                        const max = extractInt(data.rollRange.end);
+                        if (isNaN(myRoll) || isNaN(min) || isNaN(max)) return;
+                        if (myRoll < min || myRoll > max) return;
+                    } else if (data.batch && data.batch !== 'All') {
+                        if (!user.batch || String(user.batch).trim() !== String(data.batch).trim()) return;
+                    }
                 }
 
                 const subject = data.subject || 'Unknown Subject';
                 if (!subStats[subject]) subStats[subject] = { tTotal: 0, pTotal: 0, tPresent: 0, pPresent: 0 };
 
                 const isPresent = myPresentSessionIds.has(sessionId);
+
                 if (data.type === 'theory') {
-                    tTotal++; subStats[subject].tTotal++;
+                    tTotal++;
+                    subStats[subject].tTotal++;
                     if (isPresent) { tPresent++; subStats[subject].tPresent++; }
                 } else {
-                    pTotal++; subStats[subject].pTotal++;
+                    pTotal++;
+                    subStats[subject].pTotal++;
                     if (isPresent) { pPresent++; subStats[subject].pPresent++; }
                 }
             });
@@ -620,7 +633,6 @@ useEffect(() => {
         getDocs(sessionsQ).then(sessionsSnap => {
             sessionsCache = sessionsSnap.docs;
 
-            // Step 2: LIVE listener on this student's attendance — fires instantly when they mark
             const myAttendanceQ = query(
                 collection(db, 'attendance'),
                 where('studentId', '==', user.uid),
@@ -629,7 +641,7 @@ useEffect(() => {
             );
 
             unsubAttendance = onSnapshot(myAttendanceQ, (attSnap) => {
-                computeStats(sessionsCache, attSnap.docs);
+                computeStats(sessionsCache, attSnap.docs); // ✅ No aggStats
             }, (err) => {
                 console.error("Attendance snapshot error:", err);
                 setLoading(false);
@@ -824,7 +836,7 @@ const StudentAssignmentResults = ({ user }) => {
     const [results, setResults] = useState([]);
     const [loading, setLoading] = useState(true);
 
-   // ✅ FIXED: FETCH ASSIGNMENTS (Optimized with getDocs)
+    // ✅ FIXED: FETCH ASSIGNMENTS (Optimized with getDocs)
     useEffect(() => {
         if (!user?.instituteId) return;
 
@@ -860,7 +872,7 @@ const StudentAssignmentResults = ({ user }) => {
                 });
 
                 relevantTasks.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-                
+
                 // ✅ FIXED: Changed setAssignments to setResults
                 setResults(relevantTasks);
             } catch (error) {
@@ -932,7 +944,7 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
         const startOfDay = new Date();
         startOfDay.setHours(0, 0, 0, 0);
 
-      // ✅ LIVE: Today's history must update immediately when student marks attendance
+        // ✅ LIVE: Today's history must update immediately when student marks attendance
         const q = query(
             collection(db, "attendance"),
             where("studentId", "==", auth.currentUser.uid),
@@ -1049,31 +1061,31 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                                 {/* NEW: Side-by-Side Face ID & PIN Buttons */}
                                 <div style={{ display: 'flex', gap: '12px', marginTop: '15px' }}>
                                     <button
-                                            onClick={() => {
-                                                // 🚨 TEMPORARILY DISABLED FOR MAINTENANCE
-                                                toast("This feature is under maintenance. Try to give attendance through QR or PIN.", { 
-                                                    icon: '🔧',
-                                                    duration: 4000,
-                                                    style: {
-                                                        borderRadius: '10px',
-                                                        background: '#1e293b',
-                                                        color: '#fff',
-                                                    }
-                                                });
-                                            }}
-                                            style={{
-                                                flex: 1, background: 'rgba(255, 255, 255, 0.2)', border: '1px solid rgba(255, 255, 255, 0.4)',
-                                                borderRadius: '16px', padding: '14px', color: 'white', fontSize: '14px',
-                                                fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-                                                backdropFilter: 'blur(10px)', transition: 'all 0.2s', boxShadow: '0 4px 15px rgba(0,0,0,0.1)',
-                                                opacity: 0.8 // Slightly dimmed to show it's currently inactive
-                                            }}
-                                            onMouseDown={e => e.currentTarget.style.transform = 'scale(0.96)'}
-                                            onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
-                                            onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
-                                        >
-                                            <i className="fas fa-user-check"></i> Face ID
-                                        </button>
+                                        onClick={() => {
+                                            // 🚨 TEMPORARILY DISABLED FOR MAINTENANCE
+                                            toast("This feature is under maintenance. Try to give attendance through QR or PIN.", {
+                                                icon: '🔧',
+                                                duration: 4000,
+                                                style: {
+                                                    borderRadius: '10px',
+                                                    background: '#1e293b',
+                                                    color: '#fff',
+                                                }
+                                            });
+                                        }}
+                                        style={{
+                                            flex: 1, background: 'rgba(255, 255, 255, 0.2)', border: '1px solid rgba(255, 255, 255, 0.4)',
+                                            borderRadius: '16px', padding: '14px', color: 'white', fontSize: '14px',
+                                            fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                                            backdropFilter: 'blur(10px)', transition: 'all 0.2s', boxShadow: '0 4px 15px rgba(0,0,0,0.1)',
+                                            opacity: 0.8 // Slightly dimmed to show it's currently inactive
+                                        }}
+                                        onMouseDown={e => e.currentTarget.style.transform = 'scale(0.96)'}
+                                        onMouseUp={e => e.currentTarget.style.transform = 'scale(1)'}
+                                        onMouseLeave={e => e.currentTarget.style.transform = 'scale(1)'}
+                                    >
+                                        <i className="fas fa-user-check"></i> Face ID
+                                    </button>
                                     <button
                                         onClick={() => setShowPinModal(true)}
                                         style={{
@@ -1142,7 +1154,7 @@ const DashboardHome = ({ user, setLiveSession, setRecentAttendance, liveSession,
                     </div>
                 </div>
 
-               <StudentAttendanceAnalytics user={user} />
+                <StudentAttendanceAnalytics user={user} />
 
                 {/* 5. Test Results (Now at the bottom) */}
                 <StudentTestResults user={user} />
@@ -1335,15 +1347,15 @@ const FeedbackView = ({ user }) => {
             }).catch(err => console.error("Error fetching forms", err));
             fetchPromises.push(formsPromise);
         }
-// 2. Fetch Teachers (Safely checking enrolled departments for Agri)
+        // 2. Fetch Teachers (Safely checking enrolled departments for Agri)
         if (!cachedDeptTeachers) {
             // If they are in the COMMON pool, we must fetch teachers for ALL their enrolled departments
-            const deptsToFetch = user.department === 'COMMON' && user.enrolledDepartments 
-                ? user.enrolledDepartments 
+            const deptsToFetch = user.department === 'COMMON' && user.enrolledDepartments
+                ? user.enrolledDepartments
                 : [user.department];
 
             if (deptsToFetch.length > 0) {
-                const teacherPromises = deptsToFetch.map(dept => 
+                const teacherPromises = deptsToFetch.map(dept =>
                     fetch(`${BACKEND_URL}/getDepartmentTeachers`, {
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
@@ -1359,14 +1371,14 @@ const FeedbackView = ({ user }) => {
                     results.forEach(data => {
                         if (data.teachers) allTeachers = [...allTeachers, ...data.teachers];
                     });
-                    
+
                     // Remove duplicates just in case
                     const uniqueTeachers = Array.from(new Map(allTeachers.map(t => [t.id, t])).values());
-                    
+
                     cachedDeptTeachers = uniqueTeachers;
                     setDeptTeachers(uniqueTeachers);
                 }).catch(err => console.error("Error fetching teachers", err));
-                
+
                 fetchPromises.push(teachersPromise);
             }
         }
@@ -1678,7 +1690,7 @@ export default function StudentDashboard() {
         const toastId = toast.loading("Requesting Camera Access...");
         let stream = null;
 
-       
+
         const optimalInputSize = 416;
         const optimalThreshold = 0.40;
 
@@ -1735,26 +1747,26 @@ export default function StudentDashboard() {
                     return;
                 }
 
-               
+
                 video.width = video.videoWidth;
                 video.height = video.videoHeight;
 
                 try {
                     const detection = await faceapi.detectSingleFace(
                         video,
-                       new faceapi.SsdMobilenetv1Options({ minConfidence: 0.85 })
+                        new faceapi.SsdMobilenetv1Options({ minConfidence: 0.85 })
                     ).withFaceLandmarks().withFaceDescriptor();
 
                     if (detection && detection.detection.score > optimalThreshold) {
                         const descriptorArray = Array.from(detection.descriptor);
 
-                        
+
                         const badValueCount = descriptorArray.filter(
                             val => val === null || isNaN(val) || !isFinite(val)
                         ).length;
 
                         if (badValueCount > 64) {
-                            
+
                             glitchCount++;
                             console.warn(`⚠️ Bad frame (${badValueCount}/128 values corrupt). Retry ${glitchCount}...`);
 
@@ -1767,7 +1779,7 @@ export default function StudentDashboard() {
                             }
                         }
 
-                        
+
                         const cleanedDescriptor = descriptorArray.map(val =>
                             (val === null || isNaN(val) || !isFinite(val)) ? 0 : val
                         );
@@ -1784,7 +1796,7 @@ export default function StudentDashboard() {
                         const response = await fetch(`${BACKEND_URL}/registerFace`, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                           body: JSON.stringify({ descriptor: finalDescriptor })
+                            body: JSON.stringify({ descriptor: finalDescriptor })
                         });
 
                         if (response.ok) {
@@ -1837,7 +1849,7 @@ export default function StudentDashboard() {
         const [myRequests, setMyRequests] = useState([]);
         const [loading, setLoading] = useState(false);
 
-       useEffect(() => {
+        useEffect(() => {
             if (!user?.uid) return;
             // 🛑 OPTIMIZED: Fetch once
             const fetchRequests = async () => {
@@ -1931,7 +1943,7 @@ export default function StudentDashboard() {
             setLivenessPrompt("Loading AI Models...");
             toast.loading("Initializing Security Camera...", { id: toastId });
             const MODEL_URL = process.env.PUBLIC_URL ? process.env.PUBLIC_URL + '/models' : '/models';
-           await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
+            await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
             await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
             await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
             await faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL);
@@ -1961,7 +1973,7 @@ export default function StudentDashboard() {
                 toast.error(message, { id: toastId, duration: 5000 });
             };
 
-           const captureDescriptor = async (video) => { 
+            const captureDescriptor = async (video) => {
                 const det = await faceapi.detectSingleFace(
                     video,
                     new faceapi.SsdMobilenetv1Options({ minConfidence: 0.85 }) // ✅ NEW
@@ -2283,7 +2295,7 @@ export default function StudentDashboard() {
 
 
 
-   // ✅ 2. Listen for Active Session (Filtered by Year AND Division AND Enrolled Depts)
+    // ✅ 2. Listen for Active Session (Filtered by Year AND Division AND Enrolled Depts)
     useEffect(() => {
         if (!auth.currentUser || !user) return;
 
@@ -2291,7 +2303,7 @@ export default function StudentDashboard() {
         // we can't filter by department in the query. We must fetch all institute sessions and filter in memory.
         const isNonEngg = user.department === 'COMMON' || (user.enrolledDepartments && user.enrolledDepartments.length > 0);
 
-        const q = isNonEngg 
+        const q = isNonEngg
             ? query(
                 collection(db, 'live_sessions'),
                 where('isActive', '==', true),
@@ -2484,7 +2496,7 @@ export default function StudentDashboard() {
             localStorage.setItem('seenTasksCount', assignments.length.toString());
         }
     }, [activePage, notices, assignments, readCount, taskReadCount]);
-// ✅ OPTIMIZED: FETCH NOTICES ONCE (Saves thousands of reads)
+    // ✅ OPTIMIZED: FETCH NOTICES ONCE (Saves thousands of reads)
     useEffect(() => {
         if (!user?.instituteId) return;
 
@@ -2493,7 +2505,7 @@ export default function StudentDashboard() {
                 collection(db, 'announcements'),
                 where('instituteId', '==', user.instituteId)
             );
-            
+
             const snapshot = await getDocs(q); // 🛑 CHANGED FROM onSnapshot to getDocs
             const allNotices = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
@@ -2501,7 +2513,7 @@ export default function StudentDashboard() {
                 const noticeDept = n.department ? n.department.trim().toLowerCase() : '';
                 const userDeptNorm = user.department ? user.department.trim().toLowerCase() : '';
                 const userYearNorm = user.year ? user.year.trim().toLowerCase() : '';
-                
+
                 const isNoticeFE = noticeDept === 'fe' || noticeDept === 'first year' || noticeDept === 'firstyear';
                 const isUserFE = userYearNorm === 'fe' || userYearNorm === 'first year' || userDeptNorm === 'fe' || userDeptNorm === 'first year';
                 const isNonEngg = userDeptNorm === 'common' || (user.enrolledDepartments && user.enrolledDepartments.length > 0);
@@ -2512,20 +2524,20 @@ export default function StudentDashboard() {
                 } else if (isNonEngg) {
                     const myDepts = user.enrolledDepartments ? user.enrolledDepartments.map(d => d.trim().toLowerCase()) : [];
                     if (userDeptNorm && !myDepts.includes(userDeptNorm)) myDepts.push(userDeptNorm);
-                    
+
                     if (!myDepts.includes(noticeDept) && noticeDept !== 'general' && noticeDept !== 'common') {
-                        return false; 
+                        return false;
                     }
                 } else if (userDeptNorm !== noticeDept && noticeDept !== 'general') {
-                    return false; 
+                    return false;
                 }
 
                 // 2. Year Check 
                 if (n.targetYear === 'Teachers') return false;
-                
+
                 if (n.targetYear !== 'All' && n.targetYear !== user.year) {
                     if (!(isUserFE && n.targetYear === 'FE')) {
-                         return false; 
+                        return false;
                     }
                 }
 

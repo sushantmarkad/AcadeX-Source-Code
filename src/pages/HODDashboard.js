@@ -101,7 +101,7 @@ export default function HODDashboard() {
     const [analyticsFilter, setAnalyticsFilter] = useState('Overall');
     // --- ✅ FIXED: SPLIT STATE FOR RELIABLE UPDATES ---
     const [allSessions, setAllSessions] = useState([]);
-    const [studentAttendanceMap, setStudentAttendanceMap] = useState({}); // { uid: { theory: 5, practical: 2 } }
+   const [studentAttendanceMap, setStudentAttendanceMap] = useState(new Set());
     const [annoTab, setAnnoTab] = useState('create');
     // ✅ HOD Enrollment States (For Agri/Medical)
     const [enrollmentYear, setEnrollmentYear] = useState('FE');
@@ -358,7 +358,7 @@ export default function HODDashboard() {
         fetchSessions();
     }, [hodInfo, currentAcademicYear]);
 
- useEffect(() => {
+    useEffect(() => {
         if (activeTab === 'feedback' && fbTab === 'view' && hodInfo) {
             setIsFormsListLoading(true); // 👈 START LOADER
 
@@ -374,7 +374,7 @@ export default function HODDashboard() {
                         const sorted = (data.forms || []).sort((a, b) => (b.createdAt?._seconds || 0) - (a.createdAt?._seconds || 0));
                         setHodCreatedForms(sorted);
                         setIsFormsListLoading(false); // 👈 STOP LOADER
-                    }, 800); 
+                    }, 800);
                 })
                 .catch(err => {
                     console.error("Error fetching forms:", err);
@@ -383,45 +383,39 @@ export default function HODDashboard() {
         }
     }, [activeTab, fbTab, hodInfo]);
 
-   // --- 2. FETCH & PROCESS ATTENDANCE (BULLETPROOF ZERO-READ OPTIMIZATION) ---
+    // --- 2. FETCH ATTENDANCE FROM COLLECTION (Same source as Student Dashboard) ---
     useEffect(() => {
-        if (!hodInfo || deptUsers.length === 0) return;
+        if (!hodInfo || allSessions.length === 0) return;
 
-        const processAttendanceMap = () => {
-            setIsAnalyticsLoading(true); 
-
+        const fetchAttendance = async () => {
+            setIsAnalyticsLoading(true);
             try {
-                // If there are no sessions created yet, stop loading and return early
-                if (allSessions.length === 0) {
-                    setStudentAttendanceMap({});
-                    setIsAnalyticsLoading(false);
-                    return;
-                }
+                const attSnap = await getDocs(query(
+                    collection(db, 'attendance'),
+                    where('instituteId', '==', hodInfo.instituteId),
+                    where('academicYear', '==', currentAcademicYear),
+                    where('status', '==', 'Present')
+                ));
 
-                const tempMap = {};
-
-                // 🌟 SCALABILITY FIX: Zero Firebase Reads!
-                // Instead of querying the entire 'attendance' collection, we pull the 
-                // pre-calculated stats directly from the already-fetched user documents.
-                deptUsers.forEach(u => {
-                    if (u.role === 'student') {
-                        const sId = u.id || u.uid;
-                        // Safely pull stats for the current academic year, fallback to 0
-                        const stats = u.attendanceStats?.[currentAcademicYear] || { theory: 0, practical: 0 };
-                        tempMap[sId] = stats;
+                // Build a Set of "sessionId_studentId" for fast lookup
+                const presentSet = new Set();
+                attSnap.docs.forEach(d => {
+                    const rec = d.data();
+                    if (rec.studentId && rec.sessionId) {
+                        presentSet.add(`${rec.sessionId}_${rec.studentId}`);
                     }
                 });
 
-                setStudentAttendanceMap(tempMap);
+                setStudentAttendanceMap(presentSet);
             } catch (error) {
-                console.error("🔥 Error processing attendance map:", error);
+                console.error("Error fetching attendance:", error);
             } finally {
-                setIsAnalyticsLoading(false); 
+                setIsAnalyticsLoading(false);
             }
         };
 
-        processAttendanceMap();
-    }, [hodInfo, allSessions, deptUsers, currentAcademicYear]);
+        fetchAttendance();
+    }, [hodInfo, allSessions, currentAcademicYear]);
 
     // --- 3. FUNCTIONAL ATTENDANCE GRAPH (100% ACCURATE MATH) ---
     useEffect(() => {
@@ -745,80 +739,95 @@ export default function HODDashboard() {
         });
         return subs;
     }, [availableSubjects, teachersList]);
+const rawAnalyticsData = useMemo(() => {
+    if (!deptUsers || deptUsers.length === 0) return { processed: [], threshold: 75 };
 
-    // 🚀 LEVEL 2 FIX PART A: Do the heavy math ONCE (We removed searchQuery from here)
-    const rawAnalyticsData = useMemo(() => {
-        if (!deptUsers || deptUsers.length === 0) return { processed: [], threshold: 75 };
-
-        let targetStudents = studentsList;
-        if (isFE) {
-            if (analyticsDivision !== 'All') {
-                targetStudents = targetStudents.filter(u => u.division === analyticsDivision);
-            }
-        } else {
-            targetStudents = targetStudents.filter(u => u.year === analyticsYear || u.level === analyticsYear);
+    let targetStudents = studentsList;
+    if (isFE) {
+        if (analyticsDivision !== 'All') {
+            targetStudents = targetStudents.filter(u => u.division === analyticsDivision);
         }
+    } else {
+        targetStudents = targetStudents.filter(u => u.year === analyticsYear || u.level === analyticsYear);
+    }
 
-        const threshold = criteria[analyticsYear] || 75;
+    const threshold = criteria[analyticsYear] || 75;
 
-        const processed = targetStudents.map(s => {
-            const sId = s.id || s.uid;
-            const myStats = studentAttendanceMap[sId] || { theory: 0, practical: 0 };
+    const processed = targetStudents.map(s => {
+        const sId = s.id || s.uid;
 
-            let myTotalTheory = 0;
-            let myTotalPractical = 0;
+        let myTotalTheory = 0;
+        let myTotalPractical = 0;
+        let myAttendedTheory = 0;
+        let myAttendedPractical = 0;
 
-            allSessions.forEach(session => {
-                if (session.isDeleted === true || session.status === 'deleted' || session.status === 'cancelled') return;
-                if (session.type !== 'theory' && session.type !== 'practical') return;
+        allSessions.forEach(session => {
+            if (session.isDeleted === true || session.status === 'deleted' || session.status === 'cancelled') return;
+            if (session.type !== 'theory' && session.type !== 'practical') return;
 
-                const sessionYear = session.targetYear || session.year;
-                if (sessionYear !== 'All' && sessionYear !== s.year && sessionYear !== s.level) return;
+            const sessionYear = session.targetYear || session.year;
+            if (sessionYear !== 'All' && sessionYear !== s.year && sessionYear !== s.level) return;
 
-                if (session.division && session.division !== 'All') {
-                    const myDiv = s.division || s.div;
-                    if (session.division !== myDiv) return;
-                }
+            if (session.division && session.division !== 'All') {
+                const myDiv = s.division || s.div;
+                if (session.division !== myDiv) return;
+            }
 
-                if (session.type === 'practical') {
-                    if (session.rollRange) {
-                        const myRoll = parseInt(s.rollNo);
-                        const min = parseInt(session.rollRange.start);
-                        const max = parseInt(session.rollRange.end);
-                        if (!isNaN(myRoll) && myRoll >= min && myRoll <= max) {
-                            myTotalPractical++;
-                        }
-                    } else {
-                        myTotalPractical++;
+            // Check if session is applicable to this student
+            let applicable = false;
+            if (session.type === 'practical') {
+                if (session.rollRange && session.rollRange.start && session.rollRange.end) {
+                    const myRoll = parseInt(s.rollNo);
+                    const min = parseInt(session.rollRange.start);
+                    const max = parseInt(session.rollRange.end);
+                    if (!isNaN(myRoll) && myRoll >= min && myRoll <= max) {
+                        applicable = true;
                     }
                 } else {
-                    myTotalTheory++;
+                    applicable = true;
                 }
-            });
-
-            let attended = 0;
-            let total = 0;
-
-            if (analyticsFilter === 'Theory') {
-                attended = myStats.theory;
-                total = myTotalTheory;
-            } else if (analyticsFilter === 'Practical') {
-                attended = myStats.practical;
-                total = myTotalPractical;
             } else {
-                attended = myStats.theory + myStats.practical;
-                total = myTotalTheory + myTotalPractical;
+                applicable = true;
             }
 
-            const percentage = total === 0 ? 100 : Math.round((attended / total) * 100);
+            if (!applicable) return;
 
-            return { ...s, percentage, attended, total };
+            // Check if student was present using the Set
+            const wasPresent = studentAttendanceMap instanceof Set
+                ? studentAttendanceMap.has(`${session.id}_${sId}`)
+                : false;
+
+            if (session.type === 'theory') {
+                myTotalTheory++;
+                if (wasPresent) myAttendedTheory++;
+            } else {
+                myTotalPractical++;
+                if (wasPresent) myAttendedPractical++;
+            }
         });
 
-        return { processed, threshold };
+        let attended = 0;
+        let total = 0;
 
-    }, [studentsList, analyticsYear, isFE, analyticsDivision, criteria, studentAttendanceMap, allSessions, analyticsFilter]);
-    // ❌ Notice searchQuery is GONE from the array above!
+        if (analyticsFilter === 'Theory') {
+            attended = myAttendedTheory;
+            total = myTotalTheory;
+        } else if (analyticsFilter === 'Practical') {
+            attended = myAttendedPractical;
+            total = myTotalPractical;
+        } else {
+            attended = myAttendedTheory + myAttendedPractical;
+            total = myTotalTheory + myTotalPractical;
+        }
+
+        const percentage = total === 0 ? 100 : Math.round((attended / total) * 100);
+
+        return { ...s, percentage, attended, total };
+    });
+
+    return { processed, threshold };
+
+}, [studentsList, analyticsYear, isFE, analyticsDivision, criteria, studentAttendanceMap, allSessions, analyticsFilter]);
 
     // 🚀 LEVEL 2 FIX PART B: Do the lightning-fast searching here
     const analyticsData = useMemo(() => {
@@ -2366,10 +2375,10 @@ export default function HODDashboard() {
                             </div>
                         )}
 
-                       {/* --- VIEW RESPONSES TAB (List of Forms) --- */}
+                        {/* --- VIEW RESPONSES TAB (List of Forms) --- */}
                         {fbTab === 'view' && !selectedFormToView && (
                             <div className="cards-grid fade-in-up">
-                                
+
                                 {/* 🚀 ADDED LOADER FOR THE LIST OF FORMS */}
                                 {isFormsListLoading ? (
                                     <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '250px' }}>
@@ -2581,16 +2590,16 @@ export default function HODDashboard() {
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '250px', animation: 'fadeIn 0.3s' }}>
                                         {/* The Glowing Spinner */}
                                         <div style={{
-                                            width: '60px', 
-                                            height: '60px', 
-                                            borderRadius: '50%', 
+                                            width: '60px',
+                                            height: '60px',
+                                            borderRadius: '50%',
                                             border: '5px solid #e2e8f0', /* Light grey track */
                                             borderTopColor: '#3b82f6',   /* Blue spinning head */
-                                            animation: 'spin 1s linear infinite', 
+                                            animation: 'spin 1s linear infinite',
                                             marginBottom: '20px',
                                             boxShadow: '0 0 15px rgba(59, 130, 246, 0.4)' /* Glowing effect */
                                         }}></div>
-                                        
+
                                         <h3 style={{ margin: 0, color: '#1e293b', fontSize: '18px', fontWeight: '800' }}>Analyzing Data...</h3>
                                         <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '13px' }}>Compiling anonymous feedback</p>
                                     </div>
@@ -4057,8 +4066,8 @@ export default function HODDashboard() {
                     animation: 'fadeIn 0.2s ease-out'
                 }}>
                     <div className="card" style={{
-    
-                    width: '95%', maxWidth: '600px', maxHeight: '90vh',
+
+                        width: '95%', maxWidth: '600px', maxHeight: '90vh',
                         overflowY: 'auto', padding: '0',
                         position: 'relative', background: 'white',
                         borderRadius: '24px', border: '1px solid rgba(255,255,255,0.1)',
