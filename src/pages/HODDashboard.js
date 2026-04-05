@@ -7,7 +7,7 @@ import { doc, getDoc, getDocs, collection, query, where, onSnapshot, deleteDoc, 
 import toast from 'react-hot-toast';
 import {
     PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend,
-    BarChart, Bar, XAxis, YAxis, CartesianGrid
+    // REMOVE THIS LINE: BarChart, Bar, XAxis, YAxis, CartesianGrid
 } from 'recharts';
 import { Timestamp } from 'firebase/firestore';
 import logo from "../assets/logo.png";
@@ -124,9 +124,7 @@ export default function HODDashboard() {
     const [isSavingTimetable, setIsSavingTimetable] = useState(false);
     const [activeSemesters, setActiveSemesters] = useState({ FE: 1, SE: 3, TE: 5, BE: 7 });
 
-    // Attendance Graph State
-    const [attendanceGraph, setAttendanceGraph] = useState([]);
-    const [timeRange, setTimeRange] = useState('week');
+   
     const [isEditTeacherModalOpen, setIsEditTeacherModalOpen] = useState(false);
     const [editTeacherData, setEditTeacherData] = useState(null);
 
@@ -384,50 +382,7 @@ export default function HODDashboard() {
         }
     }, [activeTab, fbTab, hodInfo]);
 
-// --- 3. FUNCTIONAL ATTENDANCE GRAPH (100% ACCURATE MATH via Pre-calculated Stats) ---
-    useEffect(() => {
-        if (!hodInfo || deptUsers.length === 0) return;
 
-        const fetchAttendanceStats = () => {
-            try {
-                const groupAttended = {};
-                const groupExpected = {};
-
-                // deptUsers is already fetched in real-time, 0 extra reads required!
-                deptUsers.forEach(u => {
-                    if (u.role !== 'student') return;
-
-                    const groupKey = isFE ? (u.division || 'A') : (u.year || u.level);
-
-                    // Grab the pre-calculated stats directly from the user document
-                    const academicYearStats = u.attendanceStats?.[currentAcademicYear] || {};
-                    
-                    const theoryAttended = academicYearStats.theory?.attended || 0;
-                    const practicalAttended = academicYearStats.practical?.attended || 0;
-                    const theoryTotal = academicYearStats.theory?.total || 0;
-                    const practicalTotal = academicYearStats.practical?.total || 0;
-
-                    groupAttended[groupKey] = (groupAttended[groupKey] || 0) + (theoryAttended + practicalAttended);
-                    groupExpected[groupKey] = (groupExpected[groupKey] || 0) + (theoryTotal + practicalTotal);
-                });
-
-                const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
-                const LABELS = isFE ? DIVISIONS : (isNonEngg ? academicLevels : academicLevels.slice(1));
-
-                const graphData = LABELS.map(label => {
-                    const attended = groupAttended[label] || 0;
-                    const expected = groupExpected[label] || 0;
-                    const avgPct = expected === 0 ? 0 : Math.min(100, Math.round((attended / expected) * 100));
-
-                    return { name: label, attendance: avgPct };
-                });
-
-                setAttendanceGraph(graphData);
-            } catch (err) { console.error(err); }
-        };
-        fetchAttendanceStats();
-        // Notice: studentAttendanceMap and allSessions are completely removed from dependencies
-    }, [hodInfo, deptUsers, timeRange, isFE, currentAcademicYear, config, academicLevels]);
 
 
 
@@ -1987,68 +1942,6 @@ useEffect(() => {
                                 <h3 style={{ margin: 0, color: '#64748b', fontSize: '14px' }}>Total Faculty</h3>
                                 <p style={{ margin: '5px 0 0', fontSize: '28px', fontWeight: '800', color: '#1e293b' }}>{teachersList.length}</p>
                             </div>
-                        </div>
-
-                        {/* 2. Attendance Analytics Graph */}
-                        <div className="card" style={{ height: '400px', display: 'flex', flexDirection: 'column' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                                <div>
-                                    <h3 style={{ margin: 0, color: '#1e293b' }}>Average Attendance</h3>
-                                    <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>
-                                        {isFE ? 'Performance by Division' : 'Performance by Class Year'}
-                                    </p>
-                                </div>
-
-                                <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '8px', display: 'flex' }}>
-                                    <button
-                                        onClick={() => setTimeRange('week')}
-                                        style={{
-                                            padding: '6px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold',
-                                            background: timeRange === 'week' ? 'white' : 'transparent',
-                                            color: timeRange === 'week' ? '#0f172a' : '#64748b',
-                                            boxShadow: timeRange === 'week' ? '0 2px 5px rgba(0,0,0,0.05)' : 'none'
-                                        }}
-                                    >
-                                        This Week
-                                    </button>
-                                    <button
-                                        onClick={() => setTimeRange('month')}
-                                        style={{
-                                            padding: '6px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold',
-                                            background: timeRange === 'month' ? 'white' : 'transparent',
-                                            color: timeRange === 'month' ? '#0f172a' : '#64748b',
-                                            boxShadow: timeRange === 'month' ? '0 2px 5px rgba(0,0,0,0.05)' : 'none'
-                                        }}
-                                    >
-                                        This Month
-                                    </button>
-                                </div>
-                            </div>
-
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={attendanceGraph} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                                    <XAxis
-                                        dataKey="name"
-                                        axisLine={false}
-                                        tickLine={false}
-                                        tick={{ fill: '#64748b', fontSize: 12, fontWeight: 600 }}
-                                        dy={10}
-                                    />
-                                    <YAxis
-                                        axisLine={false}
-                                        tickLine={false}
-                                        tick={{ fill: '#64748b', fontSize: 12 }}
-                                    />
-                                    <Tooltip
-                                        cursor={{ fill: '#f1f5f9' }}
-                                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
-                                    />
-                                    <Bar dataKey="attendance" name="Avg Attendance %" radius={[6, 6, 0, 0]} barSize={isFE ? 20 : 50} fill="#3b82f6">
-                                        {/* Optional: Individual Colors logic if needed */}
-                                    </Bar>
-                                </BarChart>
-                            </ResponsiveContainer>
                         </div>
                     </div>
                 )}
