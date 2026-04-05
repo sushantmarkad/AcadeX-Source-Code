@@ -114,6 +114,8 @@ export default function HODDashboard() {
     // ✅ NEW STATES
     const [annoFile, setAnnoFile] = useState(null); // For Announcement File
     const [passwordForm, setPasswordForm] = useState({ newPassword: '', confirmPassword: '' }); // For Password Update
+    // Analytics Loading State
+    const [isAnalyticsLoading, setIsAnalyticsLoading] = useState(true);
 
     // Timetable States
     const [timetableYear, setTimetableYear] = useState('FE');
@@ -156,6 +158,7 @@ export default function HODDashboard() {
     const [formResponses, setFormResponses] = useState([]);
     const [isResponsesLoading, setIsResponsesLoading] = useState(false);
     const [editingFormId, setEditingFormId] = useState(null);
+    const [isFormsListLoading, setIsFormsListLoading] = useState(false);
 
 
 
@@ -199,7 +202,7 @@ export default function HODDashboard() {
                     if (!deptSnap.empty) {
                         setHodDeptId(deptSnap.docs[0].id);
                     }
-                } catch(err) { console.error("Could not fetch dept id", err); }
+                } catch (err) { console.error("Could not fetch dept id", err); }
 
                 // ✅ UPDATED: Fetch Stats AND Active Academic Year
                 const statsRef = doc(db, "department_stats", `${data.instituteId}_${data.department}`);
@@ -222,9 +225,9 @@ export default function HODDashboard() {
                     setActiveSemesters(defaultSems);
                 }
 
-               // 🔴 KEEP ONSNAPSHOT: We need to see new student requests live
+                // 🔴 KEEP ONSNAPSHOT: We need to see new student requests live
                 const qRequests = query(collection(db, 'student_requests'), where('instituteId', '==', data.instituteId), where('department', '==', data.department), where('status', '==', 'pending'));
-                
+
                 // ✅ Assign to a variable so we can clean it up
                 const unsubscribeRequests = onSnapshot(qRequests, (snap) => {
                     setStudentRequests(snap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -234,7 +237,7 @@ export default function HODDashboard() {
                 window.activeHodListeners = window.activeHodListeners || [];
                 window.activeHodListeners.push(unsubscribeRequests);
 
-                
+
 
                 // 🛑 OPTIMIZED: Fetch Leaves ONCE instead of listening
                 const fetchLeaves = async () => {
@@ -291,19 +294,19 @@ export default function HODDashboard() {
         }
     };
 
-  // ✅ REAL-TIME OPTIMIZATION: Stable dependencies prevent the listener from restarting
+    // ✅ REAL-TIME OPTIMIZATION: Stable dependencies prevent the listener from restarting
     const configDomain = config?.domain;
     const instId = hodInfo?.instituteId;
     const deptName = hodInfo?.department;
 
     useEffect(() => {
-        if (!instId || !configDomain || !deptName) return; 
+        if (!instId || !configDomain || !deptName) return;
 
-        const isNonEngg = configDomain !== 'ENGINEERING'; 
-        const qUsers = isNonEngg 
+        const isNonEngg = configDomain !== 'ENGINEERING';
+        const qUsers = isNonEngg
             ? query(collection(db, 'users'), where('instituteId', '==', instId))
             : query(collection(db, 'users'), where('instituteId', '==', instId), where('department', '==', deptName));
-        
+
         // Attach real-time listener
         const unsubscribe = onSnapshot(qUsers, (snap) => {
             setDeptUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -313,24 +316,24 @@ export default function HODDashboard() {
 
         // Clean up the listener when component unmounts
         return () => unsubscribe();
-        
+
     }, [instId, configDomain, deptName]); // 👈 FIXED: No longer depends on objects
 
- useEffect(() => {
+    useEffect(() => {
         if (hodInfo && academicLevels.length > 0 && config) {
             const isFE = hodInfo.department === 'FE' || hodInfo.department === 'First Year' || hodInfo.department === 'FirstYear';
             const isNonEngg = config.domain === 'AGRICULTURE' || config.domain === 'MEDICAL' || config.domain === 'PHARMACY';
-            
+
             // ✅ SMART DEFAULT: If it's an Engineering Dept HOD (not FE), default to SE. Otherwise, use the first level.
-            const defaultYear = (!isNonEngg && !isFE && academicLevels.length > 1) 
-                ? academicLevels[1] 
+            const defaultYear = (!isNonEngg && !isFE && academicLevels.length > 1)
+                ? academicLevels[1]
                 : academicLevels[0];
 
-            setAnalyticsYear(defaultYear); 
+            setAnalyticsYear(defaultYear);
             setAnalyticsDivision('All');
-            
+
             // Forces the Enrollment and Analytics tabs to open on the correct default year
-            setEnrollmentYear(defaultYear); 
+            setEnrollmentYear(defaultYear);
         }
     }, [hodInfo, academicLevels, config]);
 
@@ -348,36 +351,78 @@ export default function HODDashboard() {
             try {
                 const snap = await getDocs(qSessions);
                 setAllSessions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-            } catch(e) {
+            } catch (e) {
                 console.error(e);
             }
         };
         fetchSessions();
     }, [hodInfo, currentAcademicYear]);
 
-    useEffect(() => {
+ useEffect(() => {
         if (activeTab === 'feedback' && fbTab === 'view' && hodInfo) {
+            setIsFormsListLoading(true); // 👈 START LOADER
+
             fetch(`${BACKEND_URL}/getHODFeedbackForms`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ department: hodInfo.department, instituteId: hodInfo.instituteId })
             })
                 .then(res => res.json())
                 .then(data => {
-                    // Sort by newest first
-                    const sorted = (data.forms || []).sort((a, b) => (b.createdAt?._seconds || 0) - (a.createdAt?._seconds || 0));
-                    setHodCreatedForms(sorted);
+                    // Add a tiny delay so the UI doesn't "flash" if the internet is too fast
+                    setTimeout(() => {
+                        // Sort by newest first
+                        const sorted = (data.forms || []).sort((a, b) => (b.createdAt?._seconds || 0) - (a.createdAt?._seconds || 0));
+                        setHodCreatedForms(sorted);
+                        setIsFormsListLoading(false); // 👈 STOP LOADER
+                    }, 800); 
+                })
+                .catch(err => {
+                    console.error("Error fetching forms:", err);
+                    setIsFormsListLoading(false); // 👈 STOP LOADER ON ERROR
                 });
         }
     }, [activeTab, fbTab, hodInfo]);
 
-   // --- 2. FETCH & PROCESS ATTENDANCE (Student Counts) - ACCURATE FIRESTORE FETCH ---
+    // --- 2. FETCH & PROCESS ATTENDANCE (BULLETPROOF SINGLE-INDEX FETCH) ---
     useEffect(() => {
-        if (!hodInfo || allSessions.length === 0 || deptUsers.length === 0) return;
+        // If base data isn't ready, keep waiting
+        if (!hodInfo || deptUsers.length === 0) return;
 
         const fetchAttendanceMap = async () => {
+            setIsAnalyticsLoading(true); // 👈 START LOADER
+
             try {
-                // Fetch actual attendance records for the current academic year
-                // This ensures we get Theory/Practical splits AND ignores old lifetime data
+                // If there are no sessions created yet, stop loading and return early
+                if (allSessions.length === 0) {
+                    setStudentAttendanceMap({});
+                    setIsAnalyticsLoading(false);
+                    return;
+                }
+
+                const tempMap = {};
+                const sessionMap = {};
+
+                // 1. Map valid sessions
+                allSessions.forEach(s => {
+                    if (s.isDeleted || s.status === 'deleted' || s.status === 'cancelled') return;
+                    if (s.type !== 'theory' && s.type !== 'practical') return;
+                    sessionMap[s.id] = s;
+                });
+
+                if (Object.keys(sessionMap).length === 0) {
+                    setStudentAttendanceMap({});
+                    setIsAnalyticsLoading(false); // 👈 STOP LOADER
+                    return;
+                }
+
+                // 2. Map users for super-fast lookup
+                const userMap = {};
+                deptUsers.forEach(u => {
+                    userMap[u.id || u.uid] = u;
+                });
+
+                const attendedSessions = new Set();
+
                 const qAttendance = query(
                     collection(db, 'attendance'),
                     where('instituteId', '==', hodInfo.instituteId),
@@ -385,34 +430,63 @@ export default function HODDashboard() {
                 );
 
                 const snap = await getDocs(qAttendance);
-                const tempMap = {};
 
                 snap.docs.forEach(doc => {
                     const data = doc.data();
-                    const sId = data.studentId;
-                    
+
+                    if (data.status !== 'Present' && data.status !== 'present') return;
+
+                    const session = sessionMap[data.sessionId];
+                    if (!session) return;
+
+                    const sId = data.studentId || data.uid || data.userId;
+                    if (!sId) return;
+
+                    const student = userMap[sId];
+                    if (!student) return;
+
+                    const sessionYear = session.targetYear || session.year;
+                    if (sessionYear !== 'All' && sessionYear !== student.year && sessionYear !== student.level) return;
+
+                    if (session.division && session.division !== 'All') {
+                        const myDiv = student.division || student.div;
+                        if (session.division !== myDiv) return;
+                    }
+
+                    if (session.type === 'practical' && session.rollRange) {
+                        const myRoll = parseInt(student.rollNo);
+                        const min = parseInt(session.rollRange.start);
+                        const max = parseInt(session.rollRange.end);
+                        if (isNaN(myRoll) || myRoll < min || myRoll > max) return;
+                    }
+
+                    const uniqueKey = `${sId}_${data.sessionId}`;
+                    if (attendedSessions.has(uniqueKey)) return;
+                    attendedSessions.add(uniqueKey);
+
                     if (!tempMap[sId]) {
                         tempMap[sId] = { theory: 0, practical: 0 };
                     }
-                    
-                    if (data.type === 'practical') {
+
+                    if (session.type === 'practical') {
                         tempMap[sId].practical += 1;
                     } else {
                         tempMap[sId].theory += 1;
                     }
                 });
-                
+
                 setStudentAttendanceMap(tempMap);
             } catch (error) {
-                console.error("Error fetching attendance map:", error);
+                console.error("🔥 Error fetching attendance map:", error);
+            } finally {
+                setIsAnalyticsLoading(false); // 👈 STOP LOADER NO MATTER WHAT
             }
         };
 
         fetchAttendanceMap();
-    }, [hodInfo, allSessions, currentAcademicYear, deptUsers]);
+    }, [hodInfo, allSessions, deptUsers, currentAcademicYear]);
 
-
-// --- 3. FUNCTIONAL ATTENDANCE GRAPH (100% ACCURATE MATH) ---
+    // --- 3. FUNCTIONAL ATTENDANCE GRAPH (100% ACCURATE MATH) ---
     useEffect(() => {
         if (!hodInfo || deptUsers.length === 0 || allSessions.length === 0) return;
 
@@ -421,37 +495,47 @@ export default function HODDashboard() {
                 const groupAttended = {};
                 const groupExpected = {};
 
-                // ✅ Use studentAttendanceMap which is properly scoped to current year
                 deptUsers.forEach(u => {
                     if (u.role !== 'student') return;
 
                     const groupKey = isFE ? (u.division || 'A') : (u.year || u.level);
                     const myStats = studentAttendanceMap[u.id || u.uid] || { theory: 0, practical: 0 };
-                    
-                    // Add student's accurate attended classes for this year
+
                     groupAttended[groupKey] = (groupAttended[groupKey] || 0) + (myStats.theory + myStats.practical);
 
-                    // Estimate expected classes based on active sessions
                     allSessions.forEach(session => {
+                        if (session.isDeleted === true || session.status === 'deleted' || session.status === 'cancelled') return;
+                        if (session.type !== 'theory' && session.type !== 'practical') return; // ✅ MATCH STUDENT DASHBOARD
+
                         const sessionYear = session.targetYear || session.year;
-                        
                         if (sessionYear !== 'All' && sessionYear !== u.year && sessionYear !== u.level) return;
-                        if (isFE && session.division && session.division !== 'All' && session.division !== u.division) return;
-                        
+
+                        // ✅ FIX: Match Student Dashboard division check
+                        if (session.division && session.division !== 'All') {
+                            const myDiv = u.division || u.div;
+                            if (session.division !== myDiv) return;
+                        }
+
+                        // ✅ FIX: Match Student Dashboard Roll No Parsing EXACTLY
+                        if (session.type === 'practical' && session.rollRange) {
+                            const myRoll = parseInt(u.rollNo);
+                            const min = parseInt(session.rollRange.start);
+                            const max = parseInt(session.rollRange.end);
+                            if (isNaN(myRoll) || myRoll < min || myRoll > max) return;
+                        }
+
                         groupExpected[groupKey] = (groupExpected[groupKey] || 0) + 1;
                     });
                 });
 
                 const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
                 const LABELS = isFE ? DIVISIONS : (isNonEngg ? academicLevels : academicLevels.slice(1));
-                
+
                 const graphData = LABELS.map(label => {
                     const attended = groupAttended[label] || 0;
                     const expected = groupExpected[label] || 0;
-                    
-                    // Cap at 100% safely
                     const avgPct = expected === 0 ? 0 : Math.min(100, Math.round((attended / expected) * 100));
-                    
+
                     return { name: label, attendance: avgPct };
                 });
 
@@ -460,8 +544,8 @@ export default function HODDashboard() {
         };
         fetchAttendanceStats();
     }, [hodInfo, deptUsers, timeRange, isFE, allSessions, currentAcademicYear, studentAttendanceMap, config, academicLevels]);
-    
-    
+
+
 
     // ✅ SAVE TEACHER UPDATES (Fixed: Sends Token)
     const handleSaveTeacherUpdates = async () => {
@@ -625,15 +709,15 @@ export default function HODDashboard() {
         }
     };
 
-  // ✅ 1. ALL students in the college (Used by the Enrollment Tab to show the Common Pool)
+    // ✅ 1. ALL students in the college (Used by the Enrollment Tab to show the Common Pool)
     const allCollegeStudents = useMemo(() => deptUsers.filter(u => u.role === 'student'), [deptUsers]);
 
     // ✅ 2. ONLY students enrolled in THIS HOD's department (Used for Analytics, Dept Users tab, etc.)
     const studentsList = useMemo(() => {
         const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
-        if (!isNonEngg) return allCollegeStudents; 
-        
-        return allCollegeStudents.filter(s => 
+        if (!isNonEngg) return allCollegeStudents;
+
+        return allCollegeStudents.filter(s =>
             s.department === hodInfo?.department || // Legacy string check
             (s.enrolledDepartments && s.enrolledDepartments.includes(hodInfo?.department)) // Array check
         );
@@ -645,21 +729,21 @@ export default function HODDashboard() {
         return deptUsers.filter(u => u.role === 'teacher' && (!isNonEngg || u.department === hodInfo?.department));
     }, [deptUsers, hodInfo, config]);
 
-   // ✅ AUTO-POPULATE CHECKBOXES FOR ENROLLMENT
+    // ✅ AUTO-POPULATE CHECKBOXES FOR ENROLLMENT
     useEffect(() => {
         if (!hodInfo || !allCollegeStudents) return;
         const studentsInYear = allCollegeStudents.filter(s => s.year === enrollmentYear || s.level === enrollmentYear);
-        
+
         // Find students who are already enrolled in this HOD's department
-        const alreadyEnrolled = studentsInYear.filter(s => 
-            s.department === hodInfo.department || 
+        const alreadyEnrolled = studentsInYear.filter(s =>
+            s.department === hodInfo.department ||
             (s.enrolledDepartments && s.enrolledDepartments.includes(hodInfo.department))
         ).map(s => s.id || s.uid);
-        
+
         setEnrolledStudentIds(alreadyEnrolled);
     }, [enrollmentYear, allCollegeStudents, hodInfo]);
 
- // ✅ SAVE HOD ENROLLMENT (BATCH WRITE)
+    // ✅ SAVE HOD ENROLLMENT (BATCH WRITE)
     const handleSaveEnrollment = async () => {
         const toastId = toast.loading(`Saving enrollment for ${enrollmentYear}...`);
         try {
@@ -669,9 +753,9 @@ export default function HODDashboard() {
             studentsInYear.forEach(student => {
                 const studentRef = doc(db, 'users', student.id);
                 const isSelected = enrolledStudentIds.includes(student.id);
-                
+
                 let currentDepts = student.enrolledDepartments || [];
-                
+
                 // Add their original department to the array if it's not COMMON
                 if (student.department && student.department.toUpperCase() !== 'COMMON' && !currentDepts.includes(student.department)) {
                     currentDepts.push(student.department);
@@ -692,11 +776,11 @@ export default function HODDashboard() {
                     }
                     // If they are deselected and this was their primary dept, revert them to Common
                     if (student.department === hodInfo.department) {
-                         newPrimaryDept = currentDepts.length > 0 ? currentDepts[0] : 'Common';
+                        newPrimaryDept = currentDepts.length > 0 ? currentDepts[0] : 'Common';
                     }
                 }
 
-                batch.update(studentRef, { 
+                batch.update(studentRef, {
                     enrolledDepartments: currentDepts,
                     department: newPrimaryDept // <-- This triggers the Institute Dashboard count
                 });
@@ -725,19 +809,16 @@ export default function HODDashboard() {
         return subs;
     }, [availableSubjects, teachersList]);
 
-   
-// ✅ NEW CALCULATION ENGINE (PER-STUDENT PRECISION - MEMOIZED)
-    const analyticsData = useMemo(() => {
-        if (!deptUsers || deptUsers.length === 0) return { total: 0, safe: [], defaulters: [], threshold: 75 };
+    // 🚀 LEVEL 2 FIX PART A: Do the heavy math ONCE (We removed searchQuery from here)
+    const rawAnalyticsData = useMemo(() => {
+        if (!deptUsers || deptUsers.length === 0) return { processed: [], threshold: 75 };
 
         let targetStudents = studentsList;
         if (isFE) {
-            // FE HODs only need to filter by Division
             if (analyticsDivision !== 'All') {
                 targetStudents = targetStudents.filter(u => u.division === analyticsDivision);
             }
         } else {
-            // Dept HODs filter by Year/Level
             targetStudents = targetStudents.filter(u => u.year === analyticsYear || u.level === analyticsYear);
         }
 
@@ -746,25 +827,28 @@ export default function HODDashboard() {
         const processed = targetStudents.map(s => {
             const sId = s.id || s.uid;
             const myStats = studentAttendanceMap[sId] || { theory: 0, practical: 0 };
-            const userDiv = s.division || 'A';
 
             let myTotalTheory = 0;
             let myTotalPractical = 0;
 
             allSessions.forEach(session => {
+                if (session.isDeleted === true || session.status === 'deleted' || session.status === 'cancelled') return;
+                if (session.type !== 'theory' && session.type !== 'practical') return;
+
                 const sessionYear = session.targetYear || session.year;
-                
-                // ✅ FIXED: Check both s.year and s.level to prevent breaking on Non-Engg domains
                 if (sessionYear !== 'All' && sessionYear !== s.year && sessionYear !== s.level) return;
 
-                if (isFE && session.division && session.division !== 'All') {
-                    if (session.division !== userDiv) return;
+                if (session.division && session.division !== 'All') {
+                    const myDiv = s.division || s.div;
+                    if (session.division !== myDiv) return;
                 }
 
                 if (session.type === 'practical') {
                     if (session.rollRange) {
-                        const roll = parseInt(s.rollNo);
-                        if (roll >= session.rollRange.start && roll <= session.rollRange.end) {
+                        const myRoll = parseInt(s.rollNo);
+                        const min = parseInt(session.rollRange.start);
+                        const max = parseInt(session.rollRange.end);
+                        if (!isNaN(myRoll) && myRoll >= min && myRoll <= max) {
                             myTotalPractical++;
                         }
                     } else {
@@ -794,6 +878,15 @@ export default function HODDashboard() {
             return { ...s, percentage, attended, total };
         });
 
+        return { processed, threshold };
+
+    }, [studentsList, analyticsYear, isFE, analyticsDivision, criteria, studentAttendanceMap, allSessions, analyticsFilter]);
+    // ❌ Notice searchQuery is GONE from the array above!
+
+    // 🚀 LEVEL 2 FIX PART B: Do the lightning-fast searching here
+    const analyticsData = useMemo(() => {
+        const { processed, threshold } = rawAnalyticsData;
+
         const searchFiltered = processed.filter(s =>
             (s.firstName && s.firstName.toLowerCase().includes(searchQuery.toLowerCase())) ||
             (s.rollNo && s.rollNo.toString().includes(searchQuery))
@@ -804,7 +897,7 @@ export default function HODDashboard() {
 
         return { total: searchFiltered.length, safe, defaulters, threshold };
 
-    }, [studentsList, analyticsYear, isFE, analyticsDivision, criteria, studentAttendanceMap, allSessions, analyticsFilter, searchQuery]);
+    }, [rawAnalyticsData, searchQuery]); // ✅ This ONLY runs when you type, skipping the heavy math!
 
     // ✅ NEW EFFECT: Fetch Accurate Total Classes per Group
     useEffect(() => {
@@ -957,7 +1050,6 @@ export default function HODDashboard() {
                 attachmentUrl = await getDownloadURL(fileRef);
             }
 
-            // --- ✅ LOGIC FIX START ---
             let finalTargetYear = announcementForm.targetYear;
             let finalDivision = 'All';
 
@@ -966,30 +1058,37 @@ export default function HODDashboard() {
                 finalTargetYear = 'FE';
                 finalDivision = announcementForm.targetYear.split(' ')[1];
             } else if (isFE && announcementForm.targetYear === 'All') {
-                // If an FE HOD selects "All Students", it means "All FE Students"
-                finalTargetYear = 'FE'; 
+                finalTargetYear = 'FE';
             }
 
-            // 2. Normalize Department (Force "First Year" -> "FE")
+            // 2. Normalize Department
             let finalDepartment = hodInfo.department;
             if (finalDepartment === 'First Year' || finalDepartment === 'FirstYear') {
                 finalDepartment = 'FE';
             }
-            // --- ✅ LOGIC FIX END ---
 
-            // 2. Save to Firestore
-            await addDoc(collection(db, 'announcements'), {
+            // 2. Save to Firestore AND Keep Data for State
+            const newAnnouncementData = {
                 title: announcementForm.title,
                 message: announcementForm.message,
                 targetYear: finalTargetYear,
                 division: finalDivision,
                 instituteId: hodInfo.instituteId,
-                department: finalDepartment, // ✅ Saved as "FE"
+                department: finalDepartment,
                 teacherName: `${hodInfo.firstName} ${hodInfo.lastName} (HOD)`,
                 role: 'hod',
                 attachmentUrl: attachmentUrl,
                 createdAt: serverTimestamp()
-            });
+            };
+
+            const docRef = await addDoc(collection(db, 'announcements'), newAnnouncementData);
+
+            // ✅ INSTANT UI UPDATE: Add to local array so no refresh is needed!
+            setAnnouncements(prev => [{
+                ...newAnnouncementData,
+                id: docRef.id,
+                createdAt: Timestamp.now() // Fakes the timestamp for immediate UI render
+            }, ...prev]);
 
             // 3. Send Notification
             fetch(`${BACKEND_URL}/sendAnnouncementNotification`, {
@@ -1008,18 +1107,26 @@ export default function HODDashboard() {
             toast.success("Posted Successfully!", { id: toastId });
             setAnnouncementForm({ title: '', message: '', targetYear: 'All' });
             setAnnoFile(null);
+
+            // ✅ Auto-switch back to History tab to see it instantly
+            setAnnoTab('history');
+
         } catch (err) {
             console.error(err);
             toast.error("Failed to post.", { id: toastId });
         }
     };
+
     const handleDeleteAnnouncement = (id) => {
-        // ✅ Use Custom Modal instead of window.confirm
         confirmAction('Delete Notice?', 'Are you sure you want to remove this announcement?', async () => {
             closeModal();
             const toastId = toast.loading("Deleting...");
             try {
                 await deleteDoc(doc(db, 'announcements', id));
+
+                // ✅ INSTANT UI UPDATE: Remove from local array instantly
+                setAnnouncements(prev => prev.filter(a => a.id !== id));
+
                 toast.success("Deleted", { id: toastId });
             } catch (e) { toast.error("Failed", { id: toastId }); }
         }, 'danger');
@@ -1290,7 +1397,7 @@ export default function HODDashboard() {
             }
         };
 
-     
+
 
         useEffect(() => {
             if (!user?.instituteId || !user?.department) return;
@@ -1683,7 +1790,7 @@ export default function HODDashboard() {
         } catch (e) { toast.error("Error rejecting", { id: toastId }); }
     };
 
-   const handleAddTeacher = async (e) => {
+    const handleAddTeacher = async (e) => {
         e.preventDefault();
 
         const toastId = toast.loading("Creating Teacher Account...");
@@ -1691,11 +1798,11 @@ export default function HODDashboard() {
 
         try {
             // ✅ ADDED TOKEN FOR SECURITY
-            const token = await auth.currentUser.getIdToken(); 
-            
+            const token = await auth.currentUser.getIdToken();
+
             const response = await fetch(`${BACKEND_URL}/createUser`, {
                 method: 'POST',
-                headers: { 
+                headers: {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}` // 👈 FIXED
                 },
@@ -1950,7 +2057,7 @@ export default function HODDashboard() {
                                         Warning: Switching this hides all attendance data from other years.
                                     </p>
                                 </div>
-                                
+
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '20px' }}>
 
                                     {(() => {
@@ -1995,11 +2102,11 @@ export default function HODDashboard() {
 
                         <h2 className="content-title">Department Overview</h2>
 
-                      {/* 1. Student Count by Year (Cards) */}
+                        {/* 1. Student Count by Year (Cards) */}
                         <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', marginBottom: '20px' }}>
 
                             {(() => {
-                               const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
+                                const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
                                 // Safely hide FE if it's an Engineering Dept HOD
                                 const labelsToShow = isFE ? DIVISIONS : (isNonEngg ? academicLevels : academicLevels.filter(lvl => lvl !== 'FE'));
 
@@ -2322,39 +2429,76 @@ export default function HODDashboard() {
                             </div>
                         )}
 
-                        {/* --- VIEW RESPONSES TAB --- */}
+                       {/* --- VIEW RESPONSES TAB (List of Forms) --- */}
                         {fbTab === 'view' && !selectedFormToView && (
                             <div className="cards-grid fade-in-up">
-                                {hodCreatedForms.length > 0 ? hodCreatedForms.map(form => (
-                                    <div key={form.id} className="fb-response-form-card" onClick={() => handleViewFormResponses(form)}>
-                                        <div style={{ width: '50px', height: '50px', borderRadius: '12px', background: '#eff6ff', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}>
-                                            <i className="fas fa-poll"></i>
-                                        </div>
-                                        <div style={{ flex: 1 }}>
-                                            <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>{form.title}</h3>
-                                            <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', display: 'flex', gap: '10px' }}>
-                                                <span><i className="fas fa-users"></i> {form.targetYear} {form.division !== 'All' ? `(Div ${form.division})` : ''}</span>
-                                                <span><i className="fas fa-calendar"></i> {form.academicYear}</span>
-                                            </div>
-                                        </div>
-
-                                        {/* ✅ EDIT & DELETE BUTTONS ON THE CARD */}
-                                        <div style={{ display: 'flex', gap: '8px', zIndex: 10 }}>
-                                            <button
-                                                onClick={(e) => { e.stopPropagation(); handleEditFeedbackForm(form); }}
-                                                style={{ background: '#f8fafc', color: '#3b82f6', border: '1px solid #e2e8f0', padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', transition: '0.2s' }}
-                                            >
-                                                <i className="fas fa-pen"></i>
-                                            </button>
-                                            <button
-                                                onClick={(e) => { e.stopPropagation(); handleDeleteFeedbackForm(form.id); }}
-                                                style={{ background: '#fee2e2', color: '#ef4444', border: '1px solid #fecaca', padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', transition: '0.2s' }}
-                                            >
-                                                <i className="fas fa-trash"></i>
-                                            </button>
+                                
+                                {/* 🚀 ADDED LOADER FOR THE LIST OF FORMS */}
+                                {isFormsListLoading ? (
+                                    <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '250px' }}>
+                                        <style>{`
+                                            @keyframes forceSpin {
+                                                0% { transform: rotate(0deg); }
+                                                100% { transform: rotate(360deg); }
+                                            }
+                                            @keyframes subtlePulse {
+                                                0%, 100% { opacity: 1; transform: scale(1); }
+                                                50% { opacity: 0.6; transform: scale(0.98); }
+                                            }
+                                            .guaranteed-spinner {
+                                                width: 60px;
+                                                height: 60px;
+                                                border-radius: 50%;
+                                                border: 5px solid #e2e8f0;
+                                                border-top: 5px solid #3b82f6; 
+                                                animation: forceSpin 0.8s linear infinite;
+                                                margin-bottom: 20px;
+                                                box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+                                            }
+                                            .guaranteed-text {
+                                                animation: subtlePulse 2s ease-in-out infinite;
+                                            }
+                                        `}</style>
+                                        <div className="guaranteed-spinner"></div>
+                                        <div className="guaranteed-text" style={{ textAlign: 'center' }}>
+                                            <h3 style={{ margin: 0, color: '#1e293b', fontSize: '18px', fontWeight: '800' }}>Fetching Forms...</h3>
+                                            <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '13px' }}>Loading department feedback history</p>
                                         </div>
                                     </div>
-                                )) : (
+                                ) : hodCreatedForms.length > 0 ? (
+                                    /* Show the forms if they exist */
+                                    hodCreatedForms.map(form => (
+                                        <div key={form.id} className="fb-response-form-card" onClick={() => handleViewFormResponses(form)}>
+                                            <div style={{ width: '50px', height: '50px', borderRadius: '12px', background: '#eff6ff', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px' }}>
+                                                <i className="fas fa-poll"></i>
+                                            </div>
+                                            <div style={{ flex: 1 }}>
+                                                <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>{form.title}</h3>
+                                                <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px', display: 'flex', gap: '10px' }}>
+                                                    <span><i className="fas fa-users"></i> {form.targetYear} {form.division !== 'All' ? `(Div ${form.division})` : ''}</span>
+                                                    <span><i className="fas fa-calendar"></i> {form.academicYear}</span>
+                                                </div>
+                                            </div>
+
+                                            {/* EDIT & DELETE BUTTONS ON THE CARD */}
+                                            <div style={{ display: 'flex', gap: '8px', zIndex: 10 }}>
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); handleEditFeedbackForm(form); }}
+                                                    style={{ background: '#f8fafc', color: '#3b82f6', border: '1px solid #e2e8f0', padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', transition: '0.2s' }}
+                                                >
+                                                    <i className="fas fa-pen"></i>
+                                                </button>
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); handleDeleteFeedbackForm(form.id); }}
+                                                    style={{ background: '#fee2e2', color: '#ef4444', border: '1px solid #fecaca', padding: '8px 12px', borderRadius: '8px', cursor: 'pointer', transition: '0.2s' }}
+                                                >
+                                                    <i className="fas fa-trash"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))
+                                ) : (
+                                    /* Empty State */
                                     <div className="empty-state-modern" style={{ gridColumn: '1 / -1' }}>
                                         <i className="fas fa-clipboard-list" style={{ fontSize: '40px', color: '#94a3b8', opacity: 0.5 }}></i>
                                         <p>No feedback forms created yet.</p>
@@ -2495,18 +2639,28 @@ export default function HODDashboard() {
                                     )}
                                 </div>
 
-                                {/* ✅ THE 2-4 SEC LOADER UI */}
+                                {/* ✅ BULLETPROOF FEEDBACK LOADER UI */}
                                 {isResponsesLoading ? (
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '250px', animation: 'fadeIn 0.3s' }}>
-                                        <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '20px', position: 'relative' }}>
-                                            <div style={{ position: 'absolute', width: '100%', height: '100%', border: '3px solid transparent', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
-                                            <i className="fas fa-chart-pie" style={{ color: '#3b82f6', fontSize: '24px' }}></i>
-                                        </div>
-                                        <h3 style={{ margin: 0, color: '#1e293b', fontSize: '18px' }}>Analyzing Data...</h3>
+                                        {/* The Glowing Spinner */}
+                                        <div style={{
+                                            width: '60px', 
+                                            height: '60px', 
+                                            borderRadius: '50%', 
+                                            border: '5px solid #e2e8f0', /* Light grey track */
+                                            borderTopColor: '#3b82f6',   /* Blue spinning head */
+                                            animation: 'spin 1s linear infinite', 
+                                            marginBottom: '20px',
+                                            boxShadow: '0 0 15px rgba(59, 130, 246, 0.4)' /* Glowing effect */
+                                        }}></div>
+                                        
+                                        <h3 style={{ margin: 0, color: '#1e293b', fontSize: '18px', fontWeight: '800' }}>Analyzing Data...</h3>
                                         <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '13px' }}>Compiling anonymous feedback</p>
                                     </div>
                                 ) : formResponses.length === 0 ? (
-                                    <p style={{ color: '#94a3b8', textAlign: 'center', padding: '40px 0', fontStyle: 'italic' }}>No students have submitted feedback yet.</p>
+                                    <p style={{ color: '#94a3b8', textAlign: 'center', padding: '40px 0', fontStyle: 'italic' }}>
+                                        No students have submitted feedback yet.
+                                    </p>
                                 ) : (
                                     <div>
                                         {/* Group responses by Teacher & Subject logic */}
@@ -2576,270 +2730,282 @@ export default function HODDashboard() {
                     </div>
                 )}
 
-                {/* ✅ UPDATED ANALYTICS TAB */}
+                {/* ✅ UPDATED ANALYTICS TAB WITH MODERN LOADER */}
                 {activeTab === 'analytics' && (
                     <div className="content-section">
-                        {/* Header: Title & Year/Division Selector */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '15px', marginTop: '15px' }}>
-                            <div>
-                                <h2 className="content-title" style={{ margin: 0 }}>Attendance Analytics</h2>
-                                <p style={{ margin: '5px 0 0', fontSize: '13px', color: '#64748b' }}>
-                                    {isFE
-                                        ? `Viewing FE Data ${analyticsDivision !== 'All' ? `- Division ${analyticsDivision}` : ''}`
-                                        : `Managing criteria for ${analyticsYear}`
-                                    }
-                                    {' '}(Current: {analyticsData.threshold}%)
-                                </p>
+
+                        {isAnalyticsLoading ? (
+                            /* --- 🚀 ULTRA-MODERN LOADER UI --- */
+                            <div className="modern-loader-wrapper">
+                                <div className="modern-gradient-spinner"></div>
+                                <h3 className="modern-loader-title">Crunching Numbers</h3>
+                                <p className="modern-loader-subtitle">Compiling accurate student attendance records...</p>
                             </div>
+                        ) : (
+                            /* --- 📊 REAL ANALYTICS UI --- */
+                            <>
+                                {/* Header: Title & Year/Division Selector */}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '15px', marginTop: '15px' }}>
+                                    <div>
+                                        <h2 className="content-title" style={{ margin: 0 }}>Attendance Analytics</h2>
+                                        <p style={{ margin: '5px 0 0', fontSize: '13px', color: '#64748b' }}>
+                                            {isFE
+                                                ? `Viewing FE Data ${analyticsDivision !== 'All' ? `- Division ${analyticsDivision}` : ''}`
+                                                : `Managing criteria for ${analyticsYear}`
+                                            }
+                                            {' '}(Current: {analyticsData.threshold}%)
+                                        </p>
+                                    </div>
 
-                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
 
-                                {/* Criteria Changer */}
-                                <div style={{ background: 'white', padding: '5px 10px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <span style={{ fontSize: '12px', fontWeight: '600', color: '#64748b' }}>Min %:</span>
+                                        {/* Criteria Changer */}
+                                        <div style={{ background: 'white', padding: '5px 10px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <span style={{ fontSize: '12px', fontWeight: '600', color: '#64748b' }}>Min %:</span>
+                                            <input
+                                                type="number"
+                                                value={criteria[analyticsYear]}
+                                                onChange={(e) => setCriteria({ ...criteria, [analyticsYear]: Number(e.target.value) })}
+                                                style={{ width: '50px', padding: '4px', border: '1px solid #cbd5e1', borderRadius: '6px', fontWeight: 'bold', textAlign: 'center' }}
+                                            />
+                                        </div>
+
+                                        {/* Report Type Toggle (Theory / Practical) */}
+                                        <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '12px', display: 'flex', gap: '5px' }}>
+                                            {['Overall', 'Theory', 'Practical'].map(type => (
+                                                <button
+                                                    key={type}
+                                                    onClick={() => setAnalyticsFilter(type)}
+                                                    style={{
+                                                        padding: '8px 16px', border: 'none', borderRadius: '10px', cursor: 'pointer',
+                                                        fontSize: '13px', fontWeight: '700',
+                                                        background: analyticsFilter === type ? '#ffffff' : 'transparent',
+                                                        color: analyticsFilter === type ? '#2563eb' : '#64748b',
+                                                        boxShadow: analyticsFilter === type ? '0 4px 12px rgba(0,0,0,0.05)' : 'none',
+                                                        transition: 'all 0.2s ease'
+                                                    }}
+                                                >
+                                                    {type}
+                                                </button>
+                                            ))}
+                                        </div>
+
+                                        {/* DYNAMIC Level Selector / Division Dropdown */}
+                                        {isFE ? (
+                                            <div style={{ minWidth: '100px', zIndex: 50 }}>
+                                                <CustomMobileSelect
+                                                    label="Filter by Division"
+                                                    value={analyticsDivision}
+                                                    onChange={setAnalyticsDivision}
+                                                    options={[
+                                                        { value: 'All', label: 'All Divisions' },
+                                                        ...DIVISIONS.map(div => ({ value: div, label: `Division ${div}` }))
+                                                    ]}
+                                                />
+                                            </div>
+                                        ) : (
+                                            <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '12px', display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
+                                                {(() => {
+                                                    const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
+                                                    const filterLevels = isNonEngg ? academicLevels : academicLevels.filter(lvl => lvl !== 'FE');
+
+                                                    return filterLevels.map(year => (
+                                                        <button
+                                                            key={year}
+                                                            onClick={() => setAnalyticsYear(year)}
+                                                            style={{
+                                                                padding: '8px 16px', border: 'none', borderRadius: '10px', cursor: 'pointer',
+                                                                fontSize: '13px', fontWeight: '700',
+                                                                background: analyticsYear === year ? '#ffffff' : 'transparent',
+                                                                color: analyticsYear === year ? '#2563eb' : '#64748b',
+                                                                boxShadow: analyticsYear === year ? '0 4px 12px rgba(0,0,0,0.05)' : 'none',
+                                                                transition: 'all 0.2s ease'
+                                                            }}
+                                                        >
+                                                            {year}
+                                                        </button>
+                                                    ));
+                                                })()}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Summary Cards */}
+                                <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', marginBottom: '25px', gap: '15px' }}>
+                                    <div className="card" style={{ padding: '20px', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                            <div>
+                                                <span style={{ fontSize: '11px', color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>
+                                                    {isFE ? `Total Students` : `Total ${analyticsYear}`}
+                                                </span>
+                                                <div style={{ fontSize: '28px', fontWeight: '800', color: '#1e293b', marginTop: '5px' }}>{analyticsData.total}</div>
+                                            </div>
+                                            <div style={{ background: '#f1f5f9', padding: '10px', borderRadius: '12px', color: '#64748b' }}><i className="fas fa-users"></i></div>
+                                        </div>
+                                    </div>
+                                    <div className="card" style={{ padding: '20px', background: '#ecfdf5', border: '1px solid #d1fae5', borderRadius: '16px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                            <div>
+                                                <span style={{ fontSize: '11px', color: '#047857', fontWeight: '700', textTransform: 'uppercase' }}>Safe ({'>'}{analyticsData.threshold}%)</span>
+                                                <div style={{ fontSize: '28px', fontWeight: '800', color: '#065f46', marginTop: '5px' }}>{analyticsData.safe.length}</div>
+                                            </div>
+                                            <div style={{ background: '#d1fae5', padding: '10px', borderRadius: '12px', color: '#059669' }}><i className="fas fa-check-circle"></i></div>
+                                        </div>
+                                    </div>
+                                    <div className="card" style={{ padding: '20px', background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: '16px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                            <div>
+                                                <span style={{ fontSize: '11px', color: '#b91c1c', fontWeight: '700', textTransform: 'uppercase' }}>Defaulters ({'<'}{analyticsData.threshold}%)</span>
+                                                <div style={{ fontSize: '28px', fontWeight: '800', color: '#b91c1c', marginTop: '5px' }}>{analyticsData.defaulters.length}</div>
+                                            </div>
+                                            <div style={{ background: '#fee2e2', padding: '10px', borderRadius: '12px', color: '#dc2626' }}><i className="fas fa-exclamation-triangle"></i></div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Search Bar */}
+                                <div className="search-box-wrapper" style={{ maxWidth: '100%', marginBottom: '20px' }}>
+                                    <i className="fas fa-search search-icon"></i>
                                     <input
-                                        type="number"
-                                        value={criteria[analyticsYear]}
-                                        onChange={(e) => setCriteria({ ...criteria, [analyticsYear]: Number(e.target.value) })}
-                                        style={{ width: '50px', padding: '4px', border: '1px solid #cbd5e1', borderRadius: '6px', fontWeight: 'bold', textAlign: 'center' }}
+                                        type="text"
+                                        placeholder={`Search ${isFE ? 'FE' : analyticsYear} defaulters...`}
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        className="search-input-modern"
                                     />
                                 </div>
 
-                                {/* ✅ NEW: Report Type Toggle (Theory / Practical) */}
-                                <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '12px', display: 'flex', gap: '5px' }}>
-                                    {['Overall', 'Theory', 'Practical'].map(type => (
-                                        <button
-                                            key={type}
-                                            onClick={() => setAnalyticsFilter(type)}
-                                            style={{
-                                                padding: '8px 16px', border: 'none', borderRadius: '10px', cursor: 'pointer',
-                                                fontSize: '13px', fontWeight: '700',
-                                                background: analyticsFilter === type ? '#ffffff' : 'transparent',
-                                                color: analyticsFilter === type ? '#2563eb' : '#64748b',
-                                                boxShadow: analyticsFilter === type ? '0 4px 12px rgba(0,0,0,0.05)' : 'none',
-                                                transition: 'all 0.2s ease'
-                                            }}
-                                        >
-                                            {type}
-                                        </button>
-                                    ))}
-                                </div>
+                                {/* Charts & List Grid */}
+                                <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '25px', alignItems: 'start' }}>
 
-                              {/* ✅ DYNAMIC Level Selector / Division Dropdown */}
-                                {isFE ? (
-                                    <div style={{ minWidth: '100px', zIndex: 50 }}>
-                                        <CustomMobileSelect 
-                                            label="Filter by Division" 
-                                            value={analyticsDivision} 
-                                            onChange={setAnalyticsDivision} 
-                                            options={[
-                                                { value: 'All', label: 'All Divisions' }, 
-                                                ...DIVISIONS.map(div => ({ value: div, label: `Division ${div}` }))
-                                            ]} 
-                                        />
-                                    </div>
-                                ) : (
-                                    <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '12px', display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
-                                        {(() => {
-                                            const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
-                                            const filterLevels = isNonEngg ? academicLevels : academicLevels.filter(lvl => lvl !== 'FE');
-                                            
-                                            return filterLevels.map(year => (
-                                                <button 
-                                                    key={year} 
-                                                    onClick={() => setAnalyticsYear(year)} 
-                                                    style={{ 
-                                                        padding: '8px 16px', border: 'none', borderRadius: '10px', cursor: 'pointer', 
-                                                        fontSize: '13px', fontWeight: '700', 
-                                                        background: analyticsYear === year ? '#ffffff' : 'transparent', 
-                                                        color: analyticsYear === year ? '#2563eb' : '#64748b', 
-                                                        boxShadow: analyticsYear === year ? '0 4px 12px rgba(0,0,0,0.05)' : 'none', 
-                                                        transition: 'all 0.2s ease' 
-                                                    }}
-                                                >
-                                                    {year}
-                                                </button>
-                                            ));
-                                        })()}
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Summary Cards */}
-                        <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', marginBottom: '25px', gap: '15px' }}>
-                            <div className="card" style={{ padding: '20px', background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                    <div>
-                                        <span style={{ fontSize: '11px', color: '#64748b', fontWeight: '700', textTransform: 'uppercase' }}>
-                                            {isFE ? `Total Students` : `Total ${analyticsYear}`}
-                                        </span>
-                                        <div style={{ fontSize: '28px', fontWeight: '800', color: '#1e293b', marginTop: '5px' }}>{analyticsData.total}</div>
-                                    </div>
-                                    <div style={{ background: '#f1f5f9', padding: '10px', borderRadius: '12px', color: '#64748b' }}><i className="fas fa-users"></i></div>
-                                </div>
-                            </div>
-                            <div className="card" style={{ padding: '20px', background: '#ecfdf5', border: '1px solid #d1fae5', borderRadius: '16px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                    <div>
-                                        <span style={{ fontSize: '11px', color: '#047857', fontWeight: '700', textTransform: 'uppercase' }}>Safe ({'>'}{analyticsData.threshold}%)</span>
-                                        <div style={{ fontSize: '28px', fontWeight: '800', color: '#065f46', marginTop: '5px' }}>{analyticsData.safe.length}</div>
-                                    </div>
-                                    <div style={{ background: '#d1fae5', padding: '10px', borderRadius: '12px', color: '#059669' }}><i className="fas fa-check-circle"></i></div>
-                                </div>
-                            </div>
-                            <div className="card" style={{ padding: '20px', background: '#fef2f2', border: '1px solid #fee2e2', borderRadius: '16px' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                    <div>
-                                        <span style={{ fontSize: '11px', color: '#b91c1c', fontWeight: '700', textTransform: 'uppercase' }}>Defaulters ({'<'}{analyticsData.threshold}%)</span>
-                                        <div style={{ fontSize: '28px', fontWeight: '800', color: '#b91c1c', marginTop: '5px' }}>{analyticsData.defaulters.length}</div>
-                                    </div>
-                                    <div style={{ background: '#fee2e2', padding: '10px', borderRadius: '12px', color: '#dc2626' }}><i className="fas fa-exclamation-triangle"></i></div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Search Bar */}
-                        <div className="search-box-wrapper" style={{ maxWidth: '100%', marginBottom: '20px' }}>
-                            <i className="fas fa-search search-icon"></i>
-                            <input
-                                type="text"
-                                placeholder={`Search ${isFE ? 'FE' : analyticsYear} defaulters...`}
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                className="search-input-modern"
-                            />
-                        </div>
-
-                        {/* Charts & List Grid */}
-                        <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '25px', alignItems: 'start' }}>
-
-                            {/* Card 1: Pie Chart */}
-                            <div className="card" style={{ minHeight: '420px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '25px', position: 'relative' }}>
-                                <h3 style={{ alignSelf: 'flex-start', marginBottom: '15px', fontSize: '16px', color: '#334155', fontWeight: '700' }}>
-                                    {analyticsFilter} Status ({isFE ? (analyticsDivision === 'All' ? 'FE Total' : `Div ${analyticsDivision}`) : analyticsYear})
-                                </h3>
-
-                                <div style={{ width: '100%', height: '300px', position: 'relative' }}>
-                                    {/* Center Count */}
-                                    <div style={{
-                                        position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -60%)',
-                                        textAlign: 'center', pointerEvents: 'none', zIndex: 10
-                                    }}>
-                                        <div style={{ fontSize: '36px', fontWeight: '800', color: '#ef4444', lineHeight: '1' }}>
-                                            {analyticsData.defaulters.length}
-                                        </div>
-                                        <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '700', textTransform: 'uppercase', marginTop: '5px' }}>
-                                            Defaulters
-                                        </div>
-                                    </div>
-
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <PieChart>
-                                            <Pie
-                                                data={pieData}
-                                                cx="50%"
-                                                cy="50%"
-                                                innerRadius={85}
-                                                outerRadius={115}
-                                                paddingAngle={5}
-                                                dataKey="value"
-                                                stroke="none"
-                                            >
-                                                {pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
-                                            </Pie>
-                                            <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.1)' }} />
-                                            <Legend verticalAlign="bottom" height={36} iconType="circle" />
-                                        </PieChart>
-                                    </ResponsiveContainer>
-                                </div>
-                            </div>
-
-                            {/* Card 2: Defaulters List */}
-                            {/* Card 2: Defaulters List */}
-                            <div className="card" style={{ borderTop: '4px solid #ef4444', height: '420px', display: 'flex', flexDirection: 'column', padding: '0' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 20px 15px', borderBottom: '1px solid #f1f5f9' }}>
-
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                        <h3 style={{ color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px', margin: 0, fontSize: '16px', fontWeight: '700' }}>
-                                            ⚠️ Critical List
+                                    {/* Card 1: Pie Chart */}
+                                    <div className="card" style={{ minHeight: '420px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '25px', position: 'relative' }}>
+                                        <h3 style={{ alignSelf: 'flex-start', marginBottom: '15px', fontSize: '16px', color: '#334155', fontWeight: '700' }}>
+                                            {analyticsFilter} Status ({isFE ? (analyticsDivision === 'All' ? 'FE Total' : `Div ${analyticsDivision}`) : analyticsYear})
                                         </h3>
-                                        <span className="nav-badge" style={{ background: '#fee2e2', color: '#ef4444', fontSize: '12px', padding: '4px 10px' }}>
-                                            {analyticsData.defaulters.length}
-                                        </span>
+
+                                        <div style={{ width: '100%', height: '300px', position: 'relative' }}>
+                                            {/* Center Count */}
+                                            <div style={{
+                                                position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -60%)',
+                                                textAlign: 'center', pointerEvents: 'none', zIndex: 10
+                                            }}>
+                                                <div style={{ fontSize: '36px', fontWeight: '800', color: '#ef4444', lineHeight: '1' }}>
+                                                    {analyticsData.defaulters.length}
+                                                </div>
+                                                <div style={{ fontSize: '11px', color: '#94a3b8', fontWeight: '700', textTransform: 'uppercase', marginTop: '5px' }}>
+                                                    Defaulters
+                                                </div>
+                                            </div>
+
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <PieChart>
+                                                    <Pie
+                                                        data={pieData}
+                                                        cx="50%"
+                                                        cy="50%"
+                                                        innerRadius={85}
+                                                        outerRadius={115}
+                                                        paddingAngle={5}
+                                                        dataKey="value"
+                                                        stroke="none"
+                                                    >
+                                                        {pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
+                                                    </Pie>
+                                                    <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 30px rgba(0,0,0,0.1)' }} />
+                                                    <Legend verticalAlign="bottom" height={36} iconType="circle" />
+                                                </PieChart>
+                                            </ResponsiveContainer>
+                                        </div>
                                     </div>
 
-                                    {/* 📥 NEW DOWNLOAD PDF BUTTON */}
-                                    {analyticsData.defaulters.length > 0 && (
-                                        <button
-                                            onClick={downloadDefaultersPDF}
-                                            style={{
-                                                background: '#fef2f2', color: '#ef4444', border: '1px solid #fecaca',
-                                                padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '700',
-                                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.2s'
-                                            }}
-                                            onMouseOver={e => e.currentTarget.style.background = '#fee2e2'}
-                                            onMouseOut={e => e.currentTarget.style.background = '#fef2f2'}
-                                        >
-                                            <i className="fas fa-file-pdf"></i> Download PDF
-                                        </button>
-                                    )}
+                                    {/* Card 2: Defaulters List */}
+                                    <div className="card" style={{ borderTop: '4px solid #ef4444', height: '420px', display: 'flex', flexDirection: 'column', padding: '0' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 20px 15px', borderBottom: '1px solid #f1f5f9' }}>
 
-                                </div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                <h3 style={{ color: '#ef4444', display: 'flex', alignItems: 'center', gap: '8px', margin: 0, fontSize: '16px', fontWeight: '700' }}>
+                                                    ⚠️ Critical List
+                                                </h3>
+                                                <span className="nav-badge" style={{ background: '#fee2e2', color: '#ef4444', fontSize: '12px', padding: '4px 10px' }}>
+                                                    {analyticsData.defaulters.length}
+                                                </span>
+                                            </div>
 
-                                <div className="table-wrapper custom-scroll" style={{ flex: 1, overflowY: 'auto', overflowX: 'auto', border: 'none', padding: '0' }}>
-                                    {analyticsData.defaulters.length > 0 ? (
-                                        <table className="attendance-table" style={{ width: '100%', minWidth: '340px' }}>
-                                            <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
-                                                <tr>
-                                                    <th style={{ background: 'white', fontSize: '11px', color: '#64748b', paddingLeft: '20px' }}>Student</th>
-                                                    <th style={{ background: 'white', fontSize: '11px', color: '#64748b', textAlign: 'center' }}>{analyticsFilter} %</th>
-                                                    <th style={{ background: 'white', fontSize: '11px', color: '#64748b', textAlign: 'right', paddingRight: '20px' }}>Action</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {analyticsData.defaulters.map(s => (
-                                                    <tr key={s.id} style={{ borderBottom: '1px solid #f8fafc' }}>
-                                                        <td style={{ padding: '12px 20px' }}>
-                                                            <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '13px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '120px' }}>
-                                                                {s.firstName} {s.lastName}
-                                                            </div>
-                                                            <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
-                                                                {s.rollNo} {isFE && s.division && <span style={{ color: '#3b82f6' }}>({s.division})</span>}
-                                                            </div>
-                                                        </td>
-                                                        <td style={{ textAlign: 'center', padding: '12px' }}>
-                                                            <span className="status-badge-pill" style={{ background: '#fef2f2', color: '#dc2626', fontSize: '11px', padding: '4px 10px' }}>
-                                                                {s.percentage.toFixed(0)}%
-                                                            </span>
-                                                        </td>
-                                                        <td style={{ textAlign: 'right', padding: '12px 20px' }}>
-                                                            <button
-                                                                onClick={() => handleSendNotice(s)}
-                                                                className="btn-action"
-                                                                style={{
-                                                                    background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe',
-                                                                    borderRadius: '8px', fontSize: '11px', padding: '6px 12px', fontWeight: '700',
-                                                                    cursor: 'pointer', whiteSpace: 'nowrap'
-                                                                }}
-                                                            >
-                                                                Send
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    ) : (
-                                        <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', padding: '40px' }}>
-                                            <i className="fas fa-check-circle" style={{ fontSize: '40px', marginBottom: '15px', color: '#10b981', opacity: 0.5 }}></i>
-                                            <p style={{ fontSize: '14px', fontWeight: '600' }}>All Clear!</p>
-                                            <p style={{ fontSize: '12px' }}>No defaulters below {analyticsData.threshold}%</p>
+                                            {/* NEW DOWNLOAD PDF BUTTON */}
+                                            {analyticsData.defaulters.length > 0 && (
+                                                <button
+                                                    onClick={downloadDefaultersPDF}
+                                                    style={{
+                                                        background: '#fef2f2', color: '#ef4444', border: '1px solid #fecaca',
+                                                        padding: '6px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '700',
+                                                        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', transition: 'all 0.2s'
+                                                    }}
+                                                    onMouseOver={e => e.currentTarget.style.background = '#fee2e2'}
+                                                    onMouseOut={e => e.currentTarget.style.background = '#fef2f2'}
+                                                >
+                                                    <i className="fas fa-file-pdf"></i> Download PDF
+                                                </button>
+                                            )}
+
                                         </div>
-                                    )}
+
+                                        <div className="table-wrapper custom-scroll" style={{ flex: 1, overflowY: 'auto', overflowX: 'auto', border: 'none', padding: '0' }}>
+                                            {analyticsData.defaulters.length > 0 ? (
+                                                <table className="attendance-table" style={{ width: '100%', minWidth: '340px' }}>
+                                                    <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                                                        <tr>
+                                                            <th style={{ background: 'white', fontSize: '11px', color: '#64748b', paddingLeft: '20px' }}>Student</th>
+                                                            <th style={{ background: 'white', fontSize: '11px', color: '#64748b', textAlign: 'center' }}>{analyticsFilter} %</th>
+                                                            <th style={{ background: 'white', fontSize: '11px', color: '#64748b', textAlign: 'right', paddingRight: '20px' }}>Action</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {analyticsData.defaulters.map(s => (
+                                                            <tr key={s.id} style={{ borderBottom: '1px solid #f8fafc' }}>
+                                                                <td style={{ padding: '12px 20px' }}>
+                                                                    <div style={{ fontWeight: '700', color: '#1e293b', fontSize: '13px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '120px' }}>
+                                                                        {s.firstName} {s.lastName}
+                                                                    </div>
+                                                                    <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                                                                        {s.rollNo} {isFE && s.division && <span style={{ color: '#3b82f6' }}>({s.division})</span>}
+                                                                    </div>
+                                                                </td>
+                                                                <td style={{ textAlign: 'center', padding: '12px' }}>
+                                                                    <span className="status-badge-pill" style={{ background: '#fef2f2', color: '#dc2626', fontSize: '11px', padding: '4px 10px' }}>
+                                                                        {s.percentage.toFixed(0)}%
+                                                                    </span>
+                                                                </td>
+                                                                <td style={{ textAlign: 'right', padding: '12px 20px' }}>
+                                                                    <button
+                                                                        onClick={() => handleSendNotice(s)}
+                                                                        className="btn-action"
+                                                                        style={{
+                                                                            background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe',
+                                                                            borderRadius: '8px', fontSize: '11px', padding: '6px 12px', fontWeight: '700',
+                                                                            cursor: 'pointer', whiteSpace: 'nowrap'
+                                                                        }}
+                                                                    >
+                                                                        Send
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            ) : (
+                                                <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', padding: '40px' }}>
+                                                    <i className="fas fa-check-circle" style={{ fontSize: '40px', marginBottom: '15px', color: '#10b981', opacity: 0.5 }}></i>
+                                                    <p style={{ fontSize: '14px', fontWeight: '600' }}>All Clear!</p>
+                                                    <p style={{ fontSize: '12px' }}>No defaulters below {analyticsData.threshold}%</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                        </div>
+                            </>
+                        )}
                     </div>
                 )}
 
@@ -3639,7 +3805,7 @@ export default function HODDashboard() {
                                     Select the students taking subjects under your department.
                                 </p>
                             </div>
-                            
+
                             <div style={{ background: '#f1f5f9', padding: '4px', borderRadius: '12px', display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
                                 {academicLevels.map(level => (
                                     <button
@@ -3663,7 +3829,7 @@ export default function HODDashboard() {
                         <div className="card" style={{ padding: '0', overflow: 'hidden' }}>
                             <div style={{ padding: '20px 25px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <h3 style={{ margin: 0, fontSize: '16px', color: '#1e293b' }}>
-                                    <i className="fas fa-users" style={{ color: '#3b82f6', marginRight: '8px' }}></i> 
+                                    <i className="fas fa-users" style={{ color: '#3b82f6', marginRight: '8px' }}></i>
                                     {enrollmentYear} Students
                                 </h3>
                                 <span className="nav-badge" style={{ background: '#eff6ff', color: '#2563eb' }}>
@@ -3676,8 +3842,8 @@ export default function HODDashboard() {
                                     <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: 'white' }}>
                                         <tr>
                                             <th style={{ width: '50px', textAlign: 'center' }}>
-                                                <input 
-                                                    type="checkbox" 
+                                                <input
+                                                    type="checkbox"
                                                     className="custom-checkbox"
                                                     checked={enrolledStudentIds.length === allCollegeStudents.filter(s => s.year === enrollmentYear || s.level === enrollmentYear).length && enrolledStudentIds.length > 0}
                                                     onChange={(e) => {
@@ -3698,13 +3864,13 @@ export default function HODDashboard() {
                                         {allCollegeStudents.filter(s => s.year === enrollmentYear || s.level === enrollmentYear)
                                             .sort((a, b) => (a.rollNo || "").localeCompare(b.rollNo, undefined, { numeric: true }))
                                             .map(student => (
-                                                <tr key={student.id} 
+                                                <tr key={student.id}
                                                     onClick={() => setEnrolledStudentIds(prev => prev.includes(student.id) ? prev.filter(id => id !== student.id) : [...prev, student.id])}
                                                     style={{ cursor: 'pointer', background: enrolledStudentIds.includes(student.id) ? '#f0fdf4' : 'transparent', transition: 'background 0.2s' }}
                                                 >
                                                     <td style={{ textAlign: 'center' }}>
-                                                        <input 
-                                                            type="checkbox" 
+                                                        <input
+                                                            type="checkbox"
                                                             className="custom-checkbox"
                                                             checked={enrolledStudentIds.includes(student.id)}
                                                             readOnly
@@ -3720,7 +3886,7 @@ export default function HODDashboard() {
                                                         {student.email}
                                                     </td>
                                                 </tr>
-                                        ))}
+                                            ))}
                                     </tbody>
                                 </table>
                                 {allCollegeStudents.filter(s => s.year === enrollmentYear || s.level === enrollmentYear).length === 0 && (
@@ -3730,11 +3896,11 @@ export default function HODDashboard() {
                                     </div>
                                 )}
                             </div>
-                            
+
                             <div style={{ padding: '20px', background: 'white', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'flex-end' }}>
-                                <button 
+                                <button
                                     onClick={handleSaveEnrollment}
-                                    className="btn-primary" 
+                                    className="btn-primary"
                                     style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', borderRadius: '10px' }}
                                 >
                                     <i className="fas fa-save"></i> Save Department Roster
@@ -3869,29 +4035,29 @@ export default function HODDashboard() {
                                                 {/* ✅ NEW: SUBJECT DROPDOWN (Shows all department subjects for Agri) */}
                                                 <div style={{ flex: '2 1 180px', position: 'relative', zIndex: 10 }}>
                                                     {(() => {
-                                                       const filteredSubs = isNonEngg 
-                                                        ? allKnownSubjects.filter(s => s.isLegacy || s.departmentId === hodDeptId) 
-                                                        : allKnownSubjects.filter(s => s.year === cls.year);
-                                                    
-                                                    const subOptions = filteredSubs.length > 0 
-                                                        ? filteredSubs.map(s => ({ value: s.name, label: s.isLegacy ? `${s.name} (Legacy)` : s.name })) 
-                                                        : [{ value: '', label: 'No subjects found' }];
+                                                        const filteredSubs = isNonEngg
+                                                            ? allKnownSubjects.filter(s => s.isLegacy || s.departmentId === hodDeptId)
+                                                            : allKnownSubjects.filter(s => s.year === cls.year);
+
+                                                        const subOptions = filteredSubs.length > 0
+                                                            ? filteredSubs.map(s => ({ value: s.name, label: s.isLegacy ? `${s.name} (Legacy)` : s.name }))
+                                                            : [{ value: '', label: 'No subjects found' }];
 
                                                         if (cls.subject && !subOptions.find(o => o.value === cls.subject)) {
                                                             subOptions.unshift({ value: cls.subject, label: `${cls.subject} (Typed)` });
                                                         }
 
                                                         return (
-                                                            <CustomMobileSelect 
-                                                                label="SUBJECT NAME" 
+                                                            <CustomMobileSelect
+                                                                label="SUBJECT NAME"
                                                                 icon="fa-book"
-                                                                value={cls.subject} 
+                                                                value={cls.subject}
                                                                 onChange={(val) => {
                                                                     const updated = [...teacherForm.assignedClasses];
                                                                     updated[index] = { ...updated[index], subject: val };
                                                                     setTeacherForm({ ...teacherForm, assignedClasses: updated });
-                                                                }} 
-                                                                options={subOptions} 
+                                                                }}
+                                                                options={subOptions}
                                                             />
                                                         );
                                                     })()}
@@ -3903,7 +4069,7 @@ export default function HODDashboard() {
                                     <button type="button" className="add-subject-btn" onClick={() => {
                                         const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year' || hodInfo?.department === 'FirstYear';
                                         const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
-                                        
+
                                         let defaultYear = isFE ? 'FE' : 'SE';
                                         if (isNonEngg) defaultYear = academicLevels[0] || 'First Year';
 
@@ -4032,7 +4198,7 @@ export default function HODDashboard() {
                                 Changing the email here will immediately update their login credentials.
                             </p>
 
-                           {/* 🎓 ASSIGNMENTS EDITOR (Standard UI) */}
+                            {/* 🎓 ASSIGNMENTS EDITOR (Standard UI) */}
                             <div className="class-assignment-container">
                                 <label style={{ fontSize: '12px', fontWeight: '800', color: '#64748b', marginBottom: '15px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
                                     <i className="fas fa-edit" style={{ marginRight: '8px', color: '#3b82f6' }}></i>
@@ -4109,12 +4275,12 @@ export default function HODDashboard() {
                                             {/* ✅ NEW: SUBJECT DROPDOWN FOR EDIT MODAL */}
                                             <div style={{ flex: '2 1 150px', position: 'relative', zIndex: 10 }}>
                                                 {(() => {
-                                                    const filteredSubs = isNonEngg 
-                                                        ? allKnownSubjects.filter(s => s.isLegacy || s.departmentId === hodDeptId) 
+                                                    const filteredSubs = isNonEngg
+                                                        ? allKnownSubjects.filter(s => s.isLegacy || s.departmentId === hodDeptId)
                                                         : allKnownSubjects.filter(s => s.year === cls.year);
-                                                    
-                                                    const subOptions = filteredSubs.length > 0 
-                                                        ? filteredSubs.map(s => ({ value: s.name, label: s.isLegacy ? `${s.name} (Legacy)` : s.name })) 
+
+                                                    const subOptions = filteredSubs.length > 0
+                                                        ? filteredSubs.map(s => ({ value: s.name, label: s.isLegacy ? `${s.name} (Legacy)` : s.name }))
                                                         : [{ value: '', label: 'No subjects found' }];
 
                                                     if (cls.subject && !subOptions.find(o => o.value === cls.subject)) {
@@ -4122,16 +4288,16 @@ export default function HODDashboard() {
                                                     }
 
                                                     return (
-                                                        <CustomMobileSelect 
-                                                            label="SUBJECT" 
+                                                        <CustomMobileSelect
+                                                            label="SUBJECT"
                                                             icon="fa-book"
-                                                            value={cls.subject} 
+                                                            value={cls.subject}
                                                             onChange={(val) => {
                                                                 const updated = [...editTeacherData.assignedClasses];
                                                                 updated[index] = { ...updated[index], subject: val };
                                                                 setEditTeacherData({ ...editTeacherData, assignedClasses: updated });
-                                                            }} 
-                                                            options={subOptions} 
+                                                            }}
+                                                            options={subOptions}
                                                         />
                                                     );
                                                 })()}
@@ -4142,7 +4308,7 @@ export default function HODDashboard() {
                                 <button type="button" className="add-subject-btn" onClick={() => {
                                     const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year' || hodInfo?.department === 'FirstYear';
                                     const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
-                                    
+
                                     let defaultYear = isFE ? 'FE' : 'SE';
                                     if (isNonEngg) defaultYear = academicLevels[0] || 'First Year';
 

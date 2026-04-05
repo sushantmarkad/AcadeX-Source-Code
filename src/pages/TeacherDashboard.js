@@ -77,7 +77,7 @@ const TeacherAnnouncements = ({ teacherInfo }) => {
                     const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                     data.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0));
                     setAnnouncements(data);
-                } catch(err) {
+                } catch (err) {
                     console.error("Error fetching announcements", err);
                 }
             };
@@ -628,7 +628,7 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv, currentAcade
                     <h2 className="gradient-text">Analytics</h2>
                     <p className="content-subtitle">
                         {/* ✅ Show Division in Subtitle */}
-                       {selectedYear} {selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All' ? `(Div ${selectedDiv})` : ''} • Average Attendance
+                        {selectedYear} {selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All' ? `(Div ${selectedDiv})` : ''} • Average Attendance
                     </p>
                 </div>
 
@@ -638,7 +638,7 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv, currentAcade
                         <button onClick={() => setTimeRange('month')} style={{ padding: '6px 12px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', background: timeRange === 'month' ? 'white' : 'transparent', color: timeRange === 'month' ? '#0f172a' : '#64748b', boxShadow: timeRange === 'month' ? '0 2px 5px rgba(0,0,0,0.05)' : 'none' }}>Month</button>
                     </div>
 
-                    
+
                     <div style={{ background: '#e2e8f0', padding: '4px', borderRadius: '8px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                         {activeModules.map(mod => {
                             const label = config?.terminology?.[mod] || mod.charAt(0).toUpperCase() + mod.slice(1).replace('_', ' ');
@@ -898,10 +898,10 @@ const DashboardHome = ({
     rollStart, setRollStart, rollEnd, setRollEnd,
     historySemester, setHistorySemester, getSubjectForHistory, historyLoading,
     selectedDiv, setRefreshTrigger, currentAcademicYear, selectedSubject, setHistoryLoading, setHistorySessions, refreshTrigger,
-    
+
     // 👇 ADDED PROPS HERE 👇
-    batchSelectionMethod, setBatchSelectionMethod, 
-    selectedRosterId, setSelectedRosterId, 
+    batchSelectionMethod, setBatchSelectionMethod,
+    selectedRosterId, setSelectedRosterId,
     availableRosters
 }) => {
 
@@ -910,7 +910,7 @@ const DashboardHome = ({
     const [manualRoll, setManualRoll] = useState("");
     const [absentList, setAbsentList] = useState("");
     const [classStrength, setClassStrength] = useState(0);
-    const [attendanceMode, setAttendanceMode] = useState('qr'); 
+    const [attendanceMode, setAttendanceMode] = useState('qr');
     const [currentPin, setCurrentPin] = useState('------');
     const [editingSession, setEditingSession] = useState(null);
     const [sessionToDelete, setSessionToDelete] = useState(null);
@@ -925,8 +925,61 @@ const DashboardHome = ({
 
     const theoryLabel = config?.terminology?.theory || "Theory";
     const practicalLabel = config?.terminology?.practical || "Practical";
-    
-    // (Note: The local useState and useEffect for rosters have been removed from here)
+
+    const [cachedStudents, setCachedStudents] = useState([]);
+    const [liveAbsentRolls, setLiveAbsentRolls] = useState([]);
+    const [pastAbsentRolls, setPastAbsentRolls] = useState([]);
+    const [manualPresentRolls, setManualPresentRolls] = useState([]);
+
+    useEffect(() => {
+        const fetchStudents = async () => {
+            if (!teacherInfo?.instituteId || !selectedYear) return;
+
+            const cacheKey = `students_${teacherInfo.instituteId}_${teacherInfo.department}_${selectedYear}`;
+            const cachedData = localStorage.getItem(cacheKey);
+            const cacheTime = localStorage.getItem(cacheKey + '_time');
+            const isCacheValid = cacheTime && (Date.now() - parseInt(cacheTime) < 24 * 60 * 60 * 1000);
+
+            let rawStudents = [];
+
+            // ✅ ZERO READ OPTIMIZATION: Pull from cache if valid
+            if (cachedData && isCacheValid) {
+                rawStudents = JSON.parse(cachedData);
+            } else {
+                const qStudents = query(
+                    collection(db, 'users'),
+                    where('instituteId', '==', teacherInfo.instituteId),
+                    where('role', '==', 'student'),
+                    where('year', '==', selectedYear),
+                    where('department', '==', teacherInfo.department)
+                );
+                const studentsSnap = await getDocs(qStudents);
+                rawStudents = studentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                localStorage.setItem(cacheKey, JSON.stringify(rawStudents));
+                localStorage.setItem(cacheKey + '_time', Date.now().toString());
+            }
+
+            // Filter by division if FE
+            if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
+                rawStudents = rawStudents.filter(s => s.division === selectedDiv);
+            }
+
+            // Sort numerically by roll number
+            rawStudents.sort((a, b) => parseInt(a.rollNo) - parseInt(b.rollNo));
+            setCachedStudents(rawStudents);
+        };
+        fetchStudents();
+    }, [teacherInfo, selectedYear, selectedDiv]);
+
+    // Helper to extract the exact list of students based on Theory vs Practical batches
+    const getTargetStudents = (type) => {
+        if (type === 'practical') {
+            return cachedStudents.filter(s => parseInt(s.rollNo) >= parseInt(rollStart) && parseInt(s.rollNo) <= parseInt(rollEnd));
+        }
+        return cachedStudents;
+    };
+
+
 
 
     useEffect(() => {
@@ -1015,8 +1068,8 @@ const DashboardHome = ({
         }
     };
 
-const filterOptions = [{ id: 'all', label: 'All' }];
-    
+    const filterOptions = [{ id: 'all', label: 'All' }];
+
     // ✅ FIX: Use sessionTypes and restrict to Theory/Practical for Agriculture College
     let sessionTypesToDisplay = config?.academicConfig?.sessionTypes || ['theory', 'practical'];
     if (config?.domain === 'AGRICULTURE') {
@@ -1109,9 +1162,9 @@ const filterOptions = [{ id: 'all', label: 'All' }];
         return parseInt(a.rollNo) - parseInt(b.rollNo);
     });
 
-    // --- ACTIONS ---
-    const handleInverseAttendance = async () => {
-        const absentees = absentList.split(',').map(s => s.trim()).filter(s => s !== "");
+   const handleInverseAttendance = async () => {
+        // ✅ Extracts array directly from Checkbox State
+        const absentees = liveAbsentRolls.map(r => String(r));
         if (absentees.length === 0 && !window.confirm("Mark EVERYONE as present?")) return;
 
         const toastId = toast.loading("Processing...");
@@ -1124,19 +1177,23 @@ const filterOptions = [{ id: 'all', label: 'All' }];
                     sessionId: activeSession.sessionId,
                     absentees: absentees,
                     year: selectedYear,
-                    // ✅ UPDATED: Send division if year is FE
                     division: selectedYear === 'FE' ? selectedDiv : null,
                     department: teacherInfo.department,
                     instituteId: teacherInfo.instituteId,
                     subject: currentSubject,
                     type: activeSession.type || 'theory',
-                    batch: activeSession.batch || 'All'
+                    batch: activeSession.batch || 'All',
+                    // ✅ CRITICAL FIX: Send the roll range to the backend
+                    rollRange: activeSession.type === 'practical' ? activeSession.rollRange : null,
+                    academicYear: currentAcademicYear
                 })
             });
+
             const data = await response.json();
+
             if (response.ok) {
                 toast.success(data.message, { id: toastId });
-                setAbsentList("");
+                setLiveAbsentRolls([]); // Clears checkboxes on success
             } else {
                 toast.error("Failed: " + data.error, { id: toastId });
             }
@@ -1144,6 +1201,7 @@ const filterOptions = [{ id: 'all', label: 'All' }];
             toast.error("Connection error.", { id: toastId });
         }
     };
+
     // ✅ NEW WAY (Sends 1 request for everyone)
     const handleAttendanceUpdate = async (session, changes) => {
         const toastId = toast.loading("Updating Attendance...");
@@ -1194,14 +1252,12 @@ const filterOptions = [{ id: 'all', label: 'All' }];
     };
 
     const handleManualMarkPresent = async () => {
-        if (!manualRoll) return toast.error("Enter at least one Roll Number");
+        if (manualPresentRolls.length === 0) return toast.error("Select at least one student");
 
-        // Convert "1, 2, 5" into ["1", "2", "5"]
-        let rollNosArray = manualRoll.split(',').map(r => r.trim()).filter(r => r !== "");
+        // ✅ Extract array directly from Checkbox State
+        let rollNosArray = manualPresentRolls.map(r => String(r));
 
-        if (rollNosArray.length === 0) return toast.error("Please enter valid Roll Numbers");
-
-        // ✅ NEW STRICT RANGE GUARD: Prevent marking outside Practical Batch bounds
+        // Strict Range Guard for Practicals
         if (activeSession?.type === 'practical' && activeSession.rollRange) {
             const { start, end } = activeSession.rollRange;
             const validRolls = [];
@@ -1217,30 +1273,29 @@ const filterOptions = [{ id: 'all', label: 'All' }];
                 toast.error(`Blocked: Roll(s) ${invalidRolls.join(', ')} are outside batch limits (${start}-${end})`);
             }
 
-            // If none of the entered rolls were valid, stop here
             if (validRolls.length === 0) {
-                setManualRoll("");
+                setManualPresentRolls([]);
                 return;
             }
-
-            rollNosArray = validRolls; // Proceed only with valid roll numbers
+            rollNosArray = validRolls;
         }
 
-        const toastId = toast.loading(`Marking ${rollNosArray.length} student(s)...`);
+        const toastId = toast.loading(`Marking ${rollNosArray.length} student(s) Present...`);
 
         try {
             const response = await fetch(`${BACKEND_URL}/markManualAttendance`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    rollNos: rollNosArray,
+                    rollNos: rollNosArray, // ✅ Sends the clean array
                     department: teacherInfo.department,
                     year: selectedYear,
                     division: selectedYear === 'FE' ? selectedDiv : null,
                     instituteId: teacherInfo.instituteId,
                     sessionId: activeSession.sessionId,
                     subject: currentSubject,
-                    teacherId: auth.currentUser.uid
+                    teacherId: auth.currentUser.uid,
+                    academicYear: currentAcademicYear
                 })
             });
 
@@ -1248,7 +1303,7 @@ const filterOptions = [{ id: 'all', label: 'All' }];
 
             if (response.ok) {
                 toast.success(data.message, { id: toastId });
-                setManualRoll("");
+                setManualPresentRolls([]); // Reset checkboxes on success
             } else {
                 toast.error("Failed: " + data.error, { id: toastId });
             }
@@ -1260,7 +1315,8 @@ const filterOptions = [{ id: 'all', label: 'All' }];
     const handlePastAttendance = async () => {
         if (!pastDate) return toast.error("Select a date!");
 
-        const absentees = pastAbsent.split(',').map(s => s.trim()).filter(s => s !== "");
+        // ✅ Extracts array directly from Checkbox State
+        const absentees = pastAbsentRolls.map(r => String(r));
         const toastId = toast.loading("Saving past attendance...");
         setPastLoading(true);
 
@@ -1278,17 +1334,17 @@ const filterOptions = [{ id: 'all', label: 'All' }];
                     instituteId: teacherInfo.instituteId,
                     date: pastDate,
                     type: pastType,
-                    // ✅ FIX: Use selectedBatch, rollStart, and rollEnd
                     batchName: pastType === 'practical' ? selectedBatch : 'All',
-                    absentRolls: absentees,
-                    rollRange: pastType === 'practical' ? { start: parseInt(rollStart), end: parseInt(rollEnd) } : null
+                    absentRolls: absentees, // ✅ Sending the correct array
+                    rollRange: pastType === 'practical' ? { start: parseInt(rollStart), end: parseInt(rollEnd) } : null,
+                    academicYear: currentAcademicYear
                 })
             });
 
             const data = await response.json();
             if (response.ok) {
                 toast.success(data.message, { id: toastId });
-                setPastAbsent(""); // Clear absentees on success
+                setPastAbsentRolls([]); // ✅ Clears the checkboxes upon success
                 setRefreshTrigger(prev => prev + 1); // Auto-refresh reports
                 setViewMode('history'); // Take them directly to the reports tab!
             } else {
@@ -1728,17 +1784,17 @@ const filterOptions = [{ id: 'all', label: 'All' }];
                                             return sessionTypesToDisplay.map(mod => {
                                                 const modId = mod.toLowerCase();
                                                 const label = config?.terminology?.[modId] || modId.charAt(0).toUpperCase() + modId.slice(1).replace('_', ' ');
-                                                
+
                                                 return (
-                                                    <button 
+                                                    <button
                                                         key={modId}
-                                                        onClick={() => setSessionType(modId)} 
-                                                        style={{ 
-                                                            flex: 1, padding: '8px', borderRadius: '8px', border: 'none', 
-                                                            background: sessionType === modId ? '#2563eb' : 'white', 
-                                                            color: sessionType === modId ? 'white' : '#64748b', 
-                                                            fontSize: '12px', cursor: 'pointer', fontWeight: 'bold', 
-                                                            boxShadow: sessionType === modId ? '0 2px 4px rgba(0,0,0,0.1)' : 'none' 
+                                                        onClick={() => setSessionType(modId)}
+                                                        style={{
+                                                            flex: 1, padding: '8px', borderRadius: '8px', border: 'none',
+                                                            background: sessionType === modId ? '#2563eb' : 'white',
+                                                            color: sessionType === modId ? 'white' : '#64748b',
+                                                            fontSize: '12px', cursor: 'pointer', fontWeight: 'bold',
+                                                            boxShadow: sessionType === modId ? '0 2px 4px rgba(0,0,0,0.1)' : 'none'
                                                         }}>
                                                         {label}
                                                     </button>
@@ -1879,73 +1935,152 @@ const filterOptions = [{ id: 'all', label: 'All' }];
                         </div>
                     )}
 
-                    {/* 4. ACTIONS */}
+                    {/* 4. ACTIONS (MODERN UI) */}
                     {isSessionRelevant && (
-                        <div className="card-full-width" style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                            <div className="card" style={{ borderLeft: '4px solid #f59e0b', padding: '15px', background: '#fffbeb' }}>
-                                <h3 style={{ fontSize: '14px', color: '#b45309', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', fontWeight: '700' }}>
-                                    <i className="fas fa-user-minus" style={{ color: '#f59e0b' }}></i> Quick Absentee
+                        <div className="trk-att-grid">
+
+                            {/* --- CARD 1: QUICK ABSENTEE --- */}
+                            <div className="trk-att-card absent-theme">
+                                <h3 className="trk-att-header absent-theme">
+                                    <div className="trk-att-icon-wrapper"><i className="fas fa-user-minus"></i></div>
+                                    Check Absent Students
                                 </h3>
-                                <input type="text" placeholder="Roll Nos (e.g. 1, 5, 12)" value={absentList} onChange={(e) => setAbsentList(e.target.value)} className="modern-input" style={{ width: '100%', padding: '10px', fontSize: '13px', border: '1px solid #fcd34d', borderRadius: '6px', background: 'white' }} />
-                                <button className="btn-modern-primary" onClick={handleInverseAttendance} style={{ background: '#f7da72', color: '#000000', border: '1px solid #edd587', marginTop: '10px', width: '100%', fontSize: '12px', padding: '8px', fontWeight: 'bold', cursor: 'pointer', borderRadius: '6px' }}>
-                                    Mark Rest Present
+
+                                <div className="trk-att-controls">
+                                    <button onClick={() => setLiveAbsentRolls([])} className="trk-att-btn-outline green">Select All</button>
+                                    <button onClick={() => setLiveAbsentRolls(getTargetStudents(activeSession?.type || 'theory').map(s => String(s.rollNo)))} className="trk-att-btn-outline red">Deselect All</button>
+                                </div>
+
+                                <div className="trk-att-list-container absent-theme">
+                                    {getTargetStudents(activeSession?.type || 'theory').length === 0 ? (
+                                        <p style={{ fontSize: '13px', color: '#94a3b8', textAlign: 'center', margin: '20px 0' }}>Loading students...</p>
+                                    ) : (
+                                        getTargetStudents(activeSession?.type || 'theory').map(student => {
+                                            const strRoll = String(student.rollNo);
+                                            const isPresent = !liveAbsentRolls.includes(strRoll);
+
+                                            // ✅ Wrapped in <label> so tapping ANYWHERE on the row toggles the checkbox
+                                            return (
+                                                <label key={strRoll} className={`trk-att-student-row ${isPresent ? '' : 'selected-absent'}`}>
+                                                    <input
+                                                        type="checkbox"
+                                                        className="trk-att-checkbox"
+                                                        checked={isPresent}
+                                                        onChange={() => {
+                                                            if (isPresent) {
+                                                                setLiveAbsentRolls([...liveAbsentRolls, strRoll]);
+                                                            } else {
+                                                                setLiveAbsentRolls(liveAbsentRolls.filter(r => r !== strRoll));
+                                                            }
+                                                        }}
+                                                    />
+                                                    <span className="trk-att-roll">{student.rollNo}</span>
+                                                    <span className="trk-att-name">{student.firstName} {student.lastName}</span>
+                                                </label>
+                                            );
+                                        })
+                                    )}
+                                </div>
+
+                                <button className="trk-att-submit-btn absent-theme" onClick={handleInverseAttendance}>
+                                    <i className="fas fa-check-circle"></i> Submit Final List
                                 </button>
                             </div>
 
-                            <div className="card" style={{ borderLeft: '4px solid #2563eb', padding: '15px', background: '#eff6ff' }}>
-                                <h3 style={{ fontSize: '14px', color: '#1e3a8a', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', fontWeight: '700' }}>
-                                    <i className="fas fa-user-check" style={{ color: '#2563eb' }}></i> Manual Present
+                            {/* --- CARD 2: MANUAL PRESENT --- */}
+                            <div className="trk-att-card present-theme">
+                                <h3 className="trk-att-header present-theme">
+                                    <div className="trk-att-icon-wrapper"><i className="fas fa-user-check"></i></div>
+                                    Manual Present
                                 </h3>
-                                {/* ✅ Changed type to 'text' and updated placeholder */}
-                                <input
-                                    type="text"
-                                    placeholder="Roll Nos (e.g. 1, 5, 12)"
-                                    value={manualRoll}
-                                    onChange={(e) => setManualRoll(e.target.value)}
-                                    className="modern-input"
-                                    style={{ width: '100%', padding: '10px', fontSize: '13px', border: '1px solid #bfdbfe', borderRadius: '6px', background: 'white' }}
-                                />
-                                <button
-                                    className="btn-modern-primary"
-                                    onClick={handleManualMarkPresent}
-                                    style={{ background: '#5091e6', color: '#2563eb', border: '1px solid #bfdbfe', marginTop: '10px', width: '100%', fontSize: '12px', padding: '8px', fontWeight: 'bold', cursor: 'pointer', borderRadius: '6px' }}
-                                >
-                                    Add Student(s)
+
+                                <div className="trk-att-controls">
+                                    <button onClick={() => setManualPresentRolls(getTargetStudents(activeSession?.type || 'theory').map(s => String(s.rollNo)))} className="trk-att-btn-outline blue">Select All</button>
+                                    <button onClick={() => setManualPresentRolls([])} className="trk-att-btn-outline red">Deselect All</button>
+                                </div>
+
+                                <div className="trk-att-list-container present-theme">
+                                    {getTargetStudents(activeSession?.type || 'theory').length === 0 ? (
+                                        <p style={{ fontSize: '13px', color: '#94a3b8', textAlign: 'center', margin: '20px 0' }}>Loading students...</p>
+                                    ) : (
+                                        getTargetStudents(activeSession?.type || 'theory').map(student => {
+                                            const strRoll = String(student.rollNo);
+                                            const isPresent = manualPresentRolls.includes(strRoll);
+
+                                            // ✅ Wrapped in <label> so tapping ANYWHERE on the row toggles the checkbox
+                                            return (
+                                                <label key={strRoll} className={`trk-att-student-row ${isPresent ? 'selected-present' : ''}`}>
+                                                    <input
+                                                        type="checkbox"
+                                                        className="trk-att-checkbox present-theme"
+                                                        checked={isPresent}
+                                                        onChange={() => {
+                                                            if (isPresent) {
+                                                                setManualPresentRolls(manualPresentRolls.filter(r => r !== strRoll));
+                                                            } else {
+                                                                setManualPresentRolls([...manualPresentRolls, strRoll]);
+                                                            }
+                                                        }}
+                                                    />
+                                                    <span className="trk-att-roll">{student.rollNo}</span>
+                                                    <span className="trk-att-name">{student.firstName} {student.lastName}</span>
+                                                </label>
+                                            );
+                                        })
+                                    )}
+                                </div>
+
+                                <button className="trk-att-submit-btn present-theme" onClick={handleManualMarkPresent}>
+                                    <i className="fas fa-paper-plane"></i> Submit Selected
                                 </button>
                             </div>
+
                         </div>
                     )}
 
-                    {/* 5. LIVE LIST */}
+                  {/* 5. LIVE LIST (MODERNIZED) */}
                     {isSessionRelevant && (
-                        <div className="card card-full-width" style={{ marginTop: '0px', padding: '0', overflow: 'hidden' }}>
+                        <div className="trk-att-card list-theme" style={{ gridColumn: '1 / -1', padding: 0 }}>
                             <div style={{ padding: '15px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
-                                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: '#1e293b' }}>Live Student List</h3>
-                                <span className="status-badge-pill" style={{ background: '#dcfce7', color: '#15803d' }}>Live</span>
+                                <h3 className="trk-att-header list-theme">
+                                    <div className="trk-att-icon-wrapper"><i className="fas fa-list-ul"></i></div>
+                                    Live Student List
+                                </h3>
+                                <span className="status-badge-pill" style={{ background: '#dcfce7', color: '#15803d', fontWeight: 'bold', padding: '4px 10px', borderRadius: '20px', fontSize: '12px' }}>
+                                    <i className="fas fa-circle" style={{ fontSize: '8px', marginRight: '5px', verticalAlign: 'middle' }}></i> Live
+                                </span>
                             </div>
-                            <div className="table-wrapper" style={{ border: 'none', borderRadius: 0, maxHeight: '400px', overflowY: 'auto' }}>
-                                <table className="attendance-table">
-                                    <thead style={{ background: 'white', position: 'sticky', top: 0 }}><tr><th>Roll No.</th><th>Name</th><th>Status</th></tr></thead>
+
+                            <div style={{ maxHeight: '400px', overflowY: 'auto', padding: '0 10px 10px 10px' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', boxSizing: 'border-box' }}>
+                                    <thead style={{ position: 'sticky', top: 0, background: 'white', zIndex: 1 }}>
+                                        <tr>
+                                            <th style={{ padding: '12px 15px', borderBottom: '2px solid #e2e8f0', color: '#64748b', fontSize: '12px', textTransform: 'uppercase' }}>Roll No.</th>
+                                            <th style={{ padding: '12px 15px', borderBottom: '2px solid #e2e8f0', color: '#64748b', fontSize: '12px', textTransform: 'uppercase' }}>Name</th>
+                                            <th style={{ padding: '12px 15px', borderBottom: '2px solid #e2e8f0', color: '#64748b', fontSize: '12px', textTransform: 'uppercase' }}>Status / Method</th>
+                                        </tr>
+                                    </thead>
                                     <tbody>
                                         {sortedAttendanceList.map(s => (
-                                            <tr key={s.id}>
-                                                <td style={{ fontWeight: '600', color: '#334155' }}>{s.rollNo}</td>
-                                                <td style={{ fontWeight: '500' }}>{s.firstName} {s.lastName}</td>
-                                                <td>
+                                            <tr key={s.id} style={{ borderBottom: '1px solid #f1f5f9', transition: 'background 0.2s' }} onMouseOver={e => e.currentTarget.style.background = '#f8fafc'} onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
+                                                <td style={{ padding: '12px 15px', fontWeight: '800', color: '#334155' }}>{s.rollNo}</td>
+                                                <td style={{ padding: '12px 15px', fontWeight: '600', color: '#475569' }}>{s.firstName} {s.lastName}</td>
+                                                <td style={{ padding: '12px 15px' }}>
                                                     {s.markedBy === 'teacher_manual'
-                                                        ? <span style={{ fontSize: '10px', background: '#e0f2fe', color: '#0284c7', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>Manual</span>
+                                                        ? <span style={{ fontSize: '11px', background: '#e0f2fe', color: '#0284c7', padding: '4px 8px', borderRadius: '6px', fontWeight: 'bold' }}>Manual</span>
                                                         : s.markedBy === 'teacher_inverse'
-                                                            ? <span style={{ fontSize: '10px', background: '#fef3c7', color: '#d97706', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>Auto</span>
-                                                            : <span style={{ fontSize: '10px', background: '#dcfce7', color: '#15803d', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>App</span>
+                                                            ? <span style={{ fontSize: '11px', background: '#fef3c7', color: '#d97706', padding: '4px 8px', borderRadius: '6px', fontWeight: 'bold' }}>Auto-Marked</span>
+                                                            : <span style={{ fontSize: '11px', background: '#dcfce7', color: '#15803d', padding: '4px 8px', borderRadius: '6px', fontWeight: 'bold' }}>App Scanned</span>
                                                     }
                                                 </td>
                                             </tr>
                                         ))}
                                         {sortedAttendanceList.length === 0 && (
                                             <tr>
-                                                <td colSpan="3" style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
-                                                    <i className="fas fa-spinner fa-spin" style={{ fontSize: '24px', marginBottom: '10px', color: '#cbd5e1' }}></i>
-                                                    <p style={{ margin: 0, fontSize: '13px' }}>Waiting for scans...</p>
+                                                <td colSpan="3" style={{ textAlign: 'center', padding: '50px 20px', color: '#94a3b8' }}>
+                                                    <i className="fas fa-spinner fa-spin" style={{ fontSize: '28px', marginBottom: '12px', color: '#cbd5e1' }}></i>
+                                                    <p style={{ margin: 0, fontSize: '14px', fontWeight: '600' }}>Waiting for scans...</p>
+                                                    <p style={{ margin: '5px 0 0 0', fontSize: '12px', color: '#94a3b8' }}>Students marked present will appear here instantly.</p>
                                                 </td>
                                             </tr>
                                         )}
@@ -1960,7 +2095,7 @@ const filterOptions = [{ id: 'all', label: 'All' }];
             {/* --- PAST ENTRY MODE --- */}
             {viewMode === 'past' && (
                 <div className="cards-grid fade-in-up">
-                    <div className="card" style={{ borderTop: '4px solid #f59e0b', background: 'white' }}>
+                    <div className="card" style={{ gridColumn: '1 / -1', borderTop: '4px solid #f59e0b', background: 'white' }}>
                         <h3 style={{ margin: '0 0 5px 0', color: '#b45309', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '18px' }}>
                             <i className="fas fa-history"></i> Add Past Attendance
                         </h3>
@@ -2001,32 +2136,61 @@ const filterOptions = [{ id: 'all', label: 'All' }];
                                 </div>
                             )}
 
-                            {/* Absent Rolls Input */}
-                            <div>
-                                <label style={{ fontSize: '11px', fontWeight: '800', color: '#ef4444', display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>
-                                    Absent Roll Numbers
-                                </label>
-                                <textarea
-                                    rows="3"
-                                    placeholder="Enter comma-separated rolls (e.g., 5, 12, 18). Leave blank if 100% present."
-                                    value={pastAbsent}
-                                    onChange={(e) => setPastAbsent(e.target.value)}
-                                    style={{ width: '100%', padding: '12px', fontSize: '14px', border: '2px solid #fecaca', borderRadius: '12px', outline: 'none', resize: 'vertical', background: '#fef2f2' }}
-                                />
+                            {/* Absent Rolls Input (MODERN UI APPLIED) */}
+                            <div className="trk-att-card absent-theme" style={{ border: 'none', padding: '0', boxShadow: 'none', background: 'transparent' }}>
+                                <h3 className="trk-att-header absent-theme" style={{ fontSize: '14px', marginBottom: '5px' }}>
+                                    <div className="trk-att-icon-wrapper" style={{ width: '28px', height: '28px' }}><i className="fas fa-users"></i></div>
+                                    Select Present Students (Deselect Absent)
+                                </h3>
+
+                                <div className="trk-att-controls" style={{ marginBottom: '5px' }}>
+                                    <button onClick={(e) => { e.preventDefault(); setPastAbsentRolls([]); }} className="trk-att-btn-outline green">Select All</button>
+                                    <button onClick={(e) => { e.preventDefault(); setPastAbsentRolls(getTargetStudents(pastType).map(s => String(s.rollNo))); }} className="trk-att-btn-outline red">Deselect All</button>
+                                </div>
+
+                                <div className="trk-att-list-container absent-theme" style={{ maxHeight: '280px' }}>
+                                    {getTargetStudents(pastType).length === 0 ? (
+                                        <p style={{ fontSize: '13px', color: '#94a3b8', textAlign: 'center', margin: '20px 0' }}>Loading students...</p>
+                                    ) : (
+                                        getTargetStudents(pastType).map(student => {
+                                            const strRoll = String(student.rollNo);
+                                            const isPresent = !pastAbsentRolls.includes(strRoll);
+                                            return (
+                                                <label key={strRoll} className={`trk-att-student-row ${isPresent ? '' : 'selected-absent'}`}>
+                                                    <input
+                                                        type="checkbox"
+                                                        className="trk-att-checkbox"
+                                                        checked={isPresent}
+                                                        onChange={() => {
+                                                            if (isPresent) {
+                                                                setPastAbsentRolls([...pastAbsentRolls, strRoll]);
+                                                            } else {
+                                                                setPastAbsentRolls(pastAbsentRolls.filter(r => r !== strRoll));
+                                                            }
+                                                        }}
+                                                    />
+                                                    <span className="trk-att-roll">{student.rollNo}</span>
+                                                    <span className="trk-att-name">{student.firstName} {student.lastName}</span>
+                                                </label>
+                                            );
+                                        })
+                                    )}
+                                </div>
                             </div>
 
                             <button
                                 onClick={handlePastAttendance}
                                 disabled={pastLoading}
-                                className="btn-modern-primary"
-                                style={{ background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', color: 'white', border: 'none', padding: '14px', borderRadius: '12px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', boxShadow: '0 4px 12px rgba(245, 158, 11, 0.25)' }}
+                                className="trk-att-submit-btn absent-theme"
+                                style={{ marginTop: '15px' }}
                             >
-                                {pastLoading ? <i className="fas fa-spinner fa-spin"></i> : <><i className="fas fa-save"></i> Submit Record</>}
+                                {pastLoading ? <i className="fas fa-spinner fa-spin"></i> : <><i className="fas fa-save"></i> Submit Final Record</>}
                             </button>
                         </div>
                     </div>
                 </div>
             )}
+
 
             {/* --- HISTORY MODE (Unified & Filtered) --- */}
             {viewMode === 'history' && (
@@ -2125,7 +2289,7 @@ const filterOptions = [{ id: 'all', label: 'All' }];
                             </div>
                         </div>
 
-                       {/* ✅ MODERN EXPORT BUTTONS */}
+                        {/* ✅ MODERN EXPORT BUTTONS */}
                         <div className="export-actions">
                             <button
                                 onClick={() => {
@@ -2243,6 +2407,8 @@ const filterOptions = [{ id: 'all', label: 'All' }];
                         </>
                     )}
 
+
+
                     {/* ✅ CSS INJECTION FOR BUTTONS & LOADER */}
                     <style>{`
                         .modern-loader {
@@ -2321,8 +2487,260 @@ const filterOptions = [{ id: 'all', label: 'All' }];
                     font-weight: 700;
                 }
             `}</style>
-            {/* ✅ GLOBAL CSS FIXES */}
+            {/* ✅ CONSOLIDATED GLOBAL CSS (Moved OUTSIDE tabs so it applies everywhere!) */}
             <style>{`
+           /* --- Grid for desktop side-by-side, mobile stacked --- */
+                .trk-att-grid {
+                    grid-column: 1 / -1; /* ✅ CRUCIAL FIX: Forces grid to break out of the 280px desktop column constraint */
+                    display: grid;
+                    grid-template-columns: 1fr;
+                    gap: 15px; 
+                    width: 100%;
+                    max-width: 100%; /* Prevents mobile horizontal scroll */
+                    box-sizing: border-box; 
+                }
+                @media (min-width: 850px) {
+                    .trk-att-grid { grid-template-columns: 1fr 1fr; gap: 20px; }
+                }
+
+                /* --- Main Card Styling --- */
+                .trk-att-card {
+                    background: #ffffff;
+                    border-radius: 16px;
+                    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+                    border: 1px solid #f1f5f9;
+                    padding: 15px; 
+                    transition: transform 0.2s ease, box-shadow 0.2s ease;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                    box-sizing: border-box;
+                    width: 100%;
+                    max-width: 100%; /* Mobile fix */
+                    overflow: hidden; 
+                }
+                @media (min-width: 850px) {
+                    .trk-att-card { padding: 20px; gap: 15px; }
+                }
+                .trk-att-card:hover { box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08); }
+                .trk-att-card.absent-theme { border-top: 4px solid #f59e0b; }
+                .trk-att-card.present-theme { border-top: 4px solid #3b82f6; }
+                .trk-att-card.list-theme { border-top: 4px solid #10b981; }
+
+                /* --- Headers --- */
+                .trk-att-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    font-size: 15px; 
+                    font-weight: 800;
+                    margin: 0;
+                    flex-wrap: wrap; 
+                }
+                @media (min-width: 850px) {
+                    .trk-att-header { font-size: 16px; }
+                }
+                .trk-att-header.absent-theme { color: #b45309; }
+                .trk-att-header.present-theme { color: #1e3a8a; }
+                .trk-att-header.list-theme { color: #065f46; }
+
+                .trk-att-icon-wrapper {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 28px;
+                    height: 28px;
+                    border-radius: 8px;
+                    font-size: 13px;
+                    flex-shrink: 0; 
+                }
+                @media (min-width: 850px) {
+                    .trk-att-icon-wrapper { width: 32px; height: 32px; font-size: 14px; }
+                }
+                .absent-theme .trk-att-icon-wrapper { background: #fef3c7; color: #f59e0b; }
+                .present-theme .trk-att-icon-wrapper { background: #dbeafe; color: #2563eb; }
+                .list-theme .trk-att-icon-wrapper { background: #d1fae5; color: #10b981; }
+
+                /* --- Pill Buttons --- */
+                .trk-att-controls { 
+                    display: flex; 
+                    gap: 8px; 
+                    flex-wrap: wrap; /* Prevents overflow if buttons are too long */
+                }
+                .trk-att-btn-outline {
+                    flex: 1;
+                    min-width: 120px; 
+                    padding: 8px 10px;
+                    font-size: 12px;
+                    font-weight: 700;
+                    border-radius: 10px;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                    text-align: center;
+                    white-space: normal; 
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    line-height: 1.2;
+                }
+                .trk-att-btn-outline.green { background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; }
+                .trk-att-btn-outline.green:hover { background: #10b981; color: white; border-color: #10b981; }
+                
+                .trk-att-btn-outline.red { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+                .trk-att-btn-outline.red:hover { background: #ef4444; color: white; border-color: #ef4444; }
+                
+                .trk-att-btn-outline.blue { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
+                .trk-att-btn-outline.blue:hover { background: #3b82f6; color: white; border-color: #3b82f6; }
+
+                /* --- List Container & Custom Scrollbar --- */
+                .trk-att-list-container {
+                    max-height: 250px;
+                    overflow-y: auto;
+                    background: #f8fafc;
+                    border: 1px solid #e2e8f0;
+                    border-radius: 12px;
+                    padding: 8px;
+                }
+                .trk-att-list-container::-webkit-scrollbar { width: 6px; }
+                .trk-att-list-container::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+
+                /* --- Student Row (Label for full-width clicking) --- */
+                .trk-att-student-row {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    padding: 12px;
+                    background: white;
+                    border: 1px solid #f1f5f9;
+                    border-radius: 10px;
+                    margin-bottom: 8px;
+                    transition: all 0.2s ease;
+                    cursor: pointer;
+                    user-select: none;
+                }
+                .trk-att-student-row:last-child { margin-bottom: 0; }
+                .trk-att-student-row:hover { border-color: #cbd5e1; transform: translateY(-1px); box-shadow: 0 4px 6px rgba(0,0,0,0.02); }
+                
+                .trk-att-student-row.selected-absent { border-color: #fcd34d; background: #fffdf5; }
+                .trk-att-student-row.selected-present { border-color: #93c5fd; background: #eff6ff; }
+
+                /* --- Roll No Badge --- */
+                .trk-att-roll {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-width: 34px;
+                    height: 26px;
+                    border-radius: 6px;
+                    font-size: 11px;
+                    font-weight: 800;
+                }
+                .absent-theme .trk-att-roll { background: #fef3c7; color: #b45309; }
+                .present-theme .trk-att-roll { background: #dbeafe; color: #1e40af; }
+
+                .trk-att-name {
+                    font-size: 13px;
+                    color: #334155;
+                    font-weight: 700;
+                    flex: 1;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                }
+
+                .trk-att-checkbox {
+                    width: 18px;
+                    height: 18px;
+                    cursor: pointer;
+                    accent-color: #f59e0b;
+                }
+                .present-theme .trk-att-checkbox { accent-color: #2563eb; }
+
+                /* --- Submit Buttons --- */
+                .trk-att-submit-btn {
+                    width: 100%;
+                    padding: 14px;
+                    font-size: 14px;
+                    font-weight: 800;
+                    border: none;
+                    border-radius: 12px;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 8px;
+                    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                }
+                .trk-att-submit-btn.absent-theme { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.25); }
+                .trk-att-submit-btn.absent-theme:hover { box-shadow: 0 6px 16px rgba(245, 158, 11, 0.4); transform: translateY(-2px); }
+                
+                .trk-att-submit-btn.present-theme { background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25); }
+                .trk-att-submit-btn.present-theme:hover { box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4); transform: translateY(-2px); }
+                
+                /* --- Loaders & Reports --- */
+                .modern-loader {
+                    width: 50px;
+                    height: 50px;
+                    border: 5px solid #f3f3f3;
+                    border-top: 5px solid #3b82f6;
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                    margin: 0 auto 15px auto;
+                }
+                @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                
+                .loader-container {
+                    grid-column: 1 / -1;
+                    text-align: center;
+                    padding: 80px;
+                    color: #64748b;
+                    background: white;
+                    border-radius: 16px;
+                    border: 1px dashed #e2e8f0;
+                }
+
+                .export-actions {
+                    display: flex;
+                    gap: 12px;
+                    align-items: center;
+                    justify-content: flex-end;
+                    flex-wrap: wrap;
+                    flex: 2;
+                    min-width: 280px;
+                }
+
+                .btn-export {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 8px;
+                    padding: 10px 20px;
+                    border-radius: 12px;
+                    font-weight: 700;
+                    font-size: 13px;
+                    transition: all 0.2s ease;
+                    border: none;
+                    cursor: pointer;
+                    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+                    height: 42px;
+                    white-space: nowrap;
+                }
+                .btn-export:hover:not(:disabled) {
+                    transform: translateY(-2px);
+                    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+                }
+                .btn-export:active:not(:disabled) { transform: translateY(0); }
+                
+                .btn-pdf { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; }
+                .btn-excel { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; text-decoration: none; }
+                
+                .btn-disabled {
+                    background: #e2e8f0;
+                    color: #94a3b8;
+                    cursor: not-allowed;
+                    box-shadow: none;
+                }
+
                 .gradient-text {
                     background: linear-gradient(135deg, #7c3aed 0%, #db2777 100%);
                     -webkit-background-clip: text;
@@ -2334,9 +2752,9 @@ const filterOptions = [{ id: 'all', label: 'All' }];
                 
                 /* FIX: Ensure dropdowns options are scrollable and visible */
                 .custom-dropdown-options {
-                    max-height: 200px; /* Limit height */
-                    overflow-y: auto !important; /* Force scroll */
-                    z-index: 9999 !important; /* Ensure it floats on top */
+                    max-height: 200px; 
+                    overflow-y: auto !important; 
+                    z-index: 9999 !important; 
                 }
                 
                 /* FIX: Ensure cards don't clip the dropdown */
@@ -2973,7 +3391,7 @@ export default function TeacherDashboard() {
     const [batchSelectionMethod, setBatchSelectionMethod] = useState('range');
     const [selectedRosterId, setSelectedRosterId] = useState('');
     const [availableRosters, setAvailableRosters] = useState([]);
-    
+
     const currentSubject = selectedSubject || teacherInfo?.assignedClasses?.find(c => c.year === selectedYear)?.subject || teacherInfo?.subject;
 
     useEffect(() => {
@@ -2990,7 +3408,7 @@ export default function TeacherDashboard() {
         return () => unsub();
     }, [teacherInfo, currentSubject, selectedYear]);
 
-   // ✅ 3. PROPER SEMESTER & DIVISION FILTERING IN REPORTS TAB
+    // ✅ 3. PROPER SEMESTER & DIVISION FILTERING IN REPORTS TAB
     const getSubjectForHistory = () => {
         if (!teacherInfo?.assignedClasses) return selectedSubject || teacherInfo?.subject || "Subject";
 
@@ -3012,7 +3430,7 @@ export default function TeacherDashboard() {
         });
 
         if (semClass) {
-            return semClass.subject; 
+            return semClass.subject;
         }
 
         // Fallback
@@ -3172,7 +3590,7 @@ export default function TeacherDashboard() {
                 const lastViewedTime = lastViewed ? new Date(lastViewed).getTime() : 0;
                 const unread = data.filter(n => (n.createdAt?.toMillis() || 0) > lastViewedTime).length;
                 setUnreadNoticeCount(unread);
-            } catch(err) {
+            } catch (err) {
                 console.error("Error fetching admin notices", err);
             }
         };
@@ -3664,7 +4082,7 @@ export default function TeacherDashboard() {
                 );
             case 'announcements': return <TeacherAnnouncements teacherInfo={teacherInfo} />;
             case 'addTasks': return <AddTasks teacherInfo={teacherInfo} />;
-           
+
             case 'marks':
                 // ✅ ADD selectedSubject prop here
                 return <MarksManager teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} selectedSubject={selectedSubject} />;
@@ -3795,7 +4213,7 @@ export default function TeacherDashboard() {
                         <h2 style={{ color: '#1e293b', marginBottom: '15px' }}>Select Classroom</h2>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
-                           {teacherInfo?.assignedClasses?.flatMap(cls => {
+                            {teacherInfo?.assignedClasses?.flatMap(cls => {
                                 // 1. If FE, generate separate buttons for each assigned Division (ONLY for Engg)
                                 if (cls.year === 'FE' && cls.divisions && !isNonEngg) {
                                     if (cls.divisions.toLowerCase() === 'all') {
@@ -3817,10 +4235,10 @@ export default function TeacherDashboard() {
                                         setSelectedYear(cls.year);
                                         // ✅ Clear division if not applicable (forces 'All')
                                         if (cls.displayDiv) setSelectedDiv(cls.displayDiv);
-                                        else setSelectedDiv('All'); 
-                                        
-                                        setSelectedSubject(cls.subject); 
-                                        if (cls.semester) setHistorySemester(Number(cls.semester)); 
+                                        else setSelectedDiv('All');
+
+                                        setSelectedSubject(cls.subject);
+                                        if (cls.semester) setHistorySemester(Number(cls.semester));
                                         setShowYearModal(false);
                                         toast.success(`Entered ${cls.year} ${cls.displayDiv && cls.displayDiv !== 'All' ? `(Div ${cls.displayDiv})` : ''} - ${cls.subject}`);
                                     }}
@@ -3927,19 +4345,19 @@ export default function TeacherDashboard() {
                     <NavLink page="analytics" iconClass="fa-chart-bar" label="Analytics" />
                     <NavLink page="announcements" iconClass="fa-bullhorn" label="Announcements" />
                     <NavLink page="addTasks" iconClass="fa-tasks" label="Add Tasks" />
-                   
-                   
-                        <NavLink page="marks" iconClass="fa-clipboard-check" label="Marks & Results" />
-                    
 
-                  {/* ✅ FIX: CCE Manager strictly limited to Engineering colleges */}
+
+                    <NavLink page="marks" iconClass="fa-clipboard-check" label="Marks & Results" />
+
+
+                    {/* ✅ FIX: CCE Manager strictly limited to Engineering colleges */}
                     <FeatureGuard requiredDomain="ENGINEERING">
                         <NavLink page="cce" iconClass="fa-calculator" label="CCE Manager" />
                     </FeatureGuard>
 
-                    
-                        <NavLink page="assignmentMarks" iconClass="fa-file-signature" label="Assignment Marks" />
-                
+
+                    <NavLink page="assignmentMarks" iconClass="fa-file-signature" label="Assignment Marks" />
+
 
                     {/* ✅ ADDED PROFILE TAB */}
                     <NavLink page="profile" iconClass="fa-user-circle" label="Profile" />

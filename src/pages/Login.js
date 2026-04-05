@@ -227,7 +227,7 @@ export default function Login() {
             </div>
             <div className="hero-icon" style={{ color: "#059669" }}><i className="fas fa-chalkboard-teacher"></i></div>
             <h2>Empower Your<br />Classroom</h2>
-            <p>Log in to access your secure HOD dashboard, track daily attendance, and manage your class rosters effortlessly.</p>
+            <p>Log in to access your secure HOD dashboard or Teacher Dashboard track daily attendance, and manage your class effortlessly.</p>
           </motion.div>
         );
       case 'admin':

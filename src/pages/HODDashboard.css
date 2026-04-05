@@ -1203,4 +1203,133 @@
     box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
 }
 
-/* Keep your existing .fb-question-card, .fb-delete-q-btn, etc. below this... */
+/* =========================================
+   ULTRA-MODERN SMOOTH LOADER
+   ========================================= */
+
+.modern-loader-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 55vh;
+    animation: smoothFadeIn 0.6s ease-out forwards;
+}
+
+/* The Glowing Gradient Ring */
+.modern-gradient-spinner {
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    /* Create the smooth gradient tail */
+    background: conic-gradient(from 90deg at 50% 50%, rgba(59, 130, 246, 0) 0%, rgba(59, 130, 246, 0.2) 20%, #3b82f6 100%);
+    /* Hollow out the center perfectly */
+    -webkit-mask: radial-gradient(farthest-side, #0000 calc(100% - 6px), #fff 0);
+    mask: radial-gradient(farthest-side, #0000 calc(100% - 6px), #fff 0);
+    /* Spin animation */
+    animation: smoothSpin 0.9s linear infinite;
+    margin-bottom: 28px;
+    /* Soft premium glow */
+    filter: drop-shadow(0 0 12px rgba(59, 130, 246, 0.4));
+}
+
+/* Typography Styling */
+.modern-loader-title {
+    margin: 0;
+    color: #0f172a;
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    /* Smooth breathing effect on the text */
+    animation: subtlePulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.modern-loader-subtitle {
+    margin: 8px 0 0;
+    color: #64748b;
+    font-size: 14px;
+    font-weight: 500;
+    opacity: 0.8;
+}
+
+/* Animations */
+@keyframes smoothSpin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes subtlePulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(0.98); }
+}
+
+@keyframes smoothFadeIn {
+    0% { opacity: 0; transform: translateY(15px); }
+    100% { opacity: 1; transform: translateY(0); }
+}
+/* =========================================
+   ULTRA-MODERN FEEDBACK RESPONSES LOADER
+   ========================================= */
+
+.fb-modern-loader-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 300px;
+    background: white;
+    border-radius: 16px;
+    animation: smoothFadeIn 0.4s ease-out forwards;
+}
+
+/* The Smooth Glowing Gradient Ring */
+.fb-modern-spinner {
+    width: 55px;
+    height: 55px;
+    border-radius: 50%;
+    /* Smooth comet-tail gradient */
+    background: conic-gradient(from 90deg at 50% 50%, rgba(59, 130, 246, 0) 0%, rgba(59, 130, 246, 0.15) 20%, #3b82f6 100%);
+    /* Hallows out the center perfectly */
+    -webkit-mask: radial-gradient(farthest-side, #0000 calc(100% - 5px), #fff 0);
+    mask: radial-gradient(farthest-side, #0000 calc(100% - 5px), #fff 0);
+    /* 60fps spin */
+    animation: smoothSpin 0.85s linear infinite;
+    margin-bottom: 20px;
+    /* Soft blue glow */
+    filter: drop-shadow(0 0 10px rgba(59, 130, 246, 0.4));
+}
+
+/* Typography Styling */
+.fb-modern-loader-title {
+    margin: 0;
+    color: #0f172a;
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    /* Breathing effect */
+    animation: subtlePulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.fb-modern-loader-subtitle {
+    margin: 6px 0 0;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 500;
+    opacity: 0.8;
+}
+
+/* Reusable Animations (if not already in your CSS) */
+@keyframes smoothSpin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes subtlePulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.6; transform: scale(0.98); }
+}
+
+@keyframes smoothFadeIn {
+    0% { opacity: 0; transform: translateY(10px); }
+    100% { opacity: 1; transform: translateY(0); }
+}
