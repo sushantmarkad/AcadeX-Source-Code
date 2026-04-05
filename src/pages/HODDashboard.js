@@ -383,13 +383,12 @@ export default function HODDashboard() {
         }
     }, [activeTab, fbTab, hodInfo]);
 
-    // --- 2. FETCH & PROCESS ATTENDANCE (BULLETPROOF SINGLE-INDEX FETCH) ---
+   // --- 2. FETCH & PROCESS ATTENDANCE (BULLETPROOF ZERO-READ OPTIMIZATION) ---
     useEffect(() => {
-        // If base data isn't ready, keep waiting
         if (!hodInfo || deptUsers.length === 0) return;
 
-        const fetchAttendanceMap = async () => {
-            setIsAnalyticsLoading(true); // 👈 START LOADER
+        const processAttendanceMap = () => {
+            setIsAnalyticsLoading(true); 
 
             try {
                 // If there are no sessions created yet, stop loading and return early
@@ -400,90 +399,28 @@ export default function HODDashboard() {
                 }
 
                 const tempMap = {};
-                const sessionMap = {};
 
-                // 1. Map valid sessions
-                allSessions.forEach(s => {
-                    if (s.isDeleted || s.status === 'deleted' || s.status === 'cancelled') return;
-                    if (s.type !== 'theory' && s.type !== 'practical') return;
-                    sessionMap[s.id] = s;
-                });
-
-                if (Object.keys(sessionMap).length === 0) {
-                    setStudentAttendanceMap({});
-                    setIsAnalyticsLoading(false); // 👈 STOP LOADER
-                    return;
-                }
-
-                // 2. Map users for super-fast lookup
-                const userMap = {};
+                // 🌟 SCALABILITY FIX: Zero Firebase Reads!
+                // Instead of querying the entire 'attendance' collection, we pull the 
+                // pre-calculated stats directly from the already-fetched user documents.
                 deptUsers.forEach(u => {
-                    userMap[u.id || u.uid] = u;
-                });
-
-                const attendedSessions = new Set();
-
-                const qAttendance = query(
-                    collection(db, 'attendance'),
-                    where('instituteId', '==', hodInfo.instituteId),
-                    where('academicYear', '==', currentAcademicYear)
-                );
-
-                const snap = await getDocs(qAttendance);
-
-                snap.docs.forEach(doc => {
-                    const data = doc.data();
-
-                    if (data.status !== 'Present' && data.status !== 'present') return;
-
-                    const session = sessionMap[data.sessionId];
-                    if (!session) return;
-
-                    const sId = data.studentId || data.uid || data.userId;
-                    if (!sId) return;
-
-                    const student = userMap[sId];
-                    if (!student) return;
-
-                    const sessionYear = session.targetYear || session.year;
-                    if (sessionYear !== 'All' && sessionYear !== student.year && sessionYear !== student.level) return;
-
-                    if (session.division && session.division !== 'All') {
-                        const myDiv = student.division || student.div;
-                        if (session.division !== myDiv) return;
-                    }
-
-                    if (session.type === 'practical' && session.rollRange) {
-                        const myRoll = parseInt(student.rollNo);
-                        const min = parseInt(session.rollRange.start);
-                        const max = parseInt(session.rollRange.end);
-                        if (isNaN(myRoll) || myRoll < min || myRoll > max) return;
-                    }
-
-                    const uniqueKey = `${sId}_${data.sessionId}`;
-                    if (attendedSessions.has(uniqueKey)) return;
-                    attendedSessions.add(uniqueKey);
-
-                    if (!tempMap[sId]) {
-                        tempMap[sId] = { theory: 0, practical: 0 };
-                    }
-
-                    if (session.type === 'practical') {
-                        tempMap[sId].practical += 1;
-                    } else {
-                        tempMap[sId].theory += 1;
+                    if (u.role === 'student') {
+                        const sId = u.id || u.uid;
+                        // Safely pull stats for the current academic year, fallback to 0
+                        const stats = u.attendanceStats?.[currentAcademicYear] || { theory: 0, practical: 0 };
+                        tempMap[sId] = stats;
                     }
                 });
 
                 setStudentAttendanceMap(tempMap);
             } catch (error) {
-                console.error("🔥 Error fetching attendance map:", error);
+                console.error("🔥 Error processing attendance map:", error);
             } finally {
-                setIsAnalyticsLoading(false); // 👈 STOP LOADER NO MATTER WHAT
+                setIsAnalyticsLoading(false); 
             }
         };
 
-        fetchAttendanceMap();
+        processAttendanceMap();
     }, [hodInfo, allSessions, deptUsers, currentAcademicYear]);
 
     // --- 3. FUNCTIONAL ATTENDANCE GRAPH (100% ACCURATE MATH) ---
