@@ -2364,70 +2364,75 @@ export default function StudentDashboard() {
         return () => unsub();
     }, [user]);
 
-   // 3. GLOBAL SCHEDULE LOGIC (Optimized: 1 Read Per Session)
+    // src/pages/StudentDashboard.js
+
+    // 3. GLOBAL SCHEDULE LOGIC (Fixed to match HOD's new format)
     useEffect(() => {
-        if (!user?.department || !user?.year || !user?.instituteId) return;
+        const fetchSchedule = async () => {
+            if (!user?.department || !user?.year || !user?.instituteId) return;
 
-        let cachedTodaysSlots = []; // Cache slots in memory
-
-        const fetchScheduleData = async () => {
+            // Get Current Day Name (e.g., "Monday")
             const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
             const today = days[new Date().getDay()];
 
             if (today === 'Sunday') {
-                setCurrentSlot({ type: 'Holiday', subject: 'Weekend! Relax.', startTime: '00:00', endTime: '00:00' });
+                setCurrentSlot({ type: 'Holiday', subject: 'Weekend! Relax.' });
                 return;
             }
 
             try {
+                // ✅ 1. Construct the EXACT ID that HOD Dashboard uses
                 let docId = `${user.instituteId}_${user.department}_${user.year}_Timetable`;
+
+                // If FE, append the Division (e.g., _FE_A_Timetable)
                 if (user.year === 'FE' && user.division) {
                     docId = `${user.instituteId}_${user.department}_${user.year}_${user.division}_Timetable`;
                 }
 
+                // ✅ 2. Fetch the Weekly Timetable Document
                 const docSnap = await getDoc(doc(db, 'timetables', docId));
+
                 if (docSnap.exists()) {
-                    cachedTodaysSlots = docSnap.data()[today] || [];
-                    updateCurrentSlot(); // Check time immediately after fetching
+                    const data = docSnap.data();
+                    const todaysSlots = data[today] || []; // Get array for "Monday" etc.
+
+                    // ✅ 3. Find Active Slot based on Current Time
+                    const now = getCurrentTimeMinutes();
+                    const activeSlot = todaysSlots.find(slot => {
+                        const start = getMinutesFromTime(slot.startTime);
+                        const end = getMinutesFromTime(slot.endTime);
+                        return now >= start && now < end;
+                    });
+
+                    // Set State
+                    if (activeSlot) {
+                        setCurrentSlot(activeSlot);
+                        // Trigger Free Period logic if needed
+                        const isNowFree = activeSlot.type === 'Break' || activeSlot.type === 'Free';
+                        if (isNowFree && !isFreePeriod) {
+                            toast("Free Period Detected! Tasks generated.", { icon: '🤖' });
+                            setIsFreePeriod(true);
+                        } else if (!isNowFree) {
+                            setIsFreePeriod(false);
+                        }
+                    } else {
+                        // No slot right now (e.g. after college hours)
+                        setCurrentSlot({ type: 'Free', subject: 'No active class', startTime: '00:00', endTime: '00:00' });
+                    }
                 } else {
+                    console.log("Timetable document not found:", docId);
                     setCurrentSlot({ type: 'Free', subject: 'No Schedule Set', startTime: '00:00', endTime: '00:00' });
                 }
             } catch (error) {
                 console.error("Timetable Error:", error);
+                setCurrentSlot({ type: 'Free', subject: 'Error Loading', startTime: '00:00', endTime: '00:00' });
             }
         };
 
-        const updateCurrentSlot = () => {
-            if (!cachedTodaysSlots.length) return;
-            const now = getCurrentTimeMinutes();
-            
-            const activeSlot = cachedTodaysSlots.find(slot => {
-                const start = getMinutesFromTime(slot.startTime);
-                const end = getMinutesFromTime(slot.endTime);
-                return now >= start && now < end;
-            });
-
-            if (activeSlot) {
-                setCurrentSlot(activeSlot);
-                const isNowFree = activeSlot.type === 'Break' || activeSlot.type === 'Free';
-                if (isNowFree && !isFreePeriod) {
-                    toast("Free Period Detected! Tasks generated.", { icon: '🤖' });
-                    setIsFreePeriod(true);
-                } else if (!isNowFree) {
-                    setIsFreePeriod(false);
-                }
-            } else {
-                setCurrentSlot({ type: 'Free', subject: 'No active class', startTime: '00:00', endTime: '00:00' });
-            }
-        };
-
-        fetchScheduleData(); // Fetch from DB once
-        
-        // Only run local JS math every 60s (0 Database Reads!)
-        const interval = setInterval(updateCurrentSlot, 60000); 
+        fetchSchedule();
+        const interval = setInterval(fetchSchedule, 60000); // Update every minute
         return () => clearInterval(interval);
     }, [user, isFreePeriod]);
-
     // ✅ NEW: FETCH ASSIGNMENTS (For Task Badge)
     useEffect(() => {
         if (!user?.instituteId) return;

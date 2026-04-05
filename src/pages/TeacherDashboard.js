@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { signOut } from 'firebase/auth';
 import { useNavigate } from 'react-router-dom';
 import { auth, db, storage } from '../firebase';
-import { collection, doc, getDoc, serverTimestamp, onSnapshot, query, where, getDocs, setDoc, addDoc, deleteDoc, updateDoc, Timestamp, writeBatch, increment, getDocsFromServer } from 'firebase/firestore';
+// Add getCountFromServer to your existing firebase/firestore imports
+import { collection, doc, getDoc, serverTimestamp, onSnapshot, query, where, getDocs, setDoc, addDoc, deleteDoc, updateDoc, Timestamp, writeBatch, increment, getCountFromServer } from 'firebase/firestore';
 import { QRCodeSVG } from 'qrcode.react';
 import { CSVLink } from 'react-csv';
 import toast from 'react-hot-toast';
@@ -452,7 +453,8 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv, currentAcade
 
     useEffect(() => {
         const fetchAnalytics = async () => {
-            if (!teacherInfo || !selectedYear) return;
+            // ✅ 1. Add classStrength === 0 here to wait until the strength is calculated
+            if (!teacherInfo || !selectedYear || classStrength === 0) return;
             setLoading(true);
 
             // Determine Subject
@@ -473,134 +475,36 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv, currentAcade
             startDate.setHours(0, 0, 0, 0);
 
             try {
-                // ---------------------------------------------------------
-                // 1. GET CLASS STRENGTH (WITH LOCAL STORAGE CACHING) 🚀
-                // ---------------------------------------------------------
-                const cacheKey = `students_${teacherInfo.instituteId}_${teacherInfo.department}_${selectedYear}`;
-                const cachedData = localStorage.getItem(cacheKey);
-                const cacheTime = localStorage.getItem(cacheKey + '_time');
+                // ❌ REMOVED the broken validStudents logic
 
-                let rawStudents = [];
-
-                // Check if cache exists and is valid (< 24 hours old)
-                const isCacheValid = cacheTime && (Date.now() - parseInt(cacheTime) < 24 * 60 * 60 * 1000);
-
-                if (cachedData && isCacheValid) {
-                    // ✅ USE CACHE (0 Reads)
-                    console.log("Using cached student list for Analytics");
-                    rawStudents = JSON.parse(cachedData);
-                } else {
-                    // 📡 FETCH FROM FIREBASE (Costly - Only happens once per day)
-                    const qStudents = query(
-                        collection(db, 'users'),
-                        where('instituteId', '==', teacherInfo.instituteId),
-                        where('role', '==', 'student'),
-                        where('year', '==', selectedYear),
-                        where('department', '==', teacherInfo.department)
-                    );
-                    const studentsSnap = await getDocs(qStudents);
-
-                    // Normalize data immediately for consistent usage
-                    rawStudents = studentsSnap.docs.map(doc => ({
-                        id: doc.id,
-                        ...doc.data()
-                    }));
-
-                    // Save to Local Storage
-                    localStorage.setItem(cacheKey, JSON.stringify(rawStudents));
-                    localStorage.setItem(cacheKey + '_time', Date.now().toString());
-                }
-
-                // 🛡️ FILTER BY DIVISION (Works on both Cached & Fresh data)
-                let validStudents = rawStudents;
-                if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
-                    validStudents = validStudents.filter(s => s.division === selectedDiv);
-                }
-
-                const totalStudents = validStudents.length || 1;
-                setClassStrength(totalStudents);
-
-                // ---------------------------------------------------------
-                // 2. GET ATTENDANCE LOGS (Standard Query)
-                // ---------------------------------------------------------
-                const q = query(
-                    collection(db, 'attendance'),
-                    where('instituteId', '==', teacherInfo.instituteId),
-                    where('subject', '==', currentSubject),
-                    where('academicYear', '==', currentAcademicYear || '2025-2026'),
-                    where('timestamp', '>=', Timestamp.fromDate(startDate))
-                );
-                const snap = await getDocs(q);
-
-                const sessionIds = new Set();
-                snap.docs.forEach(d => sessionIds.add(d.data().sessionId));
-
-                // 3. Get Session Metadata (Type & Division)
-                const sessionMeta = {};
-                await Promise.all(Array.from(sessionIds).map(async (sid) => {
-                    const sDoc = await getDoc(doc(db, 'live_sessions', sid));
-                    if (sDoc.exists()) {
-                        sessionMeta[sid] = {
-                            type: sDoc.data().type || 'theory',
-                            division: sDoc.data().division // ✅ Capture Division
-                        };
-                    }
-                }));
-
-                const stats = {};
-                snap.docs.forEach(doc => {
-                    const data = doc.data();
-                    const meta = sessionMeta[data.sessionId];
-
-                    // ✅ SKIP if session metadata missing
-                    if (!meta) return;
-
-                    // ✅ FIX: Filter Data by Division
-                    if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
-                        // If session has a specific division and it doesn't match selected, skip
-                        if (meta.division && meta.division !== selectedDiv) return;
-                    }
-
-                    if (meta.type === graphType) {
-                        const date = data.timestamp.toDate();
-                        const dayStr = timeRange === 'week'
-                            ? date.toLocaleDateString('en-GB', { weekday: 'short' })
-                            : date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
-
-                        const sortKey = date.toISOString().split('T')[0];
-                        if (!stats[sortKey]) {
-                            stats[sortKey] = {
-                                name: dayStr,
-                                present: 0,
-                                uniqueSessions: new Set()
-                            };
-                        }
-                        stats[sortKey].present++;
-                        stats[sortKey].uniqueSessions.add(data.sessionId);
-                    }
+                // 2. Fetch the aggregated chart data from backend
+                const response = await fetch(`${BACKEND_URL}/getTeacherChartAnalytics`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        instituteId: teacherInfo.instituteId,
+                        subject: currentSubject,
+                        academicYear: currentAcademicYear || '2025-2026',
+                        startDate: startDate.toISOString(),
+                        graphType: graphType,
+                        totalStudents: classStrength, // ✅ 2. Pass the state variable here directly
+                        selectedYear: selectedYear,
+                        selectedDiv: selectedDiv
+                    })
                 });
 
-                const formattedData = Object.keys(stats).sort().map(key => {
-                    const item = stats[key];
-                    const sessionCount = item.uniqueSessions.size || 1;
-                    const avgPresent = Math.round(item.present / sessionCount);
-                    const avgAbsent = Math.max(0, totalStudents - avgPresent);
-                    const percent = Math.round((avgPresent / totalStudents) * 100);
-
-                    return {
-                        name: item.name,
-                        present: avgPresent,
-                        absent: avgAbsent,
-                        percentLabel: percent > 15 ? `${percent}%` : "",
-                        classStrength: totalStudents
-                    };
-                });
-                setChartData(formattedData);
-            } catch (err) { console.error(err); }
-            finally { setLoading(false); }
+                const data = await response.json();
+                setChartData(data.chartData || []);
+            } catch (err) {
+                console.error(err);
+            } finally {
+                setLoading(false);
+            }
         };
         fetchAnalytics();
-    }, [teacherInfo, selectedYear, graphType, timeRange, selectedDiv]);
+
+        // ✅ 3. Add classStrength to the dependency array
+    }, [teacherInfo, selectedYear, graphType, timeRange, selectedDiv, classStrength, currentAcademicYear, selectedSubject]);
 
     const CustomTooltip = ({ active, payload, label }) => {
         if (active && payload && payload.length) {
@@ -902,7 +806,7 @@ const DashboardHome = ({
     // 👇 ADDED PROPS HERE 👇
     batchSelectionMethod, setBatchSelectionMethod,
     selectedRosterId, setSelectedRosterId,
-    availableRosters,lectureCount, 
+    availableRosters, lectureCount,
     setLectureCount
 }) => {
 
@@ -924,7 +828,7 @@ const DashboardHome = ({
     const [reportBatchFilter, setReportBatchFilter] = useState('All');
     const { config } = useInstitution();
     // Add this near your other state declarations in DashboardHome
-   
+
 
     const theoryLabel = config?.terminology?.theory || "Theory";
     const practicalLabel = config?.terminology?.practical || "Practical";
@@ -933,7 +837,7 @@ const DashboardHome = ({
     const [liveAbsentRolls, setLiveAbsentRolls] = useState([]);
     const [pastAbsentRolls, setPastAbsentRolls] = useState([]);
     const [manualPresentRolls, setManualPresentRolls] = useState([]);
-    
+
 
     useEffect(() => {
         const fetchStudents = async () => {
@@ -990,7 +894,6 @@ const DashboardHome = ({
         setReportBatchFilter('All');
     }, [selectedDiv, selectedYear]);
 
-    // Fetch Class Strength for Percentage (Fixed for Division)
     useEffect(() => {
         const fetchStrength = async () => {
             if (teacherInfo?.instituteId && selectedYear) {
@@ -1001,22 +904,24 @@ const DashboardHome = ({
                     where('year', '==', selectedYear),
                     where('department', '==', teacherInfo.department)
                 );
-                const snap = await getDocs(q);
 
-                let totalStudents = snap.size;
+                let totalStudents = 1;
 
-                // ✅ FIX: Recalculate strength if a specific Division is active
+                // ✅ OPTIMIZED: Uses getCountFromServer (0 document reads, 1 aggregation read)
                 if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
-                    // Filter the fetched students to only count those in the selected division
-                    const divisionStudents = snap.docs.filter(doc => doc.data().division === selectedDiv);
-                    totalStudents = divisionStudents.length;
+                    const divQuery = query(q, where('division', '==', selectedDiv));
+                    const snapshot = await getCountFromServer(divQuery);
+                    totalStudents = snapshot.data().count;
+                } else {
+                    const snapshot = await getCountFromServer(q);
+                    totalStudents = snapshot.data().count;
                 }
 
                 setClassStrength(totalStudents || 1); // Avoid division by zero
             }
         };
         fetchStrength();
-    }, [teacherInfo, selectedYear, selectedDiv]); // 👈 Added selectedDiv dependency
+    }, [teacherInfo, selectedYear, selectedDiv]);
 
     // --- 💾 PERSISTENCE: Load & Save Batch Roll Ranges ---
 
@@ -1166,7 +1071,7 @@ const DashboardHome = ({
         return parseInt(a.rollNo) - parseInt(b.rollNo);
     });
 
-   const handleInverseAttendance = async () => {
+    const handleInverseAttendance = async () => {
         // ✅ Extracts array directly from Checkbox State
         const absentees = liveAbsentRolls.map(r => String(r));
         if (absentees.length === 0 && !window.confirm("Mark EVERYONE as present?")) return;
@@ -1325,7 +1230,7 @@ const DashboardHome = ({
         setPastLoading(true);
 
         try {
-          // Inside handlePastAttendance, replace the fetch block with this:
+            // Inside handlePastAttendance, replace the fetch block with this:
             const response = await fetch(`${BACKEND_URL}/markPastAttendance`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1340,7 +1245,7 @@ const DashboardHome = ({
                     date: pastDate,
                     type: pastType,
                     batchName: pastType === 'practical' ? selectedBatch : 'All',
-                    absentRolls: absentees, 
+                    absentRolls: absentees,
                     rollRange: pastType === 'practical' ? { start: parseInt(rollStart), end: parseInt(rollEnd) } : null,
                     academicYear: currentAcademicYear,
                     lectureCount: lectureCount // ✅ ADDED THIS
@@ -1807,7 +1712,7 @@ const DashboardHome = ({
                                                 );
                                             });
                                         })()}
-                                        
+
                                     </div>
                                     <div style={{ marginBottom: '10px' }}>
                                         <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '4px', display: 'block', textTransform: 'uppercase' }}>Number of Lectures</label>
@@ -2052,7 +1957,7 @@ const DashboardHome = ({
                         </div>
                     )}
 
-                  {/* 5. LIVE LIST (MODERNIZED) */}
+                    {/* 5. LIVE LIST (MODERNIZED) */}
                     {isSessionRelevant && (
                         <div className="trk-att-card list-theme" style={{ gridColumn: '1 / -1', padding: 0 }}>
                             <div style={{ padding: '15px 20px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#f8fafc' }}>
@@ -2992,171 +2897,28 @@ const CCEManager = ({ teacherInfo, selectedYear, selectedDiv, selectedSubject })
             setLoading(true);
 
             try {
-                // 1. Fetch Students
-                let qStudents = query(collection(db, 'users'),
-                    where('instituteId', '==', teacherInfo.instituteId),
-                    where('role', '==', 'student'),
-                    where('year', '==', selectedYear),
-                    where('department', '==', teacherInfo.department)
-                );
-                const studentSnap = await getDocs(qStudents);
-                let studentList = studentSnap.docs.map(doc => ({ id: doc.id, ...doc.data(), rollNo: parseInt(doc.data().rollNo) }));
+                const response = await fetch(`${BACKEND_URL}/getCCEData`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        instituteId: teacherInfo.instituteId,
+                        department: teacherInfo.department,
+                        year: selectedYear,
+                        division: selectedDiv,
+                        subject: currentSubject,
+                        teacherId: teacherInfo.id || auth.currentUser.uid
+                    })
+                });
+                const data = await response.json();
 
-                if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
-                    studentList = studentList.filter(s => s.division === selectedDiv);
-                }
-                studentList.sort((a, b) => a.rollNo - b.rollNo);
-
-                // 2. Fetch Total Theory Sessions STRICTLY BY SUBJECT
-                const qSessions = query(collection(db, 'live_sessions'),
-                    where('instituteId', '==', teacherInfo.instituteId)
-                );
-                const sessionsSnap = await getDocs(qSessions);
-
-                let totalTheorySessions = 0;
-                const validTheorySessionIds = new Set();
-
-                sessionsSnap.docs.forEach(doc => {
-                    const data = doc.data();
-                    const sessionSubj = (data.subject || '').trim();
-                    if (sessionSubj.toLowerCase() !== currentSubject.toLowerCase()) return;
-
-                    const sessionYear = data.year || data.targetYear;
-                    if (sessionYear && sessionYear !== 'All' && sessionYear !== selectedYear) return;
-
-                    if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
-                        if (data.division && data.division !== 'All' && data.division !== selectedDiv) return;
-                    }
-
-                    if (data.type !== 'practical') {
-                        totalTheorySessions++;
-                        validTheorySessionIds.add(doc.id);
-                    }
+                // The frontend now only applies the formula dynamically! 
+                const finalData = data.students.map(s => {
+                    const rawCce = formula.multiplier * (s.testSum + (s.assignSum * (s.attendancePercent / 100))) / formula.divisor;
+                    return { ...s, cceMarks: Math.round(rawCce) };
                 });
 
-                const safeTotalSessions = totalTheorySessions > 0 ? totalTheorySessions : 1;
-
-                // 3. Fetch Attendance matching ONLY our Valid Theory Sessions
-                const qAtt = query(collection(db, 'attendance'),
-                    where('instituteId', '==', teacherInfo.instituteId)
-                );
-                const attSnap = await getDocs(qAtt);
-
-                const studentAttendanceCount = {};
-
-                attSnap.forEach(doc => {
-                    const data = doc.data();
-                    if (data.status === 'Present' && validTheorySessionIds.has(data.sessionId)) {
-                        if (data.studentId) {
-                            studentAttendanceCount[data.studentId] = (studentAttendanceCount[data.studentId] || 0) + 1;
-                        }
-                    }
-                });
-
-                // 4. Fetch Existing Test Marks
-                const qMarks = query(collection(db, 'exam_marks'),
-                    where('teacherId', '==', teacherInfo.id || auth.currentUser.uid),
-                    where('year', '==', selectedYear)
-                );
-                const marksSnap = await getDocs(qMarks);
-                let fetchedTests = marksSnap.docs.map(doc => doc.data());
-
-                fetchedTests = fetchedTests.filter(t => {
-                    const tSubj = (t.subject || '').trim();
-                    if (tSubj.toLowerCase() !== currentSubject.toLowerCase()) return false;
-                    if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
-                        if (t.division !== selectedDiv) return false;
-                    }
-                    return true;
-                });
-
-                fetchedTests.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-                const testMarksMap = {};
-                fetchedTests.forEach((testDoc, index) => {
-                    let testSlot = `test${index + 1}`;
-                    const tName = (testDoc.testName || '').toLowerCase();
-                    if (tName.includes('1')) testSlot = 'test1';
-                    else if (tName.includes('2')) testSlot = 'test2';
-                    else if (tName.includes('3')) testSlot = 'test3';
-                    else if (index > 2) return;
-
-                    const scoresMap = testDoc.scores || {};
-                    Object.keys(scoresMap).forEach(studentId => {
-                        if (!testMarksMap[studentId]) testMarksMap[studentId] = { test1: 0, test2: 0, test3: 0 };
-                        testMarksMap[studentId][testSlot] = parseFloat(scoresMap[studentId].marks || 0);
-                    });
-                });
-
-                // 5. ✅ NEW: AUTO-FETCH ASSIGNMENT MARKS
-                const qAssign = query(collection(db, 'assignment_marks'),
-                    where('teacherId', '==', teacherInfo.id || auth.currentUser.uid),
-                    where('year', '==', selectedYear)
-                );
-                const assignSnap = await getDocs(qAssign);
-                let fetchedAssigns = assignSnap.docs.map(doc => doc.data());
-
-                fetchedAssigns = fetchedAssigns.filter(a => {
-                    const aSubj = (a.subject || '').trim();
-                    if (aSubj.toLowerCase() !== currentSubject.toLowerCase()) return false;
-                    if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
-                        if (a.division !== selectedDiv) return false;
-                    }
-                    return true;
-                });
-
-                fetchedAssigns.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-                const assignMarksMap = {};
-                fetchedAssigns.forEach((assignDoc, index) => {
-                    let assignSlot = `assign${index + 1}`;
-                    const aName = (assignDoc.testName || '').toLowerCase();
-                    if (aName.includes('1')) assignSlot = 'assign1';
-                    else if (aName.includes('2')) assignSlot = 'assign2';
-                    else if (aName.includes('3')) assignSlot = 'assign3';
-                    else if (index > 2) return;
-
-                    const scoresMap = assignDoc.scores || {};
-                    Object.keys(scoresMap).forEach(studentId => {
-                        if (!assignMarksMap[studentId]) assignMarksMap[studentId] = { assign1: 0, assign2: 0, assign3: 0 };
-                        assignMarksMap[studentId][assignSlot] = parseFloat(scoresMap[studentId].marks || 0);
-                    });
-                });
-
-                // 6. Merge Data & Calculate Formula (Fully Automated)
-                const mergedData = studentList.map(student => {
-                    const presentCount = studentAttendanceCount[student.id] || 0;
-                    const attendancePercent = (presentCount / safeTotalSessions) * 100;
-
-                    const testData = testMarksMap[student.id] || {};
-                    const t1 = testData.test1 || 0;
-                    const t2 = testData.test2 || 0;
-                    const t3 = testData.test3 || 0;
-                    const testSum = t1 + t2 + t3;
-
-                    // Extracted directly from the Assignment Tab
-                    const assignData = assignMarksMap[student.id] || {};
-                    const a1 = assignData.assign1 || 0;
-                    const a2 = assignData.assign2 || 0;
-                    const a3 = assignData.assign3 || 0;
-                    const assignSum = a1 + a2 + a3;
-
-                    // Dynamic Formula Calculation
-                    const rawCce = formula.multiplier * (testSum + (assignSum * (attendancePercent / 100))) / formula.divisor;
-                    const cceMarks = Math.round(rawCce);
-
-                    return {
-                        ...student,
-                        attendancePercent: attendancePercent.toFixed(2),
-                        test1: t1, test2: t2, test3: t3, testSum,
-                        assign1: a1, assign2: a2, assign3: a3, assignSum,
-                        cceMarks: cceMarks
-                    };
-                });
-
-                setStudents(mergedData);
+                setStudents(finalData);
             } catch (error) {
-                console.error("CCE Fetch Error:", error);
                 toast.error("Failed to load CCE data");
             } finally {
                 setLoading(false);
@@ -3669,21 +3431,34 @@ export default function TeacherDashboard() {
             const end = new Date(endDate); end.setHours(23, 59, 59, 999);
 
             try {
-                // 1. Get ALL Students
-                const qStudents = query(
-                    collection(db, 'users'),
-                    where('instituteId', '==', teacherInfo.instituteId),
-                    where('role', '==', 'student'),
-                    where('year', '==', selectedYear),
-                    where('department', '==', teacherInfo.department)
-                );
-                const studentsSnap = await getDocs(qStudents);
+                // 1. Get ALL Students (🔥 OPTIMIZED: Uses your Local Storage Cache!)
+                const cacheKey = `students_${teacherInfo.instituteId}_${teacherInfo.department}_${selectedYear}`;
+                const cachedData = localStorage.getItem(cacheKey);
+                const cacheTime = localStorage.getItem(cacheKey + '_time');
+                const isCacheValid = cacheTime && (Date.now() - parseInt(cacheTime) < 24 * 60 * 60 * 1000);
 
-                let allStudents = studentsSnap.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data(),
-                    rollNo: parseInt(doc.data().rollNo) || 9999
-                }));
+                let allStudents = [];
+
+                if (cachedData && isCacheValid) {
+                    allStudents = JSON.parse(cachedData);
+                } else {
+                    const qStudents = query(
+                        collection(db, 'users'),
+                        where('instituteId', '==', teacherInfo.instituteId),
+                        where('role', '==', 'student'),
+                        where('year', '==', selectedYear),
+                        where('department', '==', teacherInfo.department)
+                    );
+                    const studentsSnap = await getDocs(qStudents);
+                    allStudents = studentsSnap.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data(),
+                        rollNo: parseInt(doc.data().rollNo) || 9999
+                    }));
+                    // Save to cache for next time
+                    localStorage.setItem(cacheKey, JSON.stringify(allStudents));
+                    localStorage.setItem(cacheKey + '_time', Date.now().toString());
+                }
 
                 if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
                     const targetDiv = String(selectedDiv).trim().toUpperCase();
@@ -3754,14 +3529,22 @@ export default function TeacherDashboard() {
                 const attDocs = [];
                 for (let i = 0; i < sessionIds.length; i += 10) {
                     const chunk = sessionIds.slice(i, i + 10);
+
                     const qAtt = query(
                         collection(db, 'attendance'),
-                        where('instituteId', '==', teacherInfo.instituteId),
-                        where('sessionId', 'in', chunk),
-                        where('status', '==', 'Present')
+                        where('instituteId', '==', teacherInfo.instituteId), // 👈 ADD THIS LINE BACK
+                        where('sessionId', 'in', chunk)
                     );
+
                     const attSnap = await getDocs(qAtt);
-                    attSnap.docs.forEach(d => attDocs.push({ id: d.id, ...d.data() }));
+
+                    // Filter the records safely in Javascript instead of Firebase
+                    attSnap.docs.forEach(d => {
+                        const data = d.data();
+                        if (data.status !== 'Absent') {
+                            attDocs.push({ id: d.id, ...data });
+                        }
+                    });
                 }
 
                 attDocs.forEach(data => {
@@ -3784,7 +3567,10 @@ export default function TeacherDashboard() {
                     }
 
                     const studentsWithStatus = targetStudents.map(student => {
-                        const attendanceId = session.presentRolls.get(student.rollNo);
+                        // 🔥 FIX: Force the cached rollNo into an integer before checking the Map!
+                        const safeRollNo = parseInt(student.rollNo);
+                        const attendanceId = session.presentRolls.get(safeRollNo);
+
                         return {
                             id: student.id,
                             rollNo: student.rollNo,
@@ -3857,7 +3643,7 @@ export default function TeacherDashboard() {
 
                 // ✅ 2. Location Found - Proceed to Start
                 toast.loading("Starting Session...", { id: startToast });
-// Inside handleSession, replace the fetch block with this:
+                // Inside handleSession, replace the fetch block with this:
                 const response = await fetch(`${BACKEND_URL}/startSession`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
