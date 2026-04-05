@@ -101,7 +101,7 @@ export default function HODDashboard() {
     const [analyticsFilter, setAnalyticsFilter] = useState('Overall');
     // --- ✅ FIXED: SPLIT STATE FOR RELIABLE UPDATES ---
     const [allSessions, setAllSessions] = useState([]);
-   const [studentAttendanceMap, setStudentAttendanceMap] = useState(new Set());
+   
     const [annoTab, setAnnoTab] = useState('create');
     // ✅ HOD Enrollment States (For Agri/Medical)
     const [enrollmentYear, setEnrollmentYear] = useState('FE');
@@ -167,6 +167,7 @@ export default function HODDashboard() {
     const [isEditingProfile, setIsEditingProfile] = useState(false);
     const [analyticsYear, setAnalyticsYear] = useState('FE');
     const [criteria, setCriteria] = useState({ FE: 75, SE: 75, TE: 75, BE: 75 });
+    const [processedAnalytics, setProcessedAnalytics] = useState([]);
 
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
@@ -383,80 +384,31 @@ export default function HODDashboard() {
         }
     }, [activeTab, fbTab, hodInfo]);
 
-    // --- 2. FETCH ATTENDANCE FROM COLLECTION (Same source as Student Dashboard) ---
+// --- 3. FUNCTIONAL ATTENDANCE GRAPH (100% ACCURATE MATH via Pre-calculated Stats) ---
     useEffect(() => {
-        if (!hodInfo || allSessions.length === 0) return;
-
-        const fetchAttendance = async () => {
-            setIsAnalyticsLoading(true);
-            try {
-                const attSnap = await getDocs(query(
-                    collection(db, 'attendance'),
-                    where('instituteId', '==', hodInfo.instituteId),
-                    where('academicYear', '==', currentAcademicYear),
-                    where('status', '==', 'Present')
-                ));
-
-                // Build a Set of "sessionId_studentId" for fast lookup
-                const presentSet = new Set();
-                attSnap.docs.forEach(d => {
-                    const rec = d.data();
-                    if (rec.studentId && rec.sessionId) {
-                        presentSet.add(`${rec.sessionId}_${rec.studentId}`);
-                    }
-                });
-
-                setStudentAttendanceMap(presentSet);
-            } catch (error) {
-                console.error("Error fetching attendance:", error);
-            } finally {
-                setIsAnalyticsLoading(false);
-            }
-        };
-
-        fetchAttendance();
-    }, [hodInfo, allSessions, currentAcademicYear]);
-
-    // --- 3. FUNCTIONAL ATTENDANCE GRAPH (100% ACCURATE MATH) ---
-    useEffect(() => {
-        if (!hodInfo || deptUsers.length === 0 || allSessions.length === 0) return;
+        if (!hodInfo || deptUsers.length === 0) return;
 
         const fetchAttendanceStats = () => {
             try {
                 const groupAttended = {};
                 const groupExpected = {};
 
+                // deptUsers is already fetched in real-time, 0 extra reads required!
                 deptUsers.forEach(u => {
                     if (u.role !== 'student') return;
 
                     const groupKey = isFE ? (u.division || 'A') : (u.year || u.level);
-                    const myStats = studentAttendanceMap[u.id || u.uid] || { theory: 0, practical: 0 };
 
-                    groupAttended[groupKey] = (groupAttended[groupKey] || 0) + (myStats.theory + myStats.practical);
+                    // Grab the pre-calculated stats directly from the user document
+                    const academicYearStats = u.attendanceStats?.[currentAcademicYear] || {};
+                    
+                    const theoryAttended = academicYearStats.theory?.attended || 0;
+                    const practicalAttended = academicYearStats.practical?.attended || 0;
+                    const theoryTotal = academicYearStats.theory?.total || 0;
+                    const practicalTotal = academicYearStats.practical?.total || 0;
 
-                    allSessions.forEach(session => {
-                        if (session.isDeleted === true || session.status === 'deleted' || session.status === 'cancelled') return;
-                        if (session.type !== 'theory' && session.type !== 'practical') return; // ✅ MATCH STUDENT DASHBOARD
-
-                        const sessionYear = session.targetYear || session.year;
-                        if (sessionYear !== 'All' && sessionYear !== u.year && sessionYear !== u.level) return;
-
-                        // ✅ FIX: Match Student Dashboard division check
-                        if (session.division && session.division !== 'All') {
-                            const myDiv = u.division || u.div;
-                            if (session.division !== myDiv) return;
-                        }
-
-                        // ✅ FIX: Match Student Dashboard Roll No Parsing EXACTLY
-                        if (session.type === 'practical' && session.rollRange) {
-                            const myRoll = parseInt(u.rollNo);
-                            const min = parseInt(session.rollRange.start);
-                            const max = parseInt(session.rollRange.end);
-                            if (isNaN(myRoll) || myRoll < min || myRoll > max) return;
-                        }
-
-                        groupExpected[groupKey] = (groupExpected[groupKey] || 0) + 1;
-                    });
+                    groupAttended[groupKey] = (groupAttended[groupKey] || 0) + (theoryAttended + practicalAttended);
+                    groupExpected[groupKey] = (groupExpected[groupKey] || 0) + (theoryTotal + practicalTotal);
                 });
 
                 const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
@@ -474,7 +426,8 @@ export default function HODDashboard() {
             } catch (err) { console.error(err); }
         };
         fetchAttendanceStats();
-    }, [hodInfo, deptUsers, timeRange, isFE, allSessions, currentAcademicYear, studentAttendanceMap, config, academicLevels]);
+        // Notice: studentAttendanceMap and allSessions are completely removed from dependencies
+    }, [hodInfo, deptUsers, timeRange, isFE, currentAcademicYear, config, academicLevels]);
 
 
 
@@ -739,111 +692,56 @@ export default function HODDashboard() {
         });
         return subs;
     }, [availableSubjects, teachersList]);
-const rawAnalyticsData = useMemo(() => {
-    if (!deptUsers || deptUsers.length === 0) return { processed: [], threshold: 75 };
 
-    let targetStudents = studentsList;
-    if (isFE) {
-        if (analyticsDivision !== 'All') {
-            targetStudents = targetStudents.filter(u => u.division === analyticsDivision);
-        }
-    } else {
-        targetStudents = targetStudents.filter(u => u.year === analyticsYear || u.level === analyticsYear);
-    }
-
+// ✅ UPDATED: Fast client-side search filtering using backend data
+const analyticsData = useMemo(() => {
     const threshold = criteria[analyticsYear] || 75;
 
-    const processed = targetStudents.map(s => {
-        const sId = s.id || s.uid;
+    const searchFiltered = processedAnalytics.filter(s =>
+        (s.firstName && s.firstName.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (s.rollNo && s.rollNo.toString().includes(searchQuery))
+    );
 
-        let myTotalTheory = 0;
-        let myTotalPractical = 0;
-        let myAttendedTheory = 0;
-        let myAttendedPractical = 0;
+    const safe = searchFiltered.filter(s => s.percentage >= threshold);
+    const defaulters = searchFiltered.filter(s => s.percentage < threshold);
 
-        allSessions.forEach(session => {
-            if (session.isDeleted === true || session.status === 'deleted' || session.status === 'cancelled') return;
-            if (session.type !== 'theory' && session.type !== 'practical') return;
+    return { total: searchFiltered.length, safe, defaulters, threshold };
 
-            const sessionYear = session.targetYear || session.year;
-            if (sessionYear !== 'All' && sessionYear !== s.year && sessionYear !== s.level) return;
+}, [processedAnalytics, searchQuery, criteria, analyticsYear]);
 
-            if (session.division && session.division !== 'All') {
-                const myDiv = s.division || s.div;
-                if (session.division !== myDiv) return;
+    // ✅ NEW: Fetch pre-calculated analytics from your backend
+useEffect(() => {
+    if (!hodInfo || activeTab !== 'analytics') return;
+
+    const fetchAnalytics = async () => {
+        setIsAnalyticsLoading(true);
+        try {
+            const response = await fetch(`${BACKEND_URL}/getHODAnalytics`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    instituteId: hodInfo.instituteId,
+                    department: hodInfo.department,
+                    academicYear: currentAcademicYear,
+                    analyticsYear: isFE ? 'FE' : analyticsYear,
+                    analyticsDivision: isFE ? analyticsDivision : 'All',
+                    filterType: analyticsFilter
+                })
+            });
+            const data = await response.json();
+            if (response.ok) {
+                setProcessedAnalytics(data.students || []);
             }
-
-            // Check if session is applicable to this student
-            let applicable = false;
-            if (session.type === 'practical') {
-                if (session.rollRange && session.rollRange.start && session.rollRange.end) {
-                    const myRoll = parseInt(s.rollNo);
-                    const min = parseInt(session.rollRange.start);
-                    const max = parseInt(session.rollRange.end);
-                    if (!isNaN(myRoll) && myRoll >= min && myRoll <= max) {
-                        applicable = true;
-                    }
-                } else {
-                    applicable = true;
-                }
-            } else {
-                applicable = true;
-            }
-
-            if (!applicable) return;
-
-            // Check if student was present using the Set
-            const wasPresent = studentAttendanceMap instanceof Set
-                ? studentAttendanceMap.has(`${session.id}_${sId}`)
-                : false;
-
-            if (session.type === 'theory') {
-                myTotalTheory++;
-                if (wasPresent) myAttendedTheory++;
-            } else {
-                myTotalPractical++;
-                if (wasPresent) myAttendedPractical++;
-            }
-        });
-
-        let attended = 0;
-        let total = 0;
-
-        if (analyticsFilter === 'Theory') {
-            attended = myAttendedTheory;
-            total = myTotalTheory;
-        } else if (analyticsFilter === 'Practical') {
-            attended = myAttendedPractical;
-            total = myTotalPractical;
-        } else {
-            attended = myAttendedTheory + myAttendedPractical;
-            total = myTotalTheory + myTotalPractical;
+        } catch (error) {
+            console.error("Error fetching HOD analytics:", error);
+            toast.error("Failed to load analytics data.");
+        } finally {
+            setIsAnalyticsLoading(false);
         }
+    };
 
-        const percentage = total === 0 ? 100 : Math.round((attended / total) * 100);
-
-        return { ...s, percentage, attended, total };
-    });
-
-    return { processed, threshold };
-
-}, [studentsList, analyticsYear, isFE, analyticsDivision, criteria, studentAttendanceMap, allSessions, analyticsFilter]);
-
-    // 🚀 LEVEL 2 FIX PART B: Do the lightning-fast searching here
-    const analyticsData = useMemo(() => {
-        const { processed, threshold } = rawAnalyticsData;
-
-        const searchFiltered = processed.filter(s =>
-            (s.firstName && s.firstName.toLowerCase().includes(searchQuery.toLowerCase())) ||
-            (s.rollNo && s.rollNo.toString().includes(searchQuery))
-        );
-
-        const safe = searchFiltered.filter(s => s.percentage >= threshold);
-        const defaulters = searchFiltered.filter(s => s.percentage < threshold);
-
-        return { total: searchFiltered.length, safe, defaulters, threshold };
-
-    }, [rawAnalyticsData, searchQuery]); // ✅ This ONLY runs when you type, skipping the heavy math!
+    fetchAnalytics();
+}, [hodInfo, currentAcademicYear, analyticsYear, analyticsDivision, analyticsFilter, isFE, activeTab]);
 
     // ✅ NEW EFFECT: Fetch Accurate Total Classes per Group
     useEffect(() => {
