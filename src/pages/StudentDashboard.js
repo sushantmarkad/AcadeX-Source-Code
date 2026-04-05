@@ -563,7 +563,7 @@ useEffect(() => {
 
         let sessionsCache = null; // ✅ Cache sessions so attendance snapshot doesn't re-fetch them
 
-        const computeStats = (sessions, attendanceDocs) => {
+       const computeStats = (sessions, attendanceDocs) => {
             const myPresentSessionIds = new Set(attendanceDocs.map(d => d.data().sessionId));
             let tTotal = 0, tPresent = 0, pTotal = 0, pPresent = 0;
             const subStats = {};
@@ -584,7 +584,8 @@ useEffect(() => {
                 }
 
                 if (data.type === 'practical' && data.rollRange) {
-                    const myRoll = parseInt(user.rollNo);
+                    // ✅ FIX: Strip letters to properly parse "A-12" into 12
+                    const myRoll = parseInt(String(user.rollNo).replace(/\D/g, ''));
                     const min = parseInt(data.rollRange.start);
                     const max = parseInt(data.rollRange.end);
                     if (isNaN(myRoll) || myRoll < min || myRoll > max) return;
@@ -594,12 +595,14 @@ useEffect(() => {
                 if (!subStats[subject]) subStats[subject] = { tTotal: 0, pTotal: 0, tPresent: 0, pPresent: 0 };
 
                 const isPresent = myPresentSessionIds.has(sessionId);
+
+                // ✅ Use +1 because double lectures are already handled by Ghost Sessions in the DB
                 if (data.type === 'theory') {
-                    tTotal++; subStats[subject].tTotal++;
-                    if (isPresent) { tPresent++; subStats[subject].tPresent++; }
+                    tTotal += 1; subStats[subject].tTotal += 1;
+                    if (isPresent) { tPresent += 1; subStats[subject].tPresent += 1; }
                 } else {
-                    pTotal++; subStats[subject].pTotal++;
-                    if (isPresent) { pPresent++; subStats[subject].pPresent++; }
+                    pTotal += 1; subStats[subject].pTotal += 1;
+                    if (isPresent) { pPresent += 1; subStats[subject].pPresent += 1; }
                 }
             });
 

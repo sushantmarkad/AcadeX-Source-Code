@@ -101,7 +101,7 @@ export default function HODDashboard() {
     const [analyticsFilter, setAnalyticsFilter] = useState('Overall');
     // --- ✅ FIXED: SPLIT STATE FOR RELIABLE UPDATES ---
     const [allSessions, setAllSessions] = useState([]);
-    const [studentAttendanceMap, setStudentAttendanceMap] = useState({}); // { uid: { theory: 5, practical: 2 } }
+
     const [annoTab, setAnnoTab] = useState('create');
     // ✅ HOD Enrollment States (For Agri/Medical)
     const [enrollmentYear, setEnrollmentYear] = useState('FE');
@@ -115,7 +115,7 @@ export default function HODDashboard() {
     const [annoFile, setAnnoFile] = useState(null); // For Announcement File
     const [passwordForm, setPasswordForm] = useState({ newPassword: '', confirmPassword: '' }); // For Password Update
     // Analytics Loading State
-    const [isAnalyticsLoading, setIsAnalyticsLoading] = useState(true);
+    const [isAnalyticsLoading, setIsAnalyticsLoading] = useState(false);
 
     // Timetable States
     const [timetableYear, setTimetableYear] = useState('FE');
@@ -307,17 +307,17 @@ export default function HODDashboard() {
             ? query(collection(db, 'users'), where('instituteId', '==', instId))
             : query(collection(db, 'users'), where('instituteId', '==', instId), where('department', '==', deptName));
 
-        // Attach real-time listener
-        const unsubscribe = onSnapshot(qUsers, (snap) => {
-            setDeptUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-        }, (err) => {
-            console.error("Real-time fetch error for dept users: ", err);
-        });
-
-        // Clean up the listener when component unmounts
-        return () => unsubscribe();
-
-    }, [instId, configDomain, deptName]); // 👈 FIXED: No longer depends on objects
+        // ✅ OPTIMIZED: Fetch once instead of listening to every single user change
+        const fetchUsers = async () => {
+            try {
+                const snap = await getDocs(qUsers);
+                setDeptUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+            } catch (err) {
+                console.error("Fetch error for dept users: ", err);
+            }
+        };
+        fetchUsers();
+    }, [instId, configDomain, deptName]);
 
     useEffect(() => {
         if (hodInfo && academicLevels.length > 0 && config) {
@@ -341,11 +341,13 @@ export default function HODDashboard() {
     useEffect(() => {
         if (!hodInfo) return;
 
-        // ✅ FIXED: Changed to getDocs
         const fetchSessions = async () => {
+            // ✅ BUG FIX: Normalize First Year to FE so HOD actually pulls the sessions
+            const hodDept = (hodInfo.department === 'First Year' || hodInfo.department === 'FirstYear') ? 'FE' : hodInfo.department;
+
             const qSessions = query(collection(db, 'live_sessions'),
                 where('instituteId', '==', hodInfo.instituteId),
-                where('department', '==', hodInfo.department),
+                where('department', '==', hodDept),
                 where('academicYear', '==', currentAcademicYear)
             );
             try {
@@ -358,7 +360,7 @@ export default function HODDashboard() {
         fetchSessions();
     }, [hodInfo, currentAcademicYear]);
 
- useEffect(() => {
+    useEffect(() => {
         if (activeTab === 'feedback' && fbTab === 'view' && hodInfo) {
             setIsFormsListLoading(true); // 👈 START LOADER
 
@@ -374,7 +376,7 @@ export default function HODDashboard() {
                         const sorted = (data.forms || []).sort((a, b) => (b.createdAt?._seconds || 0) - (a.createdAt?._seconds || 0));
                         setHodCreatedForms(sorted);
                         setIsFormsListLoading(false); // 👈 STOP LOADER
-                    }, 800); 
+                    }, 800);
                 })
                 .catch(err => {
                     console.error("Error fetching forms:", err);
@@ -383,108 +385,7 @@ export default function HODDashboard() {
         }
     }, [activeTab, fbTab, hodInfo]);
 
-    // --- 2. FETCH & PROCESS ATTENDANCE (BULLETPROOF SINGLE-INDEX FETCH) ---
-    useEffect(() => {
-        // If base data isn't ready, keep waiting
-        if (!hodInfo || deptUsers.length === 0) return;
 
-        const fetchAttendanceMap = async () => {
-            setIsAnalyticsLoading(true); // 👈 START LOADER
-
-            try {
-                // If there are no sessions created yet, stop loading and return early
-                if (allSessions.length === 0) {
-                    setStudentAttendanceMap({});
-                    setIsAnalyticsLoading(false);
-                    return;
-                }
-
-                const tempMap = {};
-                const sessionMap = {};
-
-                // 1. Map valid sessions
-                allSessions.forEach(s => {
-                    if (s.isDeleted || s.status === 'deleted' || s.status === 'cancelled') return;
-                    if (s.type !== 'theory' && s.type !== 'practical') return;
-                    sessionMap[s.id] = s;
-                });
-
-                if (Object.keys(sessionMap).length === 0) {
-                    setStudentAttendanceMap({});
-                    setIsAnalyticsLoading(false); // 👈 STOP LOADER
-                    return;
-                }
-
-                // 2. Map users for super-fast lookup
-                const userMap = {};
-                deptUsers.forEach(u => {
-                    userMap[u.id || u.uid] = u;
-                });
-
-                const attendedSessions = new Set();
-
-                const qAttendance = query(
-                    collection(db, 'attendance'),
-                    where('instituteId', '==', hodInfo.instituteId),
-                    where('academicYear', '==', currentAcademicYear)
-                );
-
-                const snap = await getDocs(qAttendance);
-
-                snap.docs.forEach(doc => {
-                    const data = doc.data();
-
-                    if (data.status !== 'Present' && data.status !== 'present') return;
-
-                    const session = sessionMap[data.sessionId];
-                    if (!session) return;
-
-                    const sId = data.studentId || data.uid || data.userId;
-                    if (!sId) return;
-
-                    const student = userMap[sId];
-                    if (!student) return;
-
-                    const sessionYear = session.targetYear || session.year;
-                    if (sessionYear !== 'All' && sessionYear !== student.year && sessionYear !== student.level) return;
-
-                    if (session.division && session.division !== 'All') {
-                        const myDiv = student.division || student.div;
-                        if (session.division !== myDiv) return;
-                    }
-
-                    if (session.type === 'practical' && session.rollRange) {
-                        const myRoll = parseInt(student.rollNo);
-                        const min = parseInt(session.rollRange.start);
-                        const max = parseInt(session.rollRange.end);
-                        if (isNaN(myRoll) || myRoll < min || myRoll > max) return;
-                    }
-
-                    const uniqueKey = `${sId}_${data.sessionId}`;
-                    if (attendedSessions.has(uniqueKey)) return;
-                    attendedSessions.add(uniqueKey);
-
-                    if (!tempMap[sId]) {
-                        tempMap[sId] = { theory: 0, practical: 0 };
-                    }
-
-                    if (session.type === 'practical') {
-                        tempMap[sId].practical += 1;
-                    } else {
-                        tempMap[sId].theory += 1;
-                    }
-                });
-
-                setStudentAttendanceMap(tempMap);
-            } catch (error) {
-                console.error("🔥 Error fetching attendance map:", error);
-            } finally {
-                setIsAnalyticsLoading(false); // 👈 STOP LOADER NO MATTER WHAT
-            }
-        };
-
-        fetchAttendanceMap();
-    }, [hodInfo, allSessions, deptUsers, currentAcademicYear]);
 
     // --- 3. FUNCTIONAL ATTENDANCE GRAPH (100% ACCURATE MATH) ---
     useEffect(() => {
@@ -497,32 +398,39 @@ export default function HODDashboard() {
 
                 deptUsers.forEach(u => {
                     if (u.role !== 'student') return;
-
                     const groupKey = isFE ? (u.division || 'A') : (u.year || u.level);
-                    const myStats = studentAttendanceMap[u.id || u.uid] || { theory: 0, practical: 0 };
 
-                    groupAttended[groupKey] = (groupAttended[groupKey] || 0) + (myStats.theory + myStats.practical);
+                    const myTheory = u.theoryAttended || 0;
+                    const myPractical = u.practicalAttended || 0;
+
+                    // ✅ FIX: Make the Graph obey the selected filter (Theory/Practical/Overall)
+                    let attendedForGraph = 0;
+                    if (analyticsFilter === 'Theory') attendedForGraph = myTheory;
+                    else if (analyticsFilter === 'Practical') attendedForGraph = myPractical;
+                    else attendedForGraph = myTheory + myPractical;
+
+                    groupAttended[groupKey] = (groupAttended[groupKey] || 0) + attendedForGraph;
 
                     allSessions.forEach(session => {
                         if (session.isDeleted === true || session.status === 'deleted' || session.status === 'cancelled') return;
-                        if (session.type !== 'theory' && session.type !== 'practical') return; // ✅ MATCH STUDENT DASHBOARD
+                        if (session.type !== 'theory' && session.type !== 'practical') return;
 
                         const sessionYear = session.targetYear || session.year;
                         if (sessionYear !== 'All' && sessionYear !== u.year && sessionYear !== u.level) return;
 
-                        // ✅ FIX: Match Student Dashboard division check
                         if (session.division && session.division !== 'All') {
                             const myDiv = u.division || u.div;
                             if (session.division !== myDiv) return;
                         }
-
-                        // ✅ FIX: Match Student Dashboard Roll No Parsing EXACTLY
                         if (session.type === 'practical' && session.rollRange) {
-                            const myRoll = parseInt(u.rollNo);
+                            // ✅ Same logic as Student Dashboard
+                            const myRoll = parseInt(String(u.rollNo).replace(/\D/g, ''));
                             const min = parseInt(session.rollRange.start);
                             const max = parseInt(session.rollRange.end);
                             if (isNaN(myRoll) || myRoll < min || myRoll > max) return;
                         }
+
+
 
                         groupExpected[groupKey] = (groupExpected[groupKey] || 0) + 1;
                     });
@@ -543,7 +451,7 @@ export default function HODDashboard() {
             } catch (err) { console.error(err); }
         };
         fetchAttendanceStats();
-    }, [hodInfo, deptUsers, timeRange, isFE, allSessions, currentAcademicYear, studentAttendanceMap, config, academicLevels]);
+    }, [hodInfo, deptUsers, timeRange, isFE, allSessions, currentAcademicYear, config, academicLevels]);
 
 
 
@@ -825,8 +733,9 @@ export default function HODDashboard() {
         const threshold = criteria[analyticsYear] || 75;
 
         const processed = targetStudents.map(s => {
-            const sId = s.id || s.uid;
-            const myStats = studentAttendanceMap[sId] || { theory: 0, practical: 0 };
+            // ✅ Read pre-calculated backend numbers directly from the user profile!
+            const attendedTheory = s.theoryAttended || 0;
+            const attendedPractical = s.practicalAttended || 0;
 
             let myTotalTheory = 0;
             let myTotalPractical = 0;
@@ -843,33 +752,29 @@ export default function HODDashboard() {
                     if (session.division !== myDiv) return;
                 }
 
-                if (session.type === 'practical') {
-                    if (session.rollRange) {
-                        const myRoll = parseInt(s.rollNo);
-                        const min = parseInt(session.rollRange.start);
-                        const max = parseInt(session.rollRange.end);
-                        if (!isNaN(myRoll) && myRoll >= min && myRoll <= max) {
-                            myTotalPractical++;
-                        }
-                    } else {
-                        myTotalPractical++;
-                    }
-                } else {
-                    myTotalTheory++;
+               if (session.type === 'practical' && session.rollRange) {
+                    // ✅ Same logic as Student Dashboard
+                    const myRoll = parseInt(String(s.rollNo).replace(/\D/g, '')); 
+                    const min = parseInt(session.rollRange.start);
+                    const max = parseInt(session.rollRange.end);
+                    if (isNaN(myRoll) || myRoll < min || myRoll > max) return;
                 }
+
+                // ✅ Reverted to + 1
+                if (session.type === 'theory') myTotalTheory++;
+                else myTotalPractical++;
             });
 
             let attended = 0;
             let total = 0;
-
             if (analyticsFilter === 'Theory') {
-                attended = myStats.theory;
+                attended = attendedTheory;
                 total = myTotalTheory;
             } else if (analyticsFilter === 'Practical') {
-                attended = myStats.practical;
+                attended = attendedPractical;
                 total = myTotalPractical;
             } else {
-                attended = myStats.theory + myStats.practical;
+                attended = attendedTheory + attendedPractical;
                 total = myTotalTheory + myTotalPractical;
             }
 
@@ -880,8 +785,7 @@ export default function HODDashboard() {
 
         return { processed, threshold };
 
-    }, [studentsList, analyticsYear, isFE, analyticsDivision, criteria, studentAttendanceMap, allSessions, analyticsFilter]);
-    // ❌ Notice searchQuery is GONE from the array above!
+    }, [studentsList, analyticsYear, isFE, analyticsDivision, criteria, allSessions, analyticsFilter]);
 
     // 🚀 LEVEL 2 FIX PART B: Do the lightning-fast searching here
     const analyticsData = useMemo(() => {
@@ -899,38 +803,39 @@ export default function HODDashboard() {
 
     }, [rawAnalyticsData, searchQuery]); // ✅ This ONLY runs when you type, skipping the heavy math!
 
-    // ✅ NEW EFFECT: Fetch Accurate Total Classes per Group
     useEffect(() => {
         const fetchSessionCounts = async () => {
             if (!hodInfo) return;
 
+            // ✅ BUG FIX: Normalize First Year to FE
+            const hodDept = (hodInfo.department === 'First Year' || hodInfo.department === 'FirstYear') ? 'FE' : hodInfo.department;
+
             // Query ALL sessions for this department
             const q = query(collection(db, 'live_sessions'),
                 where('instituteId', '==', hodInfo.instituteId),
-                where('department', '==', hodInfo.department),
+                where('department', '==', hodDept),
                 where('academicYear', '==', currentAcademicYear)
             );
 
             try {
                 const snap = await getDocs(q); // Fetch once
-
                 if (isFE) {
-                    // For FE, count by Division
                     const divCounts = {};
                     snap.docs.forEach(doc => {
                         const d = doc.data();
                         if (d.targetYear === 'FE') {
                             const div = d.division || 'A';
+                            // ✅ Reverted to +1 because backend handles ghost sessions
                             divCounts[div] = (divCounts[div] || 0) + 1;
                         }
                     });
                     setClassCounts(divCounts);
                 } else {
-                    // For Dept, count by Year
                     const yearCounts = { SE: 0, TE: 0, BE: 0 };
                     snap.docs.forEach(doc => {
                         const d = doc.data();
                         if (yearCounts[d.targetYear] !== undefined) {
+                            // ✅ Reverted to +1
                             yearCounts[d.targetYear]++;
                         }
                     });
@@ -939,8 +844,7 @@ export default function HODDashboard() {
             } catch (e) { console.error("Error counting sessions", e); }
         };
         fetchSessionCounts();
-    }, [hodInfo, isFE]);
-
+    }, [hodInfo, isFE, currentAcademicYear]);
 
     // Pie Chart Data with colors
     const pieData = [
@@ -2429,10 +2333,10 @@ export default function HODDashboard() {
                             </div>
                         )}
 
-                       {/* --- VIEW RESPONSES TAB (List of Forms) --- */}
+                        {/* --- VIEW RESPONSES TAB (List of Forms) --- */}
                         {fbTab === 'view' && !selectedFormToView && (
                             <div className="cards-grid fade-in-up">
-                                
+
                                 {/* 🚀 ADDED LOADER FOR THE LIST OF FORMS */}
                                 {isFormsListLoading ? (
                                     <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '250px' }}>
@@ -2644,16 +2548,16 @@ export default function HODDashboard() {
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '250px', animation: 'fadeIn 0.3s' }}>
                                         {/* The Glowing Spinner */}
                                         <div style={{
-                                            width: '60px', 
-                                            height: '60px', 
-                                            borderRadius: '50%', 
+                                            width: '60px',
+                                            height: '60px',
+                                            borderRadius: '50%',
                                             border: '5px solid #e2e8f0', /* Light grey track */
                                             borderTopColor: '#3b82f6',   /* Blue spinning head */
-                                            animation: 'spin 1s linear infinite', 
+                                            animation: 'spin 1s linear infinite',
                                             marginBottom: '20px',
                                             boxShadow: '0 0 15px rgba(59, 130, 246, 0.4)' /* Glowing effect */
                                         }}></div>
-                                        
+
                                         <h3 style={{ margin: 0, color: '#1e293b', fontSize: '18px', fontWeight: '800' }}>Analyzing Data...</h3>
                                         <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '13px' }}>Compiling anonymous feedback</p>
                                     </div>
