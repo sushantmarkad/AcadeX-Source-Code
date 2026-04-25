@@ -652,7 +652,7 @@ const StudentAttendanceAnalytics = ({ user }) => {
         });
 
         return () => { if (unsubAttendance) unsubAttendance(); };
-    }, [user]);
+    }, [user?.uid, user?.instituteId, user?.department, user?.year, user?.division, user?.academicYear, user?.batch]);
 
     if (loading) return <div className="card" style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}><i className="fas fa-spinner fa-spin"></i> Loading Analytics...</div>;
     if (!stats) return <div className="card" style={{ padding: '20px', textAlign: 'center', color: '#ef4444' }}>Failed to load attendance data.</div>;
@@ -780,7 +780,7 @@ const StudentTestResults = ({ user }) => {
             setLoading(false);
         };
         fetchResults();
-    }, [user]);
+    }, [user?.uid, user?.year, user?.department, user?.academicYear]);
 
     if (loading) return <div className="card" style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>Loading results...</div>;
 
@@ -2276,21 +2276,25 @@ export default function StudentDashboard() {
             }
         }
     };
-    // 1. User Loading
+   // 1. User Loading (FIXED MEMORY LEAK)
     useEffect(() => {
+        let userUnsub = null; // Store the snapshot unsubscriber
+
         const authUnsub = onAuthStateChanged(auth, (authUser) => {
             if (authUser) {
-                const unsub = onSnapshot(doc(db, "users", authUser.uid), (doc) => {
+                userUnsub = onSnapshot(doc(db, "users", authUser.uid), (doc) => {
                     if (doc.exists()) setUser(doc.data());
                 });
-                return () => unsub();
             } else {
-                // ✅ SAFETY: Ensure local user state is cleared immediately
                 setUser(null);
-                // App.js handles the redirect, but this ensures we don't render stale data
+                if (userUnsub) userUnsub(); // Clean up if logged out
             }
         });
-        return () => authUnsub();
+
+        return () => {
+            authUnsub();
+            if (userUnsub) userUnsub(); // Clean up on unmount
+        };
     }, []);
 
 
@@ -2362,7 +2366,7 @@ export default function StudentDashboard() {
         });
 
         return () => unsub();
-    }, [user]);
+    }, [user?.instituteId, user?.department, user?.year, user?.division, user?.enrolledDepartments]);
 
     // src/pages/StudentDashboard.js
 
@@ -2432,7 +2436,7 @@ export default function StudentDashboard() {
         fetchSchedule();
         const interval = setInterval(fetchSchedule, 60000); // Update every minute
         return () => clearInterval(interval);
-    }, [user, isFreePeriod]);
+    }, [user?.instituteId, user?.department, user?.year, user?.division]);
     // ✅ NEW: FETCH ASSIGNMENTS (For Task Badge)
     useEffect(() => {
         if (!user?.instituteId) return;
@@ -2554,7 +2558,7 @@ export default function StudentDashboard() {
             setNotices(relevantNotices);
         };
         fetchNotices();
-    }, [user]);
+    }, [user?.instituteId, user?.department, user?.year, user?.division]);
 
     // ✅ 7. PUSH NOTIFICATION SETUP (Get Token & Save to DB)
     useEffect(() => {
@@ -2620,7 +2624,7 @@ export default function StudentDashboard() {
                 PushNotifications.removeAllListeners();
             }
         };
-    }, [user]);
+    }, [user?.uid, user?.firstName]);
 
     const badgeCount = Math.max(0, notices.length - readCount);
     const taskBadgeCount = Math.max(0, assignments.length - taskReadCount);
@@ -2864,7 +2868,7 @@ export default function StudentDashboard() {
             case 'tasks': return <FreePeriodTasks user={user} isFreePeriod={isFreePeriod} onOpenAIWithPrompt={handleOpenAiWithPrompt} />;
             case 'profile': return <Profile user={user} />;
             case 'plans': return <CareerRoadmap user={user} />;
-            case 'leaderboard': return <Leaderboard user={user} />;
+            // case 'leaderboard': return <Leaderboard user={user} />;
             case 'leave': return <LeaveRequestForm user={user} />;
             case 'notices': return <NoticesView notices={notices} />;
             case 'feedback': return <FeedbackView user={user} />;
@@ -2952,12 +2956,15 @@ export default function StudentDashboard() {
                             </div>
                         </div>
                     </li>
-                    <li className={activePage === 'leaderboard' ? 'active' : ''} onClick={() => { setActivePage('leaderboard'); setIsMobileNavOpen(false); }}>
+                    
+                    {/* <li className={activePage === 'leaderboard' ? 'active' : ''} onClick={() => { setActivePage('leaderboard'); setIsMobileNavOpen(false); }}>
                         <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '15px' }}>
                             <i className="fas fa-trophy" style={{ width: '24px', textAlign: 'center' }}></i>
                             <span>Leaderboard</span>
                         </div>
-                    </li>
+                    </li> 
+                    */}
+
                     <li className={activePage === 'plans' ? 'active' : ''} onClick={() => { setActivePage('plans'); setIsMobileNavOpen(false); }}>
                         <div style={{ display: 'flex', alignItems: 'center', width: '100%', gap: '15px' }}>
                             <i className="fas fa-paper-plane" style={{ width: '24px', textAlign: 'center' }}></i>

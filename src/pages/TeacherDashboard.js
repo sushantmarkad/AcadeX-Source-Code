@@ -2257,11 +2257,12 @@ const DashboardHome = ({
                         </div>
                     </div>
 
-                    {/* ✅ LOADER OR CONTENT */}
                     {historyLoading ? (
-                        <div className="loader-container">
-                            <div className="modern-loader"></div>
-                            <p>Loading reports...</p>
+                        /* --- 🚀 ULTRA-MODERN LOADER UI --- */
+                        <div className="modern-loader-wrapper">
+                            <div className="modern-gradient-spinner"></div>
+                            <h3 className="modern-loader-title">Fetching Records...</h3>
+                            <p className="modern-loader-subtitle">Compiling attendance data securely from the database.</p>
                         </div>
                     ) : (
                         <>
@@ -2347,6 +2348,61 @@ const DashboardHome = ({
                             margin: 0 auto 15px auto;
                         }
                         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                        /* --- 🚀 Ultra-Modern Loaders --- */
+                .modern-loader-wrapper {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 80px 20px;
+                    background: white;
+                    border-radius: 20px;
+                    box-shadow: 0 10px 30px -10px rgba(0,0,0,0.05);
+                    border: 1px solid #f1f5f9;
+                    grid-column: 1 / -1;
+                    animation: fadeIn 0.3s ease-out;
+                }
+
+                .modern-gradient-spinner {
+                    width: 64px;
+                    height: 64px;
+                    border-radius: 50%;
+                    /* Creates a smooth glowing gradient tail */
+                    background: conic-gradient(from 0deg, transparent 0%, transparent 30%, #3b82f6 100%);
+                    animation: spin 1s linear infinite;
+                    position: relative;
+                    margin-bottom: 24px;
+                    box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+                }
+
+                /* Creates the cutout to make it a ring */
+                .modern-gradient-spinner::before {
+                    content: '';
+                    position: absolute;
+                    inset: 6px;
+                    background: white;
+                    border-radius: 50%;
+                }
+
+                .modern-loader-title {
+                    margin: 0 0 8px 0;
+                    color: #1e293b;
+                    font-size: 20px;
+                    font-weight: 800;
+                    letter-spacing: -0.5px;
+                    animation: pulseText 2s ease-in-out infinite;
+                }
+
+                .modern-loader-subtitle {
+                    margin: 0;
+                    color: #64748b;
+                    font-size: 14px;
+                    font-weight: 500;
+                }
+
+                @keyframes spin { 100% { transform: rotate(360deg); } }
+                @keyframes pulseText { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+                @keyframes fadeIn { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: translateY(0); } }
                         
                         .loader-container {
                             grid-column: 1 / -1;
@@ -3412,8 +3468,7 @@ export default function TeacherDashboard() {
         }
         return () => { if (unsubscribe) unsubscribe(); };
     }, [activeSession?.sessionId, teacherInfo?.instituteId]);
-
-    // ✅ ULTIMATE HISTORY FETCH (Inside DashboardHome where it belongs!)
+    // ✅ ULTIMATE HISTORY FETCH (Offloaded to Backend to save 5,000+ reads)
     useEffect(() => {
         const fetchHistory = async () => {
             if (!teacherInfo?.instituteId || !selectedYear) return;
@@ -3427,178 +3482,39 @@ export default function TeacherDashboard() {
                 return;
             }
 
-            const start = new Date(startDate); start.setHours(0, 0, 0, 0);
-            const end = new Date(endDate); end.setHours(23, 59, 59, 999);
-
             try {
-                // 1. Get ALL Students (🔥 OPTIMIZED: Uses your Local Storage Cache!)
-                const cacheKey = `students_${teacherInfo.instituteId}_${teacherInfo.department}_${selectedYear}`;
-                const cachedData = localStorage.getItem(cacheKey);
-                const cacheTime = localStorage.getItem(cacheKey + '_time');
-                const isCacheValid = cacheTime && (Date.now() - parseInt(cacheTime) < 24 * 60 * 60 * 1000);
+                const response = await fetch(`${BACKEND_URL}/getTeacherHistory`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        teacherId: auth.currentUser.uid,
+                        instituteId: teacherInfo.instituteId,
+                        targetYear: selectedYear,
+                        division: selectedYear === 'FE' ? selectedDiv : 'All',
+                        subject: targetSubject,
+                        startDate: startDate,
+                        endDate: endDate,
+                        academicYear: currentAcademicYear
+                    })
+                });
 
-                let allStudents = [];
+                const data = await response.json();
+                console.log("BACKEND RESPONSE:", data);
 
-                if (cachedData && isCacheValid) {
-                    allStudents = JSON.parse(cachedData);
-                } else {
-                    const qStudents = query(
-                        collection(db, 'users'),
-                        where('instituteId', '==', teacherInfo.instituteId),
-                        where('role', '==', 'student'),
-                        where('year', '==', selectedYear),
-                        where('department', '==', teacherInfo.department)
-                    );
-                    const studentsSnap = await getDocs(qStudents);
-                    allStudents = studentsSnap.docs.map(doc => ({
-                        id: doc.id,
-                        ...doc.data(),
-                        rollNo: parseInt(doc.data().rollNo) || 9999
+                if (response.ok) {
+                    // Convert ISO strings back to Date objects for the frontend sorting
+                    const formattedSessions = data.sessions.map(s => ({
+                        ...s,
+                        rawDate: new Date(s.rawDate)
                     }));
-                    // Save to cache for next time
-                    localStorage.setItem(cacheKey, JSON.stringify(allStudents));
-                    localStorage.setItem(cacheKey + '_time', Date.now().toString());
+                    setHistorySessions(formattedSessions);
+                } else {
+                    toast.error(data.error || "Failed to load history.");
                 }
-
-                if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
-                    const targetDiv = String(selectedDiv).trim().toUpperCase();
-                    allStudents = allStudents.filter(s => String(s.division || '').trim().toUpperCase() === targetDiv);
-                }
-
-                setAllStudentsReport(allStudents);
-
-                // 2. FETCH SESSIONS
-                const qSessions = query(
-                    collection(db, 'live_sessions'),
-                    where('teacherId', '==', auth.currentUser.uid)
-                );
-                const sessionSnap = await getDocs(qSessions);
-
-                const sessionsMap = {};
-                const sessionIds = [];
-
-                sessionSnap.docs.forEach(doc => {
-                    const data = doc.data();
-
-                    const sessionAcadYear = data.academicYear || currentAcademicYear;
-                    if (sessionAcadYear !== currentAcademicYear) return;
-
-                    const dataSubj = String(data.subject || '').trim().toLowerCase();
-                    const targetSubj = String(targetSubject).trim().toLowerCase();
-                    if (dataSubj !== targetSubj) return;
-
-                    const sessionYear = String(data.targetYear || data.year || '').trim().toUpperCase();
-                    const targetYr = String(selectedYear).trim().toUpperCase();
-                    if (sessionYear !== 'ALL' && sessionYear !== targetYr) return;
-
-                    if (selectedYear === 'FE' && selectedDiv && selectedDiv !== 'All') {
-                        const sessionDiv = String(data.division || 'ALL').trim().toUpperCase();
-                        const targetDiv = String(selectedDiv).trim().toUpperCase();
-                        if (sessionDiv !== 'ALL' && sessionDiv !== targetDiv) {
-                            const divsArray = sessionDiv.split(',').map(d => d.trim());
-                            if (!divsArray.includes(targetDiv)) return;
-                        }
-                    }
-
-                    if (data.isDeleted === true || data.status === 'deleted' || data.status === 'cancelled') return;
-
-                    let sessionDate = data.createdAt?.toDate ? data.createdAt.toDate() : (data.timestamp?.toDate ? data.timestamp.toDate() : new Date());
-
-                    if (sessionDate >= start && sessionDate <= end) {
-                        sessionIds.push(doc.id);
-                        sessionsMap[doc.id] = {
-                            sessionId: doc.id,
-                            startTime: data.startTime || sessionDate.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }),
-                            rawDate: sessionDate,
-                            type: String(data.type || 'theory').trim().toLowerCase(),
-                            batch: String(data.batch || 'All').trim().toUpperCase(),
-                            division: data.division || (selectedYear === 'FE' ? selectedDiv : null),
-                            rollRange: data.rollRange || null,
-                            presentRolls: new Map()
-                        };
-                    }
-                });
-
-                if (sessionIds.length === 0) {
-                    setHistorySessions([]);
-                    setHistoryLoading(false);
-                    return;
-                }
-
-                // 3. Fetch Attendance ONLY for the matched valid sessions
-                const attDocs = [];
-                for (let i = 0; i < sessionIds.length; i += 10) {
-                    const chunk = sessionIds.slice(i, i + 10);
-
-                    const qAtt = query(
-                        collection(db, 'attendance'),
-                        where('instituteId', '==', teacherInfo.instituteId), // 👈 ADD THIS LINE BACK
-                        where('sessionId', 'in', chunk)
-                    );
-
-                    const attSnap = await getDocs(qAtt);
-
-                    // Filter the records safely in Javascript instead of Firebase
-                    attSnap.docs.forEach(d => {
-                        const data = d.data();
-                        if (data.status !== 'Absent') {
-                            attDocs.push({ id: d.id, ...data });
-                        }
-                    });
-                }
-
-                attDocs.forEach(data => {
-                    if (sessionsMap[data.sessionId]) {
-                        sessionsMap[data.sessionId].presentRolls.set(parseInt(data.rollNo), data.id);
-                    }
-                });
-
-                const finalSessions = Object.values(sessionsMap).map(session => {
-                    let targetStudents = allStudents;
-
-                    // 🚨 SAFE PRACTICAL BATCH FILTERING (Fallback applied)
-                    if (session.type === 'practical' && session.rollRange && session.rollRange.start && session.rollRange.end) {
-                        const sNum = parseInt(session.rollRange.start);
-                        const eNum = parseInt(session.rollRange.end);
-                        const filtered = allStudents.filter(s => s.rollNo >= sNum && s.rollNo <= eNum);
-                        if (filtered.length > 0) {
-                            targetStudents = filtered;
-                        }
-                    }
-
-                    const studentsWithStatus = targetStudents.map(student => {
-                        // 🔥 FIX: Force the cached rollNo into an integer before checking the Map!
-                        const safeRollNo = parseInt(student.rollNo);
-                        const attendanceId = session.presentRolls.get(safeRollNo);
-
-                        return {
-                            id: student.id,
-                            rollNo: student.rollNo,
-                            name: `${student.firstName} ${student.lastName}`,
-                            status: !!attendanceId ? 'Present' : 'Absent',
-                            timeIn: !!attendanceId ? session.startTime.split(',')[1] : '-',
-                            date: session.startTime.split(',')[0],
-                            attendanceId: attendanceId || null
-                        };
-                    });
-
-                    studentsWithStatus.sort((a, b) => a.rollNo - b.rollNo);
-
-                    return {
-                        ...session,
-                        totalStudents: targetStudents.length,
-                        presentCount: studentsWithStatus.filter(s => s.status === 'Present').length,
-                        absentCount: studentsWithStatus.filter(s => s.status === 'Absent').length,
-                        students: studentsWithStatus
-                    };
-                });
-
-                finalSessions.sort((a, b) => b.rawDate - a.rawDate);
-                setHistorySessions(finalSessions);
 
             } catch (err) {
                 console.error("History Error:", err);
-                toast.error("Failed to load history.");
+                toast.error("Network Error: Failed to load history.");
             } finally {
                 setHistoryLoading(false);
             }
@@ -3606,8 +3522,7 @@ export default function TeacherDashboard() {
 
         if (viewMode === 'history') fetchHistory();
 
-    }, [viewMode, startDate, endDate, teacherInfo, selectedYear, historySemester, selectedDiv, refreshTrigger, currentAcademicYear, selectedSubject]);
-
+    }, [viewMode, startDate, endDate, teacherInfo?.instituteId, selectedYear, historySemester, selectedDiv, refreshTrigger, currentAcademicYear, selectedSubject]);
 
     const handleSession = async () => {
         if (activeSession) {

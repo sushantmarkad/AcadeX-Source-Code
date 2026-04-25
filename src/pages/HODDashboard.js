@@ -1196,6 +1196,37 @@ useEffect(() => {
             }
         };
 
+        useEffect(() => {
+        if (!user?.instituteId || !user?.department) return;
+
+        const fetchUsageReport = async () => {
+            setLoading(true);
+            try {
+                const response = await fetch(`${BACKEND_URL}/getTeacherUsageReport`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        instituteId: user.instituteId,
+                        department: user.department,
+                        academicYear: user.academicYear || '2025-2026'
+                    })
+                });
+
+                const data = await response.json();
+                if (response.ok) {
+                    setReportData(data.reportData || {});
+                }
+            } catch (error) {
+                console.error("Error fetching usage report:", error);
+                toast.error("Failed to load usage report");
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchUsageReport();
+    }, [user.instituteId, user.department, user.academicYear]);
+
 
 
         useEffect(() => {
@@ -1319,37 +1350,35 @@ useEffect(() => {
             fetchSessions();
         }, [user, teachersList, currentAcademicYear]);
 
-        const fetchAttendanceCountForGroup = async (teacherName, division, subject, sessionIds) => {
-            const cacheKey = `${teacherName}_${division}_${subject}`;
-            if (attendanceStats[cacheKey] !== undefined) return;
+       const fetchAttendanceCountForGroup = async (teacherName, division, subject, sessionIds) => {
+        const cacheKey = `${teacherName}_${division}_${subject}`;
+        if (attendanceStats[cacheKey] !== undefined) return;
 
-            setLoadingStats(prev => ({ ...prev, [cacheKey]: true }));
+        setLoadingStats(prev => ({ ...prev, [cacheKey]: true }));
 
-            try {
-                let totalStudents = 0;
-                for (let i = 0; i < sessionIds.length; i += 10) {
-                    const chunk = sessionIds.slice(i, i + 10);
-                    const attQ = query(
-                        collection(db, 'attendance'),
-                        where('instituteId', '==', user.instituteId),
-                        where('sessionId', 'in', chunk),
-                        where('status', '==', 'Present')
-                    );
+        try {
+            const response = await fetch(`${BACKEND_URL}/getAttendanceCount`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    instituteId: user.instituteId,
+                    sessionIds: sessionIds
+                })
+            });
 
-                    const snapshot = await getCountFromServer(attQ);
-                    totalStudents += snapshot.data().count;
-                }
-
-                setAttendanceStats(prev => ({ ...prev, [cacheKey]: totalStudents }));
-            } catch (err) {
-                console.error("Error fetching count:", err);
-                toast.error("Failed to load attendance count");
-            } finally {
-                setLoadingStats(prev => ({ ...prev, [cacheKey]: false }));
+            const data = await response.json();
+            if (response.ok) {
+                setAttendanceStats(prev => ({ ...prev, [cacheKey]: data.count }));
             }
-        };
+        } catch (err) {
+            console.error("Error fetching count:", err);
+            toast.error("Failed to load attendance count");
+        } finally {
+            setLoadingStats(prev => ({ ...prev, [cacheKey]: false }));
+        }
+    };
 
-        if (loading) return <div className="card" style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}><i className="fas fa-spinner fa-spin"></i> Loading Analytics...</div>;
+    if (loading) return <div className="card" style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}><i className="fas fa-spinner fa-spin"></i> Loading Analytics...</div>;
 
         return (
             <div className="content-section">
