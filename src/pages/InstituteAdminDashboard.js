@@ -42,8 +42,12 @@ const DashboardHome = ({ instituteName, instituteId }) => {
     const [stats, setStats] = useState({});
     const [statsLoading, setStatsLoading] = useState(true);
     
-    // 🚨 ADD THIS: Get the config to know if it's an Agri/Medical college
+    // Get the config to know domain
     const { config } = useInstitution(); 
+    
+    // ✅ DYNAMIC TERMINOLOGY
+    const isPharmacy = config?.domain === 'PHARMACY';
+    const hierarchyLabel = isPharmacy ? "Programs" : "Departments";
 
     useEffect(() => {
         const fetchCode = async () => {
@@ -57,60 +61,36 @@ const DashboardHome = ({ instituteName, instituteId }) => {
         fetchCode();
     }, [instituteId]);
 
-   useEffect(() => {
+    // ✅ OPTIMIZATION: Single API call to backend instead of fetching 1000s of users on frontend
+    useEffect(() => {
         if (!instituteId || !config) return; 
 
-        const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
+        const fetchStatsFromBackend = async () => {
+            try {
+                const token = await auth.currentUser?.getIdToken();
+                const response = await fetch(`${BACKEND_URL}/getInstituteStats`, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}` 
+                    },
+                    body: JSON.stringify({ instituteId, domain: config?.domain })
+                });
 
-        // ✅ FIXED: Changed to getDocs
-        const fetchStats = async () => {
-            const q = query(collection(db, 'users'), where('instituteId', '==', instituteId));
-            const snap = await getDocs(q);
-            const tempStats = {};
-            
-            const initDept = (deptName) => {
-                if (!tempStats[deptName]) {
-                    tempStats[deptName] = { students: 0, teachers: 0, byYear: {} };
+                const data = await response.json();
+                if (response.ok) {
+                    setStats(data.stats);
+                } else {
+                    console.error("Failed to fetch stats:", data.error);
                 }
-            };
-
-            snap.docs.forEach(doc => {
-                const data = doc.data();
-                if (data.role === 'student') {
-                    const yr = data.year || 'Unknown';
-                    if (isNonEngg) {
-                        initDept('Common');
-                        tempStats['Common'].students++;
-                        tempStats['Common'].byYear[yr] = (tempStats['Common'].byYear[yr] || 0) + 1;
-                        if (data.enrolledDepartments && Array.isArray(data.enrolledDepartments)) {
-                            data.enrolledDepartments.forEach(dept => {
-                                if (dept.toUpperCase() === 'COMMON') return; 
-                                initDept(dept);
-                                tempStats[dept].students++;
-                                tempStats[dept].byYear[yr] = (tempStats[dept].byYear[yr] || 0) + 1;
-                            });
-                        }
-                    } else {
-                        let dept = data.department || 'Common';
-                        if (dept.toUpperCase() === 'COMMON') dept = 'Common';
-                        initDept(dept);
-                        tempStats[dept].students++;
-                        tempStats[dept].byYear[yr] = (tempStats[dept].byYear[yr] || 0) + 1;
-                    }
-                } 
-                else if (data.role === 'teacher') {
-                    let dept = data.department || 'Common';
-                    if (dept.toUpperCase() === 'COMMON') dept = 'Common';
-                    initDept(dept);
-                    tempStats[dept].teachers++;
-                }
-            });
-            
-            setStats(tempStats);
-            setStatsLoading(false);
+            } catch (error) {
+                console.error("Backend fetch error:", error);
+            } finally {
+                setStatsLoading(false);
+            }
         };
 
-        fetchStats();
+        fetchStatsFromBackend();
     }, [instituteId, config]);
 
     const generateCode = async () => {
@@ -160,33 +140,33 @@ const DashboardHome = ({ instituteName, instituteId }) => {
                 <div style={{ position: 'absolute', bottom: '-40px', right: '50px', width: '100px', height: '100px', background: 'rgba(255,255,255,0.05)', borderRadius: '50%' }}></div>
             </div>
 
-            {/* DEPARTMENT CARDS */}
+            {/* DYNAMIC DEPARTMENT/PROGRAM CARDS */}
             <h3 style={{ marginBottom: '20px', color: '#334155', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <i className="fas fa-chart-pie" style={{ color: '#64748b' }}></i> Department Statistics
+                <i className="fas fa-chart-pie" style={{ color: '#64748b' }}></i> {hierarchyLabel} Statistics
             </h3>
             
            {statsLoading ? <p>Loading stats...</p> : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
-                    {Object.keys(stats).sort().map((dept, index) => (
-                        <div key={dept} style={{ 
+                    {Object.keys(stats).sort().map((deptOrProgram, index) => (
+                        <div key={deptOrProgram} style={{ 
                             background: 'white', borderRadius: '16px', padding: '20px',
                             border: '1px solid #f1f5f9',
                             boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
                             borderTop: `4px solid ${['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'][index % 4]}`
                         }}>
-                            <h4 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#1e293b' }}>{dept}</h4>
+                            <h4 style={{ margin: '0 0 15px 0', fontSize: '16px', color: '#1e293b' }}>{deptOrProgram}</h4>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                                     <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: '#eff6ff', color: '#3b82f6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-user-graduate" style={{ fontSize: '12px' }}></i></div>
                                     <span style={{ color: '#64748b', fontSize: '13px' }}>Total Students</span>
                                 </div>
-                                <span style={{ fontWeight: '700', color: '#1e293b', fontSize: '16px' }}>{stats[dept].students}</span>
+                                <span style={{ fontWeight: '700', color: '#1e293b', fontSize: '16px' }}>{stats[deptOrProgram].students}</span>
                             </div>
 
                             {/* Year-wise breakdown pill boxes */}
-                            {stats[dept].students > 0 && (
+                            {stats[deptOrProgram].students > 0 && stats[deptOrProgram].byYear && (
                                 <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', marginBottom: '15px', display: 'flex', flexWrap: 'wrap', gap: '8px', border: '1px solid #e2e8f0' }}>
-                                    {Object.entries(stats[dept].byYear).map(([yr, count]) => (
+                                    {Object.entries(stats[deptOrProgram].byYear).map(([yr, count]) => (
                                         <span key={yr} style={{ fontSize: '12px', background: '#e0e7ff', color: '#3730a3', padding: '4px 10px', borderRadius: '12px', fontWeight: '700' }}>
                                             {yr}: {count}
                                         </span>
@@ -199,7 +179,7 @@ const DashboardHome = ({ instituteName, instituteId }) => {
                                     <div style={{ width: '30px', height: '30px', borderRadius: '50%', background: '#ecfdf5', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fas fa-chalkboard-teacher" style={{ fontSize: '12px' }}></i></div>
                                     <span style={{ color: '#64748b', fontSize: '13px' }}>Teachers</span>
                                 </div>
-                                <span style={{ fontWeight: '700', color: '#1e293b', fontSize: '16px' }}>{stats[dept].teachers}</span>
+                                <span style={{ fontWeight: '700', color: '#1e293b', fontSize: '16px' }}>{stats[deptOrProgram].teachers || 0}</span>
                             </div>
                         </div>
                     ))}
@@ -231,6 +211,10 @@ export default function InstituteAdminDashboard() {
     const { config } = useInstitution(); 
     const isEngg = config?.domain === 'ENGINEERING';
     const academicLevels = config?.academicConfig?.levels || (isEngg ? ['FE', 'SE', 'TE', 'BE'] : ['FY', 'SY', 'TY', 'Final Year']);
+    
+    // ✅ ADD THESE TWO LINES FOR SIDEBAR DYNAMIC TEXT
+    const isPharmacy = config?.domain === 'PHARMACY';
+    const hierarchyLabel = isPharmacy ? "Programs" : "Departments";
 
     const navigate = useNavigate();
 
@@ -669,7 +653,7 @@ const FaceRequestsManager = ({ user }) => {
                         </div>
                         )}
                     </div>
-                    
+
                     {/* Danger Zone: Bulk Promote All */}
                     <div className="promo-danger-zone stagger-6">
                         <div className="promo-danger-content">
@@ -1023,13 +1007,13 @@ const FaceRequestsManager = ({ user }) => {
                     </div>
                 )}
                 
-             <ul className="menu">
+            <ul className="menu">
                     {/* Always visible */}
                     <NavLink page="dashboard" iconClass="fa-tachometer-alt" label="Dashboard" />
                     
-                    {/* Exclude Departments from Agriculture Colleges */}
+                    {/* Exclude Departments from Agriculture Colleges. Dynamically named for Pharmacy/Engg */}
                     <FeatureGuard excludedDomain="AGRICULTURE">
-                        <NavLink page="addDepartment" iconClass="fa-building" label="Departments" />
+                        <NavLink page="addDepartment" iconClass="fa-building" label={`Manage ${hierarchyLabel}`} />
                     </FeatureGuard>
                     
                     {/* Show HOD for everyone */}

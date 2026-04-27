@@ -628,13 +628,22 @@ const TeacherAnalytics = ({ teacherInfo, selectedYear, selectedDiv, currentAcade
 // --- HELPER: Prepare Matrix Data for Reports ---
 const prepareReportData = (sessions, allStudents) => {
     // 1. Sort Sessions Chronologically
-    const sortedSessions = [...sessions].sort((a, b) => new Date(a.rawDate) - new Date(b.rawDate));
+    const sortedSessions = [...sessions].sort((a, b) => new Date(a.rawDate).getTime() - new Date(b.rawDate).getTime());
 
-    // 2. Define Columns (Date headers with Batch Info)
-    const dateColumns = sortedSessions.map((s) => ({
-        header: `${s.startTime.split(',')[0].slice(0, 5)}\n${s.type !== 'theory' ? `(${s.batch})` : '(Th)'}`,
-        dataKey: s.sessionId
-    }));
+    // 2. Define Columns (Date headers with Batch Info AND Syllabus Topic)
+    const dateColumns = sortedSessions.map((s) => {
+        // ✅ CRITICAL PDF FIX: Removed the emoji! Standard PDF fonts cannot render emojis.
+        // We now use standard brackets so it perfectly renders: [Thermodyna..]
+        const topic = s.syllabusTopic ? `\n[${s.syllabusTopic.substring(0, 10)}${s.syllabusTopic.length > 10 ? '..' : ''}]` : '';
+        
+        // Safely extract just the Date (e.g., "14 Apr 2026, 10:30 AM" -> "14 Apr")
+        const dateString = s.startTime ? s.startTime.split(',')[0].trim().substring(0, 6) : "Date";
+        
+        return {
+            header: `${dateString}\n${s.type !== 'theory' ? `(${s.batch})` : '(Th)'}${topic}`,
+            dataKey: s.sessionId
+        };
+    });
 
     // 3. Fallback: If Master List is Empty, Extract from Sessions
     let targetStudents = allStudents;
@@ -658,7 +667,7 @@ const prepareReportData = (sessions, allStudents) => {
     const tableRows = targetStudents.map(student => {
         const row = {
             rollNo: student.rollNo,
-            // 👇 UPDATED: Added .toUpperCase() here to format names in both PDF and Excel
+            // Formats names properly for the PDF
             name: `${student.firstName} ${student.lastName}`.toUpperCase(),
             totalHeld: 0,
             totalAttended: 0
@@ -697,8 +706,7 @@ const prepareReportData = (sessions, allStudents) => {
 
     return { columns: dateColumns, rows: tableRows };
 };
-
-// --- HELPER: Generate PDF Report (Updated with Batch Context) ---
+// --- HELPER: Generate PDF Report (Updated with Topic Context) ---
 const generatePDFReport = (teacherInfo, selectedYear, selectedDiv, subject, startDate, endDate, historySessions, allStudents) => {
     const doc = new jsPDF('landscape');
     const { columns, rows } = prepareReportData(historySessions, allStudents);
@@ -708,14 +716,8 @@ const generatePDFReport = (teacherInfo, selectedYear, selectedDiv, subject, star
     const currentSemester = currentClass ? `Sem ${currentClass.semester}` : 'Semester N/A';
     const academicYear = teacherInfo.academicYear || `${new Date().getFullYear()}-${new Date().getFullYear() + 1}`;
 
-    // ✅ DETECT BATCH CONTEXT
-    // If the filtered sessions are practical, try to find a common batch or list them
     const uniqueBatches = [...new Set(historySessions.map(s => s.batch).filter(b => b && b !== 'All'))];
-    const batchInfo = uniqueBatches.length === 1
-        ? `Batch: ${uniqueBatches[0]}` // "Batch: A1"
-        : uniqueBatches.length > 1
-            ? `Batches: ${uniqueBatches.join(', ')}` // "Batches: A1, A2"
-            : ''; // Empty if theory or no specific batch
+    const batchInfo = uniqueBatches.length === 1 ? `Batch: ${uniqueBatches[0]}` : uniqueBatches.length > 1 ? `Batches: ${uniqueBatches.join(', ')}` : ''; 
 
     // --- 2. HEADER SECTION ---
     const pageWidth = doc.internal.pageSize.width;
@@ -736,13 +738,19 @@ const generatePDFReport = (teacherInfo, selectedYear, selectedDiv, subject, star
 
     doc.text(`Department: ${teacherInfo.department}`, leftMargin, 32);
 
-    // ✅ UPDATED LINE: Includes Batch Info if available
     let classLine = `Class: ${selectedYear} ${selectedYear === 'FE' && selectedDiv !== 'All' ? `(Div ${selectedDiv})` : ''}   |   ${currentSemester}`;
-    if (batchInfo) classLine += `   |   ${batchInfo}`; // Append Batch Info
-
+    if (batchInfo) classLine += `   |   ${batchInfo}`; 
     doc.text(classLine, leftMargin, 37);
+    
     doc.text(`Subject: ${subject}`, leftMargin, 42);
-    doc.text(`Teacher: ${teacherInfo.firstName} ${teacherInfo.lastName}`, leftMargin, 47);
+
+    // ✅ NEW: Aggregate and print all unique topics taught during this report's timeframe!
+    const uniqueTopics = [...new Set(historySessions.map(s => s.syllabusTopic).filter(Boolean))];
+    let topicText = uniqueTopics.length > 0 ? `Topic(s): ${uniqueTopics.join(' | ')}` : 'Topic: N/A';
+    if (topicText.length > 85) topicText = topicText.substring(0, 82) + '...'; // Prevent text running off page
+    doc.text(topicText, leftMargin, 47);
+
+    doc.text(`Teacher: ${teacherInfo.firstName} ${teacherInfo.lastName}`, leftMargin, 52);
 
     doc.text(`Report Duration: ${startDate} to ${endDate}`, rightMargin, 32, { align: 'right' });
     doc.text(`Generated On: ${new Date().toLocaleDateString('en-GB')}`, rightMargin, 37, { align: 'right' });
@@ -750,10 +758,10 @@ const generatePDFReport = (teacherInfo, selectedYear, selectedDiv, subject, star
     // Legend
     doc.setFontSize(9);
     doc.setTextColor(100);
-    doc.text("Legend: P = Present, A = Absent, - = Not Applicable", leftMargin, 55);
+    doc.text("Legend: P = Present, A = Absent, - = Not Applicable", leftMargin, 60);
     doc.setTextColor(0);
 
-    // --- 3. TABLE GENERATION (Existing Logic) ---
+    // --- 3. TABLE GENERATION ---
     const tableColumns = [
         { header: 'Roll', dataKey: 'rollNo' },
         { header: 'Student Name', dataKey: 'name' },
@@ -764,7 +772,7 @@ const generatePDFReport = (teacherInfo, selectedYear, selectedDiv, subject, star
     ];
 
     autoTable(doc, {
-        startY: 60,
+        startY: 65, // 👈 Pushed down by 5px to make room for the new Topic line!
         head: [tableColumns.map(c => c.header)],
         body: rows.map(r => tableColumns.map(c => r[c.dataKey])),
         theme: 'grid',
@@ -772,7 +780,6 @@ const generatePDFReport = (teacherInfo, selectedYear, selectedDiv, subject, star
         headStyles: { fillColor: [59, 130, 246], textColor: 255, fontStyle: 'bold' },
         columnStyles: {
             0: { cellWidth: 12, fontStyle: 'bold' },
-            // 👇 FIX: Changed from 60 to 'auto'. This makes it perfectly wrap the longest name without wasting space!
             1: { cellWidth: 'auto', halign: 'left' },
         },
         didParseCell: function (data) {
@@ -807,7 +814,9 @@ const DashboardHome = ({
     batchSelectionMethod, setBatchSelectionMethod,
     selectedRosterId, setSelectedRosterId,
     availableRosters, lectureCount,
-    setLectureCount
+    setLectureCount,
+    syllabusTopic,    
+    setSyllabusTopic
 }) => {
 
     const [qrCodeValue, setQrCodeValue] = useState('');
@@ -1224,6 +1233,7 @@ const DashboardHome = ({
     };
     const handlePastAttendance = async () => {
         if (!pastDate) return toast.error("Select a date!");
+        if (!syllabusTopic || !syllabusTopic.trim()) return toast.error("⚠️ Please enter the topic covered.");
 
         // ✅ Extracts array directly from Checkbox State
         const absentees = pastAbsentRolls.map(r => String(r));
@@ -1249,14 +1259,16 @@ const DashboardHome = ({
                     absentRolls: absentees,
                     rollRange: pastType === 'practical' ? { start: parseInt(rollStart), end: parseInt(rollEnd) } : null,
                     academicYear: currentAcademicYear,
-                    lectureCount: lectureCount // ✅ ADDED THIS
+                    lectureCount: lectureCount,
+                    syllabusTopic: syllabusTopic.trim()
                 })
             });
 
             const data = await response.json();
             if (response.ok) {
                 toast.success(data.message, { id: toastId });
-                setPastAbsentRolls([]); // ✅ Clears the checkboxes upon success
+                setPastAbsentRolls([]);
+                setSyllabusTopic('');
                 setRefreshTrigger(prev => prev + 1); // Auto-refresh reports
                 setViewMode('history'); // Take them directly to the reports tab!
             } else {
@@ -1723,6 +1735,19 @@ const DashboardHome = ({
                                         </div>
                                     </div>
 
+                                    {/* ✅ NEW: SYLLABUS TOPIC INPUT */}
+                                    <div style={{ marginBottom: '15px' }}>
+                                        <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', marginBottom: '4px', display: 'block', textTransform: 'uppercase' }}>Today's Topic *</label>
+                                        <input 
+                                            type="text" 
+                                            required
+                                            value={syllabusTopic}
+                                            onChange={(e) => setSyllabusTopic(e.target.value)}
+                                            placeholder="e.g. Thermodynamics, React Hooks..."
+                                            style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', outline: 'none' }}
+                                        />
+                                    </div>
+
                                     {/* Practical Config (Restored Roll Nos) */}
                                     {sessionType === 'practical' && (
                                         <div style={{ marginTop: '10px', background: 'white', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0', overflow: 'visible' }}>
@@ -2043,6 +2068,18 @@ const DashboardHome = ({
                                 </div>
                             </div>
 
+                            {/* ✅ NEW: PAST ENTRY SYLLABUS TOPIC */}
+                            <div style={{ marginTop: '5px' }}>
+                                <label style={{ fontSize: '11px', fontWeight: '800', color: '#64748b', display: 'block', marginBottom: '8px', textTransform: 'uppercase' }}>Topic Covered *</label>
+                                <input 
+                                    type="text" 
+                                    value={syllabusTopic}
+                                    onChange={(e) => setSyllabusTopic(e.target.value)}
+                                    placeholder="e.g. Thermodynamics"
+                                    style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', outline: 'none' }}
+                                />
+                            </div>
+
                             {/* Practical Config (Synced with Live Class) */}
                             {pastType === 'practical' && (
                                 <div style={{ background: '#f8fafc', padding: '15px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
@@ -2126,19 +2163,29 @@ const DashboardHome = ({
                     {/* 1. FILTERS & EXPORT CONTROLS */}
                     <div className="card card-full-width" style={{ display: 'flex', alignItems: 'center', gap: '20px', padding: '20px', background: '#f8fafc', flexWrap: 'wrap' }}>
 
-                        {/* Semester Selector */}
+                       {/* Semester Selector */}
                         <div style={{ flex: 1, minWidth: '150px' }}>
                             <label style={{ fontSize: '11px', fontWeight: '700', color: '#64748b', display: 'block', textTransform: 'uppercase', marginBottom: '5px' }}>Semester</label>
                             <CustomDropdown
                                 value={historySemester}
                                 onChange={(val) => setHistorySemester(Number(val))}
-                                options={[
-                                    ...(selectedYear === 'FE' ? [{ value: 1, label: 'Sem 1' }, { value: 2, label: 'Sem 2' }] : []),
-                                    ...(selectedYear === 'SE' ? [{ value: 3, label: 'Sem 3' }, { value: 4, label: 'Sem 4' }] : []),
-                                    ...(selectedYear === 'TE' ? [{ value: 5, label: 'Sem 5' }, { value: 6, label: 'Sem 6' }] : []),
-                                    ...(selectedYear === 'BE' ? [{ value: 7, label: 'Sem 7' }, { value: 8, label: 'Sem 8' }] : []),
-                                    ...(!['FE', 'SE', 'TE', 'BE'].includes(selectedYear) ? [{ value: 1, label: 'Sem 1' }, { value: 2, label: 'Sem 2' }] : [])
-                                ]}
+                                options={(() => {
+                                    // ✅ DYNAMIC GENERATION FOR ALL COLLEGES (Handles 6-Year PharmD flawlessly)
+                                    const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
+                                    const levels = isNonEngg ? ['FY', 'SY', 'TY', 'Fourth Year', 'Fifth Year', 'Sixth Year'] : ['FE', 'SE', 'TE', 'BE'];
+                                    const idx = levels.indexOf(selectedYear);
+                                    
+                                    if (idx >= 0 && isNonEngg) {
+                                        const s = (idx * 2) + 1;
+                                        return [{ value: s, label: `Sem ${s}` }, { value: s + 1, label: `Sem ${s + 1}` }];
+                                    } else {
+                                        if (selectedYear === 'FE') return [{ value: 1, label: 'Sem 1' }, { value: 2, label: 'Sem 2' }];
+                                        if (selectedYear === 'SE') return [{ value: 3, label: 'Sem 3' }, { value: 4, label: 'Sem 4' }];
+                                        if (selectedYear === 'TE') return [{ value: 5, label: 'Sem 5' }, { value: 6, label: 'Sem 6' }];
+                                        if (selectedYear === 'BE') return [{ value: 7, label: 'Sem 7' }, { value: 8, label: 'Sem 8' }];
+                                        return [{ value: 1, label: 'Sem 1' }, { value: 2, label: 'Sem 2' }]; // Fallback
+                                    }
+                                })()}
                                 placeholder="Select Sem"
                             />
                         </div>
@@ -2281,7 +2328,7 @@ const DashboardHome = ({
                                 {filteredHistorySessions.length === 0 && <p style={{ textAlign: 'center', color: '#94a3b8', marginTop: '-200px' }}>No {reportFilter !== 'All' ? reportFilter.toLowerCase() : ''} records found.</p>}
                             </div>
 
-                            {/* 3. SESSION LIST */}
+                           {/* 3. SESSION LIST */}
                             {filteredHistorySessions.length === 0 ? (
                                 <div className="card card-full-width" style={{ textAlign: 'center', padding: '60px', color: '#94a3b8' }}>
                                     <i className="fas fa-calendar-times" style={{ fontSize: '40px', marginBottom: '15px', opacity: 0.5 }}></i>
@@ -2297,11 +2344,21 @@ const DashboardHome = ({
                                                     {selectedYear === 'FE' && session.division && (
                                                         <span style={{ background: '#e0f2fe', color: '#0369a1', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold' }}>Div {session.division}</span>
                                                     )}
+                                                    
+                                                    {/* Theory / Practical Pill */}
                                                     <span style={{ background: session.type === 'practical' ? '#ede9fe' : '#eff6ff', color: session.type === 'practical' ? '#7c3aed' : '#2563eb', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase' }}>
                                                         {session.type === 'practical' ? `🧪 Practical (Batch ${session.batch})` : '📚 Theory'}
                                                     </span>
+
+                                                    {/* ✅ NEW: SYLLABUS TOPIC PILL (Right next to Theory!) */}
+                                                    {session.syllabusTopic && (
+                                                        <span style={{ background: '#f8fafc', color: '#475569', padding: '4px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: '700', border: '1px solid #e2e8f0', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                                            <i className="fas fa-book-open" style={{ color: '#94a3b8' }}></i> {session.syllabusTopic}
+                                                        </span>
+                                                    )}
                                                 </div>
-                                                <p style={{ fontSize: '13px', color: '#64748b', margin: '8px 0 0 0' }}>
+                                                
+                                                <p style={{ fontSize: '13px', color: '#64748b', margin: '10px 0 0 0' }}>
                                                     Present: <strong style={{ color: '#166534' }}>{session.presentCount}</strong> | Absent: <strong style={{ color: '#dc2626' }}>{session.absentCount}</strong>
                                                 </p>
                                             </div>
@@ -3218,6 +3275,7 @@ export default function TeacherDashboard() {
     // History State
     const [viewMode, setViewMode] = useState('live');
     const [lectureCount, setLectureCount] = useState(1);
+    const [syllabusTopic, setSyllabusTopic] = useState('');
     const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
     const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
@@ -3542,6 +3600,7 @@ export default function TeacherDashboard() {
         } else {
             // --- START SESSION LOGIC ---
             if (!teacherInfo?.instituteId) return toast.error("Institute ID missing.");
+            if (!syllabusTopic.trim()) return toast.error("⚠️ Please enter the topic you are teaching today.");
 
             let currentSubject = selectedSubject || teacherInfo.subject;
             if (!selectedSubject && teacherInfo.assignedClasses) {
@@ -3579,7 +3638,8 @@ export default function TeacherDashboard() {
                         rollRange: sessionType === 'practical'
                             ? { start: parseInt(rollStart), end: parseInt(rollEnd) }
                             : null,
-                        lectureCount: lectureCount // ✅ ADDED THIS
+                        lectureCount: lectureCount,
+                        syllabusTopic: syllabusTopic.trim()
                     })
                 });
 
@@ -3587,6 +3647,7 @@ export default function TeacherDashboard() {
                 if (response.ok) {
                     playSessionStartSound();
                     toast.success(`Session Live: ${currentSubject}`, { id: startToast });
+                    setSyllabusTopic('');
                 } else {
                     toast.error("Failed: " + data.error, { id: startToast });
                 }
@@ -3651,6 +3712,8 @@ export default function TeacherDashboard() {
                 setSelectedRosterId={setSelectedRosterId}
                 availableRosters={availableRosters}
                 lectureCount={lectureCount}
+                syllabusTopic={syllabusTopic} // ✅ PASS DOWN
+                setSyllabusTopic={setSyllabusTopic}
                 setLectureCount={setLectureCount}
             />;
             case 'analytics': return <TeacherAnalytics teacherInfo={teacherInfo} selectedYear={selectedYear} selectedDiv={selectedDiv} currentAcademicYear={currentAcademicYear} selectedSubject={selectedSubject} />;

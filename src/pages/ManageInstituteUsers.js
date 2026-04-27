@@ -481,14 +481,22 @@ const UserCard = ({ user, isSelected, onToggle, role, onEdit }) => (
     <div className={`user-card ${isSelected ? 'selected' : ''}`} onClick={onToggle} style={{ position: 'relative' }}>
         <input type="checkbox" className="custom-checkbox" checked={isSelected} readOnly />
         <Avatar name={user.firstName + ' ' + user.lastName} />
-        <div style={{ overflow: 'hidden', flex: 1 }}>
+       <div style={{ flex: 1 }}>
             <h5 style={{ margin: 0, fontSize: '13px', color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {user.firstName} {user.lastName}
             </h5>
             <p style={{ margin: 0, fontSize: '11px', color: role.includes('Head') ? '#2563eb' : '#059669', fontWeight: '600' }}>
                 {role}
             </p>
+            {/* ✅ DYNAMICALLY SHOW ASSIGNED COURSES */}
+            <div style={{ marginTop: '4px', fontSize: '10px', color: '#64748b' }}>
+                {user.role === 'hod' && user.assignedScopes && user.assignedScopes.length > 0 
+                    ? user.assignedScopes.map(s => `${s.courseName}`).join(', ')
+                    : (user.department || 'No Dept')}
+            </div>
         </div>
+
+        {/* ADD THIS EDIT BUTTON */}
 
         {/* ADD THIS EDIT BUTTON */}
         <button

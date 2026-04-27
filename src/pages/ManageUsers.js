@@ -205,9 +205,22 @@ export default function ManageUsers({ instituteId }) {
                                                 {user.firstName} {user.lastName}
                                             </td>
                                             <td>{user.email}</td>
-                                            <td>{user.department || '-'}</td>
+                                            <td style={{ fontSize: '13px' }}>
+                                                {/* ✅ SHOW ALL SCOPES FOR HOD, OR STANDARD DEPT FOR OTHERS */}
+                                                {user.role === 'hod' && user.assignedScopes && user.assignedScopes.length > 0 
+                                                    ? (
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                                            {user.assignedScopes.map((scope, i) => (
+                                                                <span key={i} style={{ background: '#eff6ff', color: '#2563eb', padding: '2px 8px', borderRadius: '6px', fontWeight: '600', width: 'fit-content' }}>
+                                                                    {scope.courseName} ({scope.years.join(', ')})
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    )
+                                                    : (user.department || '-')}
+                                            </td>
                                             <td>
-                                                <button 
+                                                <button
                                                     onClick={() => handleDelete(user.id)}
                                                     style={{ background: '#fee2e2', color: '#ef4444', border: 'none', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer' }}
                                                     title="Delete User"

@@ -30,6 +30,8 @@ import ManageTimetable from './ManageTimetable';
 
 const BACKEND_URL = "https://acadex-backend-n2wh.onrender.com";
 
+
+
 // --- 📱 SPECIAL MOBILE DROPDOWN (Fixed Spacing) ---
 const CustomMobileSelect = ({ label, value, onChange, options, icon }) => {
     const [isOpen, setIsOpen] = useState(false);
@@ -103,7 +105,7 @@ export default function HODDashboard() {
     const [analyticsFilter, setAnalyticsFilter] = useState('Overall');
     // --- ✅ FIXED: SPLIT STATE FOR RELIABLE UPDATES ---
     const [allSessions, setAllSessions] = useState([]);
-   
+
     const [annoTab, setAnnoTab] = useState('create');
     // ✅ HOD Enrollment States (For Agri/Medical)
     const [enrollmentYear, setEnrollmentYear] = useState('FE');
@@ -126,7 +128,7 @@ export default function HODDashboard() {
     const [isSavingTimetable, setIsSavingTimetable] = useState(false);
     const [activeSemesters, setActiveSemesters] = useState({ FE: 1, SE: 3, TE: 5, BE: 7 });
 
-   
+
     const [isEditTeacherModalOpen, setIsEditTeacherModalOpen] = useState(false);
     const [editTeacherData, setEditTeacherData] = useState(null);
 
@@ -172,21 +174,44 @@ export default function HODDashboard() {
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
     const [analyticsDivision, setAnalyticsDivision] = useState('All');
-    const [classCounts, setClassCounts] = useState({}); // Stores counts like { FE: 10, SE: 20 } or { A: 5, B: 5 }
-   const DIVISIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'];
-    
+
+    const [classCounts, setClassCounts] = useState({});
+    const DIVISIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'];
+    const [hodDeptDuration, setHodDeptDuration] = useState(4); // ✅ NEW: Tracks if course is 3, 4, or 6 years
+
     // --- PULL DYNAMIC CONFIGURATION ---
     const { config } = useInstitution();
     const isEngg = config?.domain === 'ENGINEERING';
-    
-    // ✅ Include 'FY' in the First Year check
+
     const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'FY' || hodInfo?.department === 'First Year' || hodInfo?.department === 'FirstYear';
-    
-    // ✅ CRITICAL FIX: Wrap in useMemo to prevent infinite re-render loops!
+
+    // ✅ NEW HELPER: Generates exact years based on course duration
+    const generateYearLabels = (duration, isEngg) => {
+        const numYears = duration || 4;
+        if (isEngg) {
+            const engg = ['FE', 'SE', 'TE', 'BE', 'Year 5', 'Year 6'];
+            return engg.slice(0, numYears);
+        }
+        const general = ['FY', 'SY', 'TY', 'Fourth Year', 'Fifth Year', 'Sixth Year'];
+        let result = general.slice(0, numYears);
+        if (numYears === 4) result[3] = 'Final Year';
+        else if (numYears > 4) result[numYears - 1] += ' (Final Year)';
+        return result;
+    };
+
+    // ✅ THE MAGIC RBAC LOGIC: Reads scopes and dynamic durations
     const academicLevels = useMemo(() => {
-        return isEngg ? ['FE', 'SE', 'TE', 'BE'] : ['FY', 'SY', 'TY', 'Final Year'];
-    }, [isEngg]);
-    
+        // 1. If Admin assigned specific scopes, ONLY show those years!
+        if (hodInfo?.assignedScopes && hodInfo.assignedScopes.length > 0) {
+            const currentScope = hodInfo.assignedScopes.find(s => s.courseName === hodInfo.department);
+            if (currentScope && currentScope.years && currentScope.years.length > 0 && !currentScope.years.includes('ALL') && !currentScope.years.includes('All')) {
+                return currentScope.years;
+            }
+        }
+        // 2. Otherwise, generate dynamically based on duration
+        return generateYearLabels(hodDeptDuration, isEngg);
+    }, [isEngg, hodDeptDuration, hodInfo]);
+
     const levelName = config?.academicConfig?.levelNomenclature || (isEngg ? 'Class' : 'Year');
 
     useEffect(() => {
@@ -205,12 +230,14 @@ export default function HODDashboard() {
                     phone: data.phone || ''
                 });
 
-                // 🚨 ADD THIS BLOCK: Fetch the specific Department ID for this HOD
+                // 🚨 ADD THIS BLOCK: Fetch specific Department ID & DURATION
                 try {
                     const deptQ = query(collection(db, 'departments'), where('instituteId', '==', data.instituteId), where('name', '==', data.department));
                     const deptSnap = await getDocs(deptQ);
                     if (!deptSnap.empty) {
                         setHodDeptId(deptSnap.docs[0].id);
+                        // ✅ Save the exact duration (e.g., 6 for PharmD)
+                        setHodDeptDuration(deptSnap.docs[0].data().durationInYears || 4);
                     }
                 } catch (err) { console.error("Could not fetch dept id", err); }
 
@@ -304,7 +331,7 @@ export default function HODDashboard() {
         }
     };
 
-   // ✅ REAL-TIME OPTIMIZATION: Stable dependencies prevent the listener from restarting
+    // ✅ REAL-TIME OPTIMIZATION: Stable dependencies prevent the listener from restarting
     // Forces uppercase to prevent lowercase database entries from breaking the system
     const configDomain = config?.domain ? String(config?.domain).trim().toUpperCase() : '';
     const instId = hodInfo?.instituteId;
@@ -331,7 +358,7 @@ export default function HODDashboard() {
 
     }, [instId, configDomain, deptName]);
 
-   useEffect(() => {
+    useEffect(() => {
         if (hodInfo && academicLevels.length > 0 && config) {
             const isFE = hodInfo.department === 'FE' || hodInfo.department === 'FY' || hodInfo.department === 'First Year' || hodInfo.department === 'FirstYear';
             const isNonEngg = config.domain !== 'ENGINEERING';
@@ -344,7 +371,7 @@ export default function HODDashboard() {
             // This stops the dropdown from being "frozen" on FY.
             setAnalyticsYear(prev => (prev && academicLevels.includes(prev)) ? prev : defaultYear);
             setEnrollmentYear(prev => (prev && academicLevels.includes(prev)) ? prev : defaultYear);
-            
+
             // Only set division default if it's currently empty
             setAnalyticsDivision(prev => prev || 'All');
         }
@@ -562,7 +589,7 @@ export default function HODDashboard() {
         }
     };
 
-// ✅ 1. ALL students in the college (Used by the Enrollment Tab to show the Common Pool)
+    // ✅ 1. ALL students in the college (Used by the Enrollment Tab to show the Common Pool)
     const allCollegeStudents = useMemo(() => {
         return deptUsers.filter(u => u.role === 'student').map(s => {
             // ✅ Safely extracts the year and forces exact string matching
@@ -589,14 +616,31 @@ export default function HODDashboard() {
         return deptUsers.filter(u => u.role === 'teacher' && (!isNonEngg || u.department === hodInfo?.department));
     }, [deptUsers, hodInfo, config]);
 
-    // ✅ 4. ONLY students matching the selected enrollment year (Bulletproof Filter)
+    // ✅ 4. ONLY students matching the selected enrollment year AND the active program
     const filteredEnrollmentStudents = useMemo(() => {
         const eYear = String(enrollmentYear || '').trim().toUpperCase();
         return allCollegeStudents
-            // ✅ CRITICAL FIX: Changed to use 's.cleanYear' so it successfully reads the extracted data!
-            .filter(s => s.cleanYear === eYear)
+            .filter(s => {
+                const matchesYear = s.cleanYear === eYear;
+                // ✅ CRITICAL FIX: Prevent B.Pharm from seeing PharmD students in the enrollment list!
+                // We only show students routed to THIS specific department, or legacy unassigned "Common" students.
+                const matchesDept = s.department === hodInfo?.department || s.department === 'Common' || !s.department;
+                return matchesYear && matchesDept;
+            })
             .sort((a, b) => (a.rollNo || "").localeCompare(b.rollNo, undefined, { numeric: true }));
-    }, [allCollegeStudents, enrollmentYear]);
+    }, [allCollegeStudents, enrollmentYear, hodInfo?.department]);
+
+    // ✅ AUTO-CHECK FIX: Automatically tick the checkbox for students who already belong to this program
+    useEffect(() => {
+        if (filteredEnrollmentStudents.length > 0 && hodInfo?.department) {
+            const alreadyEnrolledIds = filteredEnrollmentStudents
+                .filter(s => s.department === hodInfo.department || (s.enrolledDepartments && s.enrolledDepartments.includes(hodInfo.department)))
+                .map(s => s.id);
+            setEnrolledStudentIds(alreadyEnrolledIds);
+        } else {
+            setEnrolledStudentIds([]);
+        }
+    }, [filteredEnrollmentStudents, hodInfo?.department]);
 
     // ✅ SAVE HOD ENROLLMENT (BATCH WRITE)
     const handleSaveEnrollment = async () => {
@@ -664,55 +708,55 @@ export default function HODDashboard() {
         return subs;
     }, [availableSubjects, teachersList]);
 
-// ✅ UPDATED: Fast client-side search filtering using backend data
-const analyticsData = useMemo(() => {
-    const threshold = criteria[analyticsYear] || 75;
+    // ✅ UPDATED: Fast client-side search filtering using backend data
+    const analyticsData = useMemo(() => {
+        const threshold = criteria[analyticsYear] || 75;
 
-    const searchFiltered = processedAnalytics.filter(s =>
-        (s.firstName && s.firstName.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (s.rollNo && s.rollNo.toString().includes(searchQuery))
-    );
+        const searchFiltered = processedAnalytics.filter(s =>
+            (s.firstName && s.firstName.toLowerCase().includes(searchQuery.toLowerCase())) ||
+            (s.rollNo && s.rollNo.toString().includes(searchQuery))
+        );
 
-    const safe = searchFiltered.filter(s => s.percentage >= threshold);
-    const defaulters = searchFiltered.filter(s => s.percentage < threshold);
+        const safe = searchFiltered.filter(s => s.percentage >= threshold);
+        const defaulters = searchFiltered.filter(s => s.percentage < threshold);
 
-    return { total: searchFiltered.length, safe, defaulters, threshold };
+        return { total: searchFiltered.length, safe, defaulters, threshold };
 
-}, [processedAnalytics, searchQuery, criteria, analyticsYear]);
+    }, [processedAnalytics, searchQuery, criteria, analyticsYear]);
 
     // ✅ NEW: Fetch pre-calculated analytics from your backend
-useEffect(() => {
-    if (!hodInfo || activeTab !== 'analytics') return;
+    useEffect(() => {
+        if (!hodInfo || activeTab !== 'analytics') return;
 
-    const fetchAnalytics = async () => {
-        setIsAnalyticsLoading(true);
-        try {
-            const response = await fetch(`${BACKEND_URL}/getHODAnalytics`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    instituteId: hodInfo.instituteId,
-                    department: hodInfo.department,
-                    academicYear: currentAcademicYear,
-                    analyticsYear: isFE ? 'FE' : analyticsYear,
-                    analyticsDivision: isFE ? analyticsDivision : 'All',
-                    filterType: analyticsFilter
-                })
-            });
-            const data = await response.json();
-            if (response.ok) {
-                setProcessedAnalytics(data.students || []);
+        const fetchAnalytics = async () => {
+            setIsAnalyticsLoading(true);
+            try {
+                const response = await fetch(`${BACKEND_URL}/getHODAnalytics`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        instituteId: hodInfo.instituteId,
+                        department: hodInfo.department,
+                        academicYear: currentAcademicYear,
+                        analyticsYear: isFE ? 'FE' : analyticsYear,
+                        analyticsDivision: isFE ? analyticsDivision : 'All',
+                        filterType: analyticsFilter
+                    })
+                });
+                const data = await response.json();
+                if (response.ok) {
+                    setProcessedAnalytics(data.students || []);
+                }
+            } catch (error) {
+                console.error("Error fetching HOD analytics:", error);
+                toast.error("Failed to load analytics data.");
+            } finally {
+                setIsAnalyticsLoading(false);
             }
-        } catch (error) {
-            console.error("Error fetching HOD analytics:", error);
-            toast.error("Failed to load analytics data.");
-        } finally {
-            setIsAnalyticsLoading(false);
-        }
-    };
+        };
 
-    fetchAnalytics();
-}, [hodInfo, currentAcademicYear, analyticsYear, analyticsDivision, analyticsFilter, isFE, activeTab]);
+        fetchAnalytics();
+    }, [hodInfo, currentAcademicYear, analyticsYear, analyticsDivision, analyticsFilter, isFE, activeTab]);
 
     // ✅ NEW EFFECT: Fetch Accurate Total Classes per Group
     useEffect(() => {
@@ -1083,7 +1127,7 @@ useEffect(() => {
         } catch (e) { toast.error("Failed", { id: toastId }); }
     };
 
-   const TeacherUsageReport = ({ user, allSessions }) => {
+    const TeacherUsageReport = ({ user, allSessions }) => {
         const [reportData, setReportData] = useState({});
         const [loading, setLoading] = useState(true);
         const [expandedTeacherId, setExpandedTeacherId] = useState(null);
@@ -1213,35 +1257,35 @@ useEffect(() => {
         };
 
         useEffect(() => {
-        if (!user?.instituteId || !user?.department) return;
+            if (!user?.instituteId || !user?.department) return;
 
-        const fetchUsageReport = async () => {
-            setLoading(true);
-            try {
-                const response = await fetch(`${BACKEND_URL}/getTeacherUsageReport`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        instituteId: user.instituteId,
-                        department: user.department,
-                        academicYear: user.academicYear || '2025-2026'
-                    })
-                });
+            const fetchUsageReport = async () => {
+                setLoading(true);
+                try {
+                    const response = await fetch(`${BACKEND_URL}/getTeacherUsageReport`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            instituteId: user.instituteId,
+                            department: user.department,
+                            academicYear: user.academicYear || '2025-2026'
+                        })
+                    });
 
-                const data = await response.json();
-                if (response.ok) {
-                    setReportData(data.reportData || {});
+                    const data = await response.json();
+                    if (response.ok) {
+                        setReportData(data.reportData || {});
+                    }
+                } catch (error) {
+                    console.error("Error fetching usage report:", error);
+                    toast.error("Failed to load usage report");
+                } finally {
+                    setLoading(false);
                 }
-            } catch (error) {
-                console.error("Error fetching usage report:", error);
-                toast.error("Failed to load usage report");
-            } finally {
-                setLoading(false);
-            }
-        };
+            };
 
-        fetchUsageReport();
-    }, [user.instituteId, user.department, user.academicYear]);
+            fetchUsageReport();
+        }, [user.instituteId, user.department, user.academicYear]);
 
 
 
@@ -1348,35 +1392,35 @@ useEffect(() => {
             setLoading(false);
         }, [allSessions, teachersList, user?.department, user?.academicYear]);
 
-       const fetchAttendanceCountForGroup = async (teacherName, division, subject, sessionIds) => {
-        const cacheKey = `${teacherName}_${division}_${subject}`;
-        if (attendanceStats[cacheKey] !== undefined) return;
+        const fetchAttendanceCountForGroup = async (teacherName, division, subject, sessionIds) => {
+            const cacheKey = `${teacherName}_${division}_${subject}`;
+            if (attendanceStats[cacheKey] !== undefined) return;
 
-        setLoadingStats(prev => ({ ...prev, [cacheKey]: true }));
+            setLoadingStats(prev => ({ ...prev, [cacheKey]: true }));
 
-        try {
-            const response = await fetch(`${BACKEND_URL}/getAttendanceCount`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    instituteId: user.instituteId,
-                    sessionIds: sessionIds
-                })
-            });
+            try {
+                const response = await fetch(`${BACKEND_URL}/getAttendanceCount`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        instituteId: user.instituteId,
+                        sessionIds: sessionIds
+                    })
+                });
 
-            const data = await response.json();
-            if (response.ok) {
-                setAttendanceStats(prev => ({ ...prev, [cacheKey]: data.count }));
+                const data = await response.json();
+                if (response.ok) {
+                    setAttendanceStats(prev => ({ ...prev, [cacheKey]: data.count }));
+                }
+            } catch (err) {
+                console.error("Error fetching count:", err);
+                toast.error("Failed to load attendance count");
+            } finally {
+                setLoadingStats(prev => ({ ...prev, [cacheKey]: false }));
             }
-        } catch (err) {
-            console.error("Error fetching count:", err);
-            toast.error("Failed to load attendance count");
-        } finally {
-            setLoadingStats(prev => ({ ...prev, [cacheKey]: false }));
-        }
-    };
+        };
 
-    if (loading) return <div className="card" style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}><i className="fas fa-spinner fa-spin"></i> Loading Analytics...</div>;
+        if (loading) return <div className="card" style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}><i className="fas fa-spinner fa-spin"></i> Loading Analytics...</div>;
 
         return (
             <div className="content-section">
@@ -1820,7 +1864,6 @@ useEffect(() => {
                     </button>
                 </div>
             </aside>
-
             <main className="main-content" style={{ paddingBottom: '20px' }}>
                 <header className="mobile-header">
                     <button className="hamburger-btn" onClick={() => setIsMobileNavOpen(true)}><i className="fas fa-bars"></i></button>
@@ -1828,10 +1871,106 @@ useEffect(() => {
                     <div style={{ width: '40px' }}></div>
                 </header>
 
-                {activeTab === 'dashboard' && (
+               {activeTab === 'dashboard' && (
                     <div className="content-section">
 
-                        {/* --- 🎓 ACADEMIC SESSION CONTROL (Dynamic for FE/Dept) --- */}
+                        {/* ✨ ULTRA-MODERN WORKSPACE SWITCHER CARD */}
+                        {hodInfo?.assignedScopes && hodInfo.assignedScopes.length > 1 && (
+                            <div className="card fade-in-up" style={{
+                                background: 'linear-gradient(145deg, #ffffff, #f8fafc)',
+                                borderRadius: '20px',
+                                border: '1px solid #e2e8f0',
+                                padding: '20px 24px',
+                                marginBottom: '30px',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                flexWrap: 'wrap',
+                                gap: '16px',
+                                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.05)'
+                            }}>
+                                {/* Left Side: Icon & Text */}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', minWidth: '250px', flex: '1' }}>
+                                    <div style={{
+                                        width: '48px', height: '48px',
+                                        background: '#eff6ff', color: '#2563eb',
+                                        borderRadius: '14px', display: 'flex',
+                                        alignItems: 'center', justifyContent: 'center',
+                                        fontSize: '20px', border: '1px solid #bfdbfe',
+                                        boxShadow: 'inset 0 2px 4px rgba(255,255,255,0.5)'
+                                    }}>
+                                        <i className="fas fa-layer-group"></i>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                        <h3 style={{ margin: 0, fontSize: '18px', color: '#0f172a', fontWeight: '800', letterSpacing: '-0.3px' }}>Active Workspace</h3>
+                                        <p style={{ margin: '2px 0 0', fontSize: '13px', color: '#64748b', fontWeight: '500' }}>Managing <strong style={{ color: '#2563eb' }}>{hodInfo.department}</strong></p>
+                                    </div>
+                                </div>
+                                
+                                {/* Right Side: Interactive Dropdown */}
+                                <div style={{ flex: '1', minWidth: '250px', display: 'flex', justifyContent: 'flex-end' }}>
+                                    <div style={{ position: 'relative', width: '100%', maxWidth: '350px' }}>
+                                        <select
+                                            value={hodInfo.department}
+                                            onChange={async (e) => {
+                                                const newDept = e.target.value;
+                                                toast.loading(`Loading ${newDept} Workspace...`);
+                                                await updateDoc(doc(db, "users", auth.currentUser.uid), { department: newDept });
+                                                window.location.reload();
+                                            }}
+                                            style={{
+                                                width: '100%',
+                                                padding: '14px 50px 14px 20px',
+                                                borderRadius: '14px',
+                                                border: '2px solid #cbd5e1',
+                                                background: '#ffffff',
+                                                color: '#1e293b',
+                                                fontSize: '15px',
+                                                fontWeight: '700',
+                                                outline: 'none',
+                                                cursor: 'pointer',
+                                                appearance: 'none',
+                                                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                                            }}
+                                            onFocus={(e) => { 
+                                                e.target.style.borderColor = '#3b82f6'; 
+                                                e.target.style.boxShadow = '0 0 0 4px rgba(59, 130, 246, 0.15)'; 
+                                            }}
+                                            onBlur={(e) => { 
+                                                e.target.style.borderColor = '#cbd5e1'; 
+                                                e.target.style.boxShadow = '0 2px 4px rgba(0,0,0,0.02)'; 
+                                            }}
+                                        >
+                                            {hodInfo.assignedScopes.map((scope, index) => (
+                                                <option key={index} value={scope.courseName}>{scope.courseName} Program</option>
+                                            ))}
+                                        </select>
+                                        
+                                        {/* Premium Dropdown Icon */}
+                                        <div style={{ 
+                                            position: 'absolute', 
+                                            right: '12px', 
+                                            top: '50%', 
+                                            transform: 'translateY(-50%)', 
+                                            pointerEvents: 'none', 
+                                            background: '#f8fafc', 
+                                            width: '32px', 
+                                            height: '32px', 
+                                            borderRadius: '8px', 
+                                            display: 'flex', 
+                                            alignItems: 'center', 
+                                            justifyContent: 'center', 
+                                            color: '#3b82f6', 
+                                            border: '1px solid #e2e8f0',
+                                            boxShadow: '0 1px 2px rgba(0,0,0,0.05)' 
+                                        }}>
+                                            <i className="fas fa-chevron-down" style={{ fontSize: '13px', fontWeight: 'bold' }}></i>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                         <div className="card fade-in-up" style={{
                             background: 'white',
                             borderRadius: '24px',
@@ -1865,29 +2004,36 @@ useEffect(() => {
                             <div style={{ padding: '30px 25px' }}>
 
                                 {/* ✅ NEW: Global Academic Year Switcher */}
-                                <div style={{ marginBottom: '25px', paddingBottom: '20px', borderBottom: '1px solid #f1f5f9' }}>
-                                    <CustomMobileSelect
-                                        label="Current Academic Year (Global)"
-                                        icon="fa-calendar-alt"
-                                        value={currentAcademicYear}
-                                        onChange={handleAcademicYearChange}
-                                        options={[
-                                            { value: '2023-2024', label: '2023-2024 (Archived)' },
-                                            { value: '2024-2025', label: '2024-2025 (Previous)' },
-                                            { value: '2025-2026', label: '2025-2026 (Current)' },
-                                            { value: '2026-2027', label: '2026-2027 (Upcoming)' }
-                                        ]}
-                                    />
-                                    <p style={{ fontSize: '11px', color: '#f59e0b', marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '600' }}>
+                                <div style={{ marginBottom: '25px', paddingBottom: '25px', borderBottom: '1px solid #e2e8f0' }}>
+                                    <div style={{ maxWidth: '400px' }}>
+                                        <CustomMobileSelect
+                                            label="Current Academic Year (Global)"
+                                            icon="fa-calendar-alt"
+                                            value={currentAcademicYear}
+                                            onChange={handleAcademicYearChange}
+                                            options={[
+                                                { value: '2023-2024', label: '2023-2024 (Archived)' },
+                                                { value: '2024-2025', label: '2024-2025 (Previous)' },
+                                                { value: '2025-2026', label: '2025-2026 (Current)' },
+                                                { value: '2026-2027', label: '2026-2027 (Upcoming)' }
+                                            ]}
+                                        />
+                                    </div>
+                                    <p style={{ fontSize: '12px', color: '#d97706', marginTop: '10px', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: '600', background: '#fffbeb', padding: '8px 12px', borderRadius: '8px', width: 'fit-content' }}>
                                         <i className="fas fa-exclamation-triangle"></i>
                                         Warning: Switching this hides all attendance data from other years.
                                     </p>
                                 </div>
 
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '20px' }}>
+                               {/* 🎛️ RESPONSIVE SEMESTER GRID (Wraps perfectly to next row) */}
+                                <div style={{ 
+                                    display: 'flex', 
+                                    flexWrap: 'wrap', 
+                                    gap: '20px' 
+                                }}>
 
                                     {(() => {
-                                        // ✅ LOGIC: Engg FE sees FE. Engg Depts see SE/TE/BE. Agri/Medical see ALL.
+                                        // ✅ LOGIC: Engg FE sees FE. Engg Depts see SE/TE/BE. Agri/Medical/Pharmacy see ALL.
                                         const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
                                         const levelsToShow = isFE ? [academicLevels[0]] : (isNonEngg ? academicLevels : academicLevels.slice(1));
 
@@ -1902,7 +2048,8 @@ useEffect(() => {
                                             ];
 
                                             return (
-                                                <div key={level}>
+                                                // ✅ THE FIX: flex: '1 1 200px' guarantees it will drop to the next row!
+                                                <div key={level} style={{ flex: '1 1 200px', maxWidth: '100%', minWidth: '200px' }}>
                                                     <CustomMobileSelect
                                                         label={`${level} Session`}
                                                         icon="fa-graduation-cap"
@@ -1917,7 +2064,7 @@ useEffect(() => {
 
                                 </div>
 
-                                <div style={{ marginTop: '10px', padding: '15px', background: '#eff6ff', borderRadius: '12px', display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                                <div style={{ marginTop: '25px', padding: '15px', background: '#eff6ff', borderRadius: '12px', display: 'flex', gap: '12px', alignItems: 'flex-start', border: '1px solid #bfdbfe' }}>
                                     <i className="fas fa-info-circle" style={{ color: '#2563eb', marginTop: '3px' }}></i>
                                     <p style={{ margin: 0, fontSize: '12px', color: '#475569', lineHeight: '1.5' }}>
                                         <strong>Note:</strong> Selected semester will apply to all students and teachers in {hodInfo?.department === 'FE' ? 'First Year' : 'the department'}.
@@ -1938,7 +2085,7 @@ useEffect(() => {
 
                                 return labelsToShow.map((label, index) => {
 
-                                   // ✅ FIXED: Uses cleanYear to accurately count students
+                                    // ✅ FIXED: Uses cleanYear to accurately count students
                                     const count = studentsList.filter(s =>
                                         isFE ? s.division === label : s.cleanYear === String(label).toUpperCase()
                                     ).length;
@@ -2032,7 +2179,7 @@ useEffect(() => {
                                         />
                                     </div>
 
-                                   {/* ✅ Wrapped in FeatureGuard to hide from Agri/Pharmacy/Medical */}
+                                    {/* ✅ Wrapped in FeatureGuard to hide from Agri/Pharmacy/Medical */}
                                     <FeatureGuard requiredDomain="ENGINEERING">
                                         {(feedbackForm.targetYear === 'FE' || isFE) && (
                                             <div style={{ flex: 1 }}>
@@ -2327,7 +2474,7 @@ useEffect(() => {
                                                 <i className="fas fa-file-excel"></i> Download Excel
                                             </button>
 
-                                          <button
+                                            <button
                                                 onClick={() => {
                                                     const toastId = toast.loading("Generating Perfectly Aligned PDF...");
 
@@ -2367,10 +2514,10 @@ useEffect(() => {
                                                             </div>
 
                                                             ${Object.values(grouped).map(group => {
-                                                                const teacherInfo = deptUsers.find(u => u.id === group.teacherId);
-                                                                const teacherName = teacherInfo ? `${teacherInfo.firstName} ${teacherInfo.lastName}` : 'Unknown Faculty';
-                                                                
-                                                                return `
+                                                        const teacherInfo = deptUsers.find(u => u.id === group.teacherId);
+                                                        const teacherName = teacherInfo ? `${teacherInfo.firstName} ${teacherInfo.lastName}` : 'Unknown Faculty';
+
+                                                        return `
                                                                 <div class="avoid-break">
                                                                     <div style="background: #e2e8f0; padding: 14px 20px; border-radius: 10px 10px 0 0; display: flex; justify-content: space-between; align-items: center; border: 1px solid #cbd5e1; border-bottom: none;">
                                                                         <h3 style="margin: 0; color: #1e293b; font-size: 14px; font-weight: 700;">
@@ -2384,25 +2531,25 @@ useEffect(() => {
                                                                     <table style="width: 100%; border-collapse: collapse; background: white; border: 1px solid #cbd5e1;">
                                                                         <thead>
                                                                             <tr style="background: #f1f5f9;">
-                                                                                ${selectedFormToView.questions.map(q => 
-                                                                                    `<th style="padding: 12px 10px; border: 1px solid #cbd5e1; color: #334155; font-weight: 700; font-size: 12px; text-align: left; line-height: 1.4;">${q.text}</th>`
-                                                                                ).join('')}
+                                                                                ${selectedFormToView.questions.map(q =>
+                                                            `<th style="padding: 12px 10px; border: 1px solid #cbd5e1; color: #334155; font-weight: 700; font-size: 12px; text-align: left; line-height: 1.4;">${q.text}</th>`
+                                                        ).join('')}
                                                                             </tr>
                                                                         </thead>
                                                                         <tbody>
                                                                             ${group.responses.map((r, idx) => `
                                                                                 <tr style="background: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
                                                                                     ${selectedFormToView.questions.map(q => {
-                                                                                        const ans = r.answers.find(a => a.questionText === q.text);
-                                                                                        return `<td style="padding: 12px 10px; border: 1px solid #cbd5e1; color: #475569; font-size: 12px; line-height: 1.5;">${ans ? ans.answer : '-'}</td>`;
-                                                                                    }).join('')}
+                                                            const ans = r.answers.find(a => a.questionText === q.text);
+                                                            return `<td style="padding: 12px 10px; border: 1px solid #cbd5e1; color: #475569; font-size: 12px; line-height: 1.5;">${ans ? ans.answer : '-'}</td>`;
+                                                        }).join('')}
                                                                                 </tr>
                                                                             `).join('')}
                                                                         </tbody>
                                                                     </table>
                                                                 </div>
                                                                 `;
-                                                            }).join('')}
+                                                    }).join('')}
                                                             
                                                             <div class="avoid-break" style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0; color: #94a3b8; font-size: 12px;">
                                                                 Generated via trackee System
@@ -2415,12 +2562,12 @@ useEffect(() => {
 
                                                     // ✅ 2. Upgraded html2pdf Settings for Perfect Alignment
                                                     const opt = {
-                                                        margin:       0.4, // Adds physical margins to the document (inches)
-                                                        filename:     `${selectedFormToView.title}_Report.pdf`,
-                                                        image:        { type: 'jpeg', quality: 1.0 },
-                                                        html2canvas:  { scale: 2, useCORS: true, windowWidth: 1200 }, // Locks width so tables don't squish
-                                                        jsPDF:        { unit: 'in', format: 'a4', orientation: 'landscape' },
-                                                        pagebreak:    { mode: ['css', 'legacy'] } // Strictly forces the CSS page-break rules we wrote above
+                                                        margin: 0.4, // Adds physical margins to the document (inches)
+                                                        filename: `${selectedFormToView.title}_Report.pdf`,
+                                                        image: { type: 'jpeg', quality: 1.0 },
+                                                        html2canvas: { scale: 2, useCORS: true, windowWidth: 1200 }, // Locks width so tables don't squish
+                                                        jsPDF: { unit: 'in', format: 'a4', orientation: 'landscape' },
+                                                        pagebreak: { mode: ['css', 'legacy'] } // Strictly forces the CSS page-break rules we wrote above
                                                     };
 
                                                     // 3. Generate and Download
@@ -3640,7 +3787,7 @@ useEffect(() => {
                             </div>
 
                             <div className="table-wrapper custom-scroll" style={{ maxHeight: '500px', overflowY: 'auto' }}>
-                               <table className="attendance-table">
+                                <table className="attendance-table">
                                     <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: 'white' }}>
                                         <tr>
                                             <th style={{ width: '50px', textAlign: 'center' }}>
@@ -3663,30 +3810,30 @@ useEffect(() => {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                {filteredEnrollmentStudents.map(student => (
-                                                <tr key={student.id}
-                                                    onClick={() => setEnrolledStudentIds(prev => prev.includes(student.id) ? prev.filter(id => id !== student.id) : [...prev, student.id])}
-                                                    style={{ cursor: 'pointer', background: enrolledStudentIds.includes(student.id) ? '#f0fdf4' : 'transparent', transition: 'background 0.2s' }}
-                                                >
-                                                    <td style={{ textAlign: 'center' }}>
-                                                        <input
-                                                            type="checkbox"
-                                                            className="custom-checkbox"
-                                                            checked={enrolledStudentIds.includes(student.id)}
-                                                            readOnly
-                                                        />
-                                                    </td>
-                                                    <td style={{ fontWeight: '700', color: enrolledStudentIds.includes(student.id) ? '#166534' : '#475569' }}>
-                                                        {student.rollNo}
-                                                    </td>
-                                                    <td style={{ fontWeight: '600', color: '#1e293b' }}>
-                                                        {student.firstName} {student.lastName}
-                                                    </td>
-                                                    <td style={{ color: '#64748b', fontSize: '13px' }}>
-                                                        {student.email}
-                                                    </td>
-                                                </tr>
-                                            ))}
+                                        {filteredEnrollmentStudents.map(student => (
+                                            <tr key={student.id}
+                                                onClick={() => setEnrolledStudentIds(prev => prev.includes(student.id) ? prev.filter(id => id !== student.id) : [...prev, student.id])}
+                                                style={{ cursor: 'pointer', background: enrolledStudentIds.includes(student.id) ? '#f0fdf4' : 'transparent', transition: 'background 0.2s' }}
+                                            >
+                                                <td style={{ textAlign: 'center' }}>
+                                                    <input
+                                                        type="checkbox"
+                                                        className="custom-checkbox"
+                                                        checked={enrolledStudentIds.includes(student.id)}
+                                                        readOnly
+                                                    />
+                                                </td>
+                                                <td style={{ fontWeight: '700', color: enrolledStudentIds.includes(student.id) ? '#166534' : '#475569' }}>
+                                                    {student.rollNo}
+                                                </td>
+                                                <td style={{ fontWeight: '600', color: '#1e293b' }}>
+                                                    {student.firstName} {student.lastName}
+                                                </td>
+                                                <td style={{ color: '#64748b', fontSize: '13px' }}>
+                                                    {student.email}
+                                                </td>
+                                            </tr>
+                                        ))}
                                     </tbody>
                                 </table>
                                 {filteredEnrollmentStudents.length === 0 && (
@@ -3788,11 +3935,14 @@ useEffect(() => {
                                                 { value: startSem + 1, label: `Sem ${startSem + 1}` }
                                             ];
                                         } else {
-                                            if (cls.year === 'FE') semOptions = [{ value: 1, label: 'Sem 1' }, { value: 2, label: 'Sem 2' }];
-                                            else if (cls.year === 'SE') semOptions = [{ value: 3, label: 'Sem 3' }, { value: 4, label: 'Sem 4' }];
-                                            else if (cls.year === 'TE') semOptions = [{ value: 5, label: 'Sem 5' }, { value: 6, label: 'Sem 6' }];
-                                            else if (cls.year === 'BE') semOptions = [{ value: 7, label: 'Sem 7' }, { value: 8, label: 'Sem 8' }];
-                                            else semOptions = Array.from({ length: 8 }, (_, i) => ({ value: i + 1, label: `Sem ${i + 1}` }));
+                                            if (cls.year === 'FE' || cls.year === 'FY') semOptions = [{ value: 1, label: 'Sem 1' }, { value: 2, label: 'Sem 2' }];
+                                            else if (cls.year === 'SE' || cls.year === 'SY') semOptions = [{ value: 3, label: 'Sem 3' }, { value: 4, label: 'Sem 4' }];
+                                            else if (cls.year === 'TE' || cls.year === 'TY') semOptions = [{ value: 5, label: 'Sem 5' }, { value: 6, label: 'Sem 6' }];
+                                            else if (cls.year === 'BE' || cls.year === 'Fourth Year' || cls.year === 'Final Year') semOptions = [{ value: 7, label: 'Sem 7' }, { value: 8, label: 'Sem 8' }];
+                                            else if (cls.year === 'Fifth Year' || cls.year === 'Year 5') semOptions = [{ value: 9, label: 'Sem 9' }, { value: 10, label: 'Sem 10' }];
+                                            else if (cls.year === 'Sixth Year' || cls.year === 'Year 6') semOptions = [{ value: 11, label: 'Sem 11' }, { value: 12, label: 'Sem 12' }];
+                                            // Fallback based on dynamic duration
+                                            else semOptions = Array.from({ length: hodDeptDuration * 2 }, (_, i) => ({ value: i + 1, label: `Sem ${i + 1}` }));
                                         }
 
                                         return (
