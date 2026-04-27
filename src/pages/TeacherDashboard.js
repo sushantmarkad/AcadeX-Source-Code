@@ -1111,18 +1111,20 @@ const DashboardHome = ({
         }
     };
 
-    // ✅ NEW WAY (Sends 1 request for everyone)
+    // ✅ NEW WAY (Sends 1 request for everyone, Fixes Deletions & Random IDs)
     const handleAttendanceUpdate = async (session, changes) => {
         const toastId = toast.loading("Updating Attendance...");
         try {
-            // 1. Create a Batch
             const batch = writeBatch(db);
 
             changes.forEach((student) => {
+                // ✅ SECURE ID GENERATION: Always use this format to prevent duplicates
+                const expectedDocId = `${session.sessionId}_${student.id}`;
+
                 if (student.status === 'Present') {
-                    // Mark Present: Create a new document reference
-                    const newDocRef = doc(collection(db, 'attendance'));
-                    batch.set(newDocRef, {
+                    // Mark Present: Create or overwrite with predictable ID
+                    const docRef = doc(db, 'attendance', expectedDocId);
+                    batch.set(docRef, {
                         rollNo: student.rollNo.toString(),
                         studentId: student.id,
                         name: student.name,
@@ -1136,18 +1138,17 @@ const DashboardHome = ({
                         sessionId: session.sessionId,
                         timestamp: serverTimestamp(),
                         markedBy: 'teacher_edit',
-                        status: 'Present'
-                    });
+                        status: 'Present',
+                        type: session.type || 'theory' // ✅ Include type
+                    }, { merge: true });
                 } else {
-                    // Mark Absent: Delete the existing document
-                    if (student.attendanceId) {
-                        const docRef = doc(db, 'attendance', student.attendanceId);
-                        batch.delete(docRef);
-                    }
+                    // Mark Absent: Delete using the ID passed from backend, fallback to expected ID
+                    const targetId = student.attendanceId || expectedDocId;
+                    const docRef = doc(db, 'attendance', targetId);
+                    batch.delete(docRef);
                 }
             });
 
-            // 2. Commit the Batch (Sends everything to Firebase at once)
             await batch.commit();
 
             toast.success("Attendance Updated!", { id: toastId });

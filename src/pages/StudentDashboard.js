@@ -2393,14 +2393,13 @@ export default function StudentDashboard() {
                     docId = `${user.instituteId}_${user.department}_${user.year}_${user.division}_Timetable`;
                 }
 
-                // ✅ 2. Fetch the Weekly Timetable Document
+              
                 const docSnap = await getDoc(doc(db, 'timetables', docId));
 
                 if (docSnap.exists()) {
                     const data = docSnap.data();
-                    const todaysSlots = data[today] || []; // Get array for "Monday" etc.
-
-                    // ✅ 3. Find Active Slot based on Current Time
+                    const todaysSlots = data[today] || []; 
+                    
                     const now = getCurrentTimeMinutes();
                     const activeSlot = todaysSlots.find(slot => {
                         const start = getMinutesFromTime(slot.startTime);
@@ -2408,7 +2407,7 @@ export default function StudentDashboard() {
                         return now >= start && now < end;
                     });
 
-                    // Set State
+                    
                     if (activeSlot) {
                         setCurrentSlot(activeSlot);
                         // Trigger Free Period logic if needed
@@ -2437,11 +2436,11 @@ export default function StudentDashboard() {
         const interval = setInterval(fetchSchedule, 60000); // Update every minute
         return () => clearInterval(interval);
     }, [user?.instituteId, user?.department, user?.year, user?.division]);
-    // ✅ NEW: FETCH ASSIGNMENTS (For Task Badge)
+    
     useEffect(() => {
         if (!user?.instituteId) return;
 
-        // ✅ OPTIMIZED: Added department filter to save reads
+       
         const q = query(
             collection(db, 'assignments'),
             where('instituteId', '==', user.instituteId),
@@ -2486,7 +2485,7 @@ export default function StudentDashboard() {
         return () => unsub();
     }, [user?.instituteId, user?.department, user?.year, user?.division]);
 
-    // ✅ UPDATE: Auto-hide badges when tab is viewed
+    
     useEffect(() => {
         // Hide Notice Badge
         if (activePage === 'notices' && notices.length > readCount) {
@@ -2500,7 +2499,7 @@ export default function StudentDashboard() {
             localStorage.setItem('seenTasksCount', assignments.length.toString());
         }
     }, [activePage, notices, assignments, readCount, taskReadCount]);
-    // ✅ OPTIMIZED: FETCH NOTICES ONCE (Saves thousands of reads)
+    
     useEffect(() => {
         if (!user?.instituteId) return;
 
@@ -2560,7 +2559,7 @@ export default function StudentDashboard() {
         fetchNotices();
     }, [user?.instituteId, user?.department, user?.year, user?.division]);
 
-    // ✅ 7. PUSH NOTIFICATION SETUP (Get Token & Save to DB)
+    
     useEffect(() => {
         const registerPushNotifications = async () => {
             // Only run on Android/iOS (Native Devices)
@@ -2635,7 +2634,7 @@ export default function StudentDashboard() {
         setIsChatOpen(true);
     };
 
-    // ✅ 5. HANDLE QR ATTENDANCE
+    
     const onScanSuccess = async (decodedText) => {
         // 1. Pause Camera
         if (scannerRef.current) {
