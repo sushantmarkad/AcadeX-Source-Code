@@ -35,7 +35,8 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
     const showDepartment = !isAgri && selectedYear !== 'FE' && selectedYear !== 'FY';
 
     useEffect(() => {
-        if (academicYears.length > 0 && !selectedYear) {
+        // ✅ CRITICAL FIX: Forces dropdown to snap to the correct year (FE vs FY) instantly
+        if (academicYears.length > 0 && (!selectedYear || !academicYears.includes(selectedYear))) {
             setSelectedYear(academicYears[0]);
         }
     }, [academicYears, selectedYear]);
@@ -202,23 +203,23 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                     const firstName = nameParts[0] || "Student";
                     const lastName = nameParts.slice(1).join(' ') || "";
 
-                    // Robust Email Parsing (Auto-generates if missing)
+                   // Robust Email Parsing (Auto-generates if missing)
                     let finalEmail = "";
                     if (idxEmail !== -1 && row[idxEmail] && String(row[idxEmail]).includes('@')) {
-                        finalEmail = row[idxEmail].trim();
+                        finalEmail = String(row[idxEmail]).trim();
                     } else {
                         finalEmail = generateSystemEmail({ rollNo, firstName });
                     }
 
-                    // Map fields safely
-                    const divVal = idxDiv !== -1 && row[idxDiv] ? row[idxDiv] : selectedDivision;
+                    // ✅ CRITICAL FIX: Trim all parsed fields so trailing CSV spaces don't break HOD filtering
+                    const divVal = idxDiv !== -1 && row[idxDiv] ? String(row[idxDiv]).trim() : selectedDivision;
                     let deptVal = selectedDept;
                     if (showDepartment && idxDept !== -1 && row[idxDept]) {
-                        deptVal = row[idxDept];
+                        deptVal = String(row[idxDept]).trim();
                     }
                     if (deptVal === 'MIXED') deptVal = null;
 
-                    const yearVal = idxYear !== -1 && row[idxYear] ? row[idxYear] : selectedYear;
+                    const yearVal = idxYear !== -1 && row[idxYear] ? String(row[idxYear]).trim() : selectedYear;
 
                     return {
                         "role": "student",      

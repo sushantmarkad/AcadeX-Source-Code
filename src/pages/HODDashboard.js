@@ -173,12 +173,18 @@ export default function HODDashboard() {
     const navigate = useNavigate();
     const [analyticsDivision, setAnalyticsDivision] = useState('All');
     const [classCounts, setClassCounts] = useState({}); // Stores counts like { FE: 10, SE: 20 } or { A: 5, B: 5 }
-    const DIVISIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'];
-    const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'First Year';
+   const DIVISIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L'];
+    
     // --- PULL DYNAMIC CONFIGURATION ---
     const { config } = useInstitution();
-    const academicLevels = config?.academicConfig?.levels || ['FE', 'SE', 'TE', 'BE'];
-    const levelName = config?.academicConfig?.levelNomenclature || 'Class';
+    const isEngg = config?.domain === 'ENGINEERING';
+    
+    // ✅ Include 'FY' in the First Year check
+    const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'FY' || hodInfo?.department === 'First Year' || hodInfo?.department === 'FirstYear';
+    
+    // ✅ Strictly force FY/SY/TY based on domain (Ignores stale database configs)
+    const academicLevels = isEngg ? ['FE', 'SE', 'TE', 'BE'] : ['FY', 'SY', 'TY', 'Final Year'];
+    const levelName = config?.academicConfig?.levelNomenclature || (isEngg ? 'Class' : 'Year');
 
     useEffect(() => {
         const init = async () => {
@@ -295,14 +301,16 @@ export default function HODDashboard() {
         }
     };
 
-    // ✅ REAL-TIME OPTIMIZATION: Stable dependencies prevent the listener from restarting
-    const configDomain = config?.domain;
+   // ✅ REAL-TIME OPTIMIZATION: Stable dependencies prevent the listener from restarting
+    // Forces uppercase to prevent lowercase database entries from breaking the system
+    const configDomain = config?.domain ? String(config?.domain).trim().toUpperCase() : '';
     const instId = hodInfo?.instituteId;
     const deptName = hodInfo?.department;
 
     useEffect(() => {
         if (!instId || !configDomain || !deptName) return;
 
+        // ✅ Bulletproof domain check
         const isNonEngg = configDomain !== 'ENGINEERING';
         const qUsers = isNonEngg
             ? query(collection(db, 'users'), where('instituteId', '==', instId))
@@ -318,12 +326,13 @@ export default function HODDashboard() {
         // Clean up the listener when component unmounts
         return () => unsubscribe();
 
-    }, [instId, configDomain, deptName]); // 👈 FIXED: No longer depends on objects
+    }, [instId, configDomain, deptName]);
 
-    useEffect(() => {
+   useEffect(() => {
         if (hodInfo && academicLevels.length > 0 && config) {
-            const isFE = hodInfo.department === 'FE' || hodInfo.department === 'First Year' || hodInfo.department === 'FirstYear';
-            const isNonEngg = config.domain === 'AGRICULTURE' || config.domain === 'MEDICAL' || config.domain === 'PHARMACY';
+            // ✅ Ensure 'FY' triggers the First Year logic
+            const isFE = hodInfo.department === 'FE' || hodInfo.department === 'FY' || hodInfo.department === 'First Year' || hodInfo.department === 'FirstYear';
+            const isNonEngg = config.domain !== 'ENGINEERING';
 
             // ✅ SMART DEFAULT: If it's an Engineering Dept HOD (not FE), default to SE. Otherwise, use the first level.
             const defaultYear = (!isNonEngg && !isFE && academicLevels.length > 1)
@@ -550,8 +559,17 @@ export default function HODDashboard() {
         }
     };
 
-    // ✅ 1. ALL students in the college (Used by the Enrollment Tab to show the Common Pool)
-    const allCollegeStudents = useMemo(() => deptUsers.filter(u => u.role === 'student'), [deptUsers]);
+   // ✅ 1. ALL students in the college (Used by the Enrollment Tab to show the Common Pool)
+    const allCollegeStudents = useMemo(() => {
+        return deptUsers
+            .filter(u => u.role === 'student')
+            .map(s => ({
+                ...s,
+                // ✅ CRITICAL FIX: Safely extracts 'year' and 'division' even if the Admin Bulk Upload hid them inside 'extras'
+                year: String(s.year || s.extras?.year || s.level || s.extras?.level || '').trim(),
+                division: String(s.division || s.extras?.division || '').trim()
+            }));
+    }, [deptUsers]);
 
     // ✅ 2. ONLY students enrolled in THIS HOD's department (Used for Analytics, Dept Users tab, etc.)
     const studentsList = useMemo(() => {
@@ -564,34 +582,41 @@ export default function HODDashboard() {
         );
     }, [allCollegeStudents, hodInfo, config]);
 
-    // ✅ 3. Teachers for this specific department
+   // ✅ 3. Teachers for this specific department
     const teachersList = useMemo(() => {
         const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
         return deptUsers.filter(u => u.role === 'teacher' && (!isNonEngg || u.department === hodInfo?.department));
     }, [deptUsers, hodInfo, config]);
 
-    // ✅ AUTO-POPULATE CHECKBOXES FOR ENROLLMENT
+    // ✅ 4. ONLY students matching the selected enrollment year (Bulletproof Filter)
+    const filteredEnrollmentStudents = useMemo(() => {
+        const eYear = String(enrollmentYear || '').trim().toUpperCase();
+        return allCollegeStudents
+            .filter(s => String(s.year || '').trim().toUpperCase() === eYear)
+            .sort((a, b) => (a.rollNo || "").localeCompare(b.rollNo, undefined, { numeric: true }));
+    }, [allCollegeStudents, enrollmentYear]);
+
+  // ✅ AUTO-POPULATE CHECKBOXES FOR ENROLLMENT
     useEffect(() => {
-        if (!hodInfo || !allCollegeStudents) return;
-        const studentsInYear = allCollegeStudents.filter(s => s.year === enrollmentYear || s.level === enrollmentYear);
+        if (!hodInfo || !filteredEnrollmentStudents) return;
 
         // Find students who are already enrolled in this HOD's department
-        const alreadyEnrolled = studentsInYear.filter(s =>
+        const alreadyEnrolled = filteredEnrollmentStudents.filter(s =>
             s.department === hodInfo.department ||
             (s.enrolledDepartments && s.enrolledDepartments.includes(hodInfo.department))
         ).map(s => s.id || s.uid);
 
         setEnrolledStudentIds(alreadyEnrolled);
-    }, [enrollmentYear, allCollegeStudents, hodInfo]);
+    }, [filteredEnrollmentStudents, hodInfo]);
 
     // ✅ SAVE HOD ENROLLMENT (BATCH WRITE)
     const handleSaveEnrollment = async () => {
         const toastId = toast.loading(`Saving enrollment for ${enrollmentYear}...`);
         try {
             const batch = writeBatch(db);
-            const studentsInYear = allCollegeStudents.filter(s => s.year === enrollmentYear || s.level === enrollmentYear);
 
-            studentsInYear.forEach(student => {
+            // Use the centralized bulletproof list
+            filteredEnrollmentStudents.forEach(student => {
                 const studentRef = doc(db, 'users', student.id);
                 const isSelected = enrolledStudentIds.includes(student.id);
 
@@ -1297,7 +1322,7 @@ useEffect(() => {
                     const sSub = String(sessionSubject).trim().toLowerCase();
                     if (vSub !== sSub) return false;
 
-                    if (vYear === 'FE' || vYear === 'FIRST YEAR') {
+                    if (vYear === 'FE' || vYear === 'FY' || vYear === 'FIRST YEAR') {
                         const sDiv = String(sessionDiv).trim().toUpperCase();
                         if (validCls.divisions.includes('ALL')) return true;
                         if (sDiv === 'ALL') return true;
@@ -1312,7 +1337,8 @@ useEffect(() => {
 
                 let divLabel = sessionDiv;
                 if (!sessionDiv || String(sessionDiv).trim().toUpperCase() === 'ALL') {
-                    if (sessionYear === 'FE' || sessionYear === 'First Year') divLabel = 'Combined FE Lecture';
+                    // ✅ Dynamically outputs 'Combined FE Lecture' OR 'Combined FY Lecture'
+                    if (sessionYear === 'FE' || sessionYear === 'FY' || sessionYear === 'First Year') divLabel = `Combined ${sessionYear} Lecture`;
                     else divLabel = `${sessionYear} Class`;
                 } else {
                     divLabel = `Div ${sessionDiv}`;
@@ -3626,17 +3652,17 @@ useEffect(() => {
                             </div>
 
                             <div className="table-wrapper custom-scroll" style={{ maxHeight: '500px', overflowY: 'auto' }}>
-                                <table className="attendance-table">
+                               <table className="attendance-table">
                                     <thead style={{ position: 'sticky', top: 0, zIndex: 10, background: 'white' }}>
                                         <tr>
                                             <th style={{ width: '50px', textAlign: 'center' }}>
                                                 <input
                                                     type="checkbox"
                                                     className="custom-checkbox"
-                                                    checked={enrolledStudentIds.length === allCollegeStudents.filter(s => s.year === enrollmentYear || s.level === enrollmentYear).length && enrolledStudentIds.length > 0}
+                                                    checked={enrolledStudentIds.length === filteredEnrollmentStudents.length && enrolledStudentIds.length > 0}
                                                     onChange={(e) => {
                                                         if (e.target.checked) {
-                                                            setEnrolledStudentIds(allCollegeStudents.filter(s => s.year === enrollmentYear || s.level === enrollmentYear).map(s => s.id));
+                                                            setEnrolledStudentIds(filteredEnrollmentStudents.map(s => s.id));
                                                         } else {
                                                             setEnrolledStudentIds([]);
                                                         }
@@ -3649,9 +3675,7 @@ useEffect(() => {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {allCollegeStudents.filter(s => s.year === enrollmentYear || s.level === enrollmentYear)
-                                            .sort((a, b) => (a.rollNo || "").localeCompare(b.rollNo, undefined, { numeric: true }))
-                                            .map(student => (
+                                {filteredEnrollmentStudents.map(student => (
                                                 <tr key={student.id}
                                                     onClick={() => setEnrolledStudentIds(prev => prev.includes(student.id) ? prev.filter(id => id !== student.id) : [...prev, student.id])}
                                                     style={{ cursor: 'pointer', background: enrolledStudentIds.includes(student.id) ? '#f0fdf4' : 'transparent', transition: 'background 0.2s' }}
@@ -3677,7 +3701,7 @@ useEffect(() => {
                                             ))}
                                     </tbody>
                                 </table>
-                                {allCollegeStudents.filter(s => s.year === enrollmentYear || s.level === enrollmentYear).length === 0 && (
+                                {filteredEnrollmentStudents.length === 0 && (
                                     <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
                                         <i className="fas fa-user-slash" style={{ fontSize: '32px', marginBottom: '10px', opacity: 0.5 }}></i>
                                         <p>No students found for {enrollmentYear}. Ask Admin to Bulk Upload them.</p>
