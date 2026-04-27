@@ -22,14 +22,17 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
     // 👇 1. PULL CONFIGURATION RULES 👇
     const { config } = useInstitution();
     const isAgri = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
-    const academicYears = config?.academicConfig?.levels || ['FE', 'SE', 'TE', 'BE'];
+    const isEngg = config?.domain === 'ENGINEERING';
+    
+   // ✅ Strictly force FY/SY/TY based on domain (Ignores stale 'FE' data in database)
+    const academicYears = isEngg ? ['FE', 'SE', 'TE', 'BE'] : ['FY', 'SY', 'TY', 'Final Year'];
 
     // ✅ STRICT LOGIC: 
-    // - Engg FE shows Division. 
+    // - Engg FE/FY shows Division. 
     // - Engg SE/TE/BE shows Department. 
     // - Agri ALWAYS hides both (dumps into Common Pool).
-    const showDivision = !isAgri && selectedYear === 'FE';
-    const showDepartment = !isAgri && selectedYear !== 'FE';
+    const showDivision = !isAgri && (selectedYear === 'FE' || selectedYear === 'FY');
+    const showDepartment = !isAgri && selectedYear !== 'FE' && selectedYear !== 'FY';
 
     useEffect(() => {
         if (academicYears.length > 0 && !selectedYear) {
@@ -342,9 +345,9 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                                 value={selectedYear}
                                 onChange={(e) => {
                                     setSelectedYear(e.target.value);
-                                    // If Engg and FE is selected, auto-set department to FE and clear division
-                                    if (!isAgri && e.target.value === 'FE') {
-                                        setSelectedDept('FE');
+                                    // If Engg and First Year is selected, auto-set department to FE/FY and set default division
+                                    if (!isAgri && (e.target.value === 'FE' || e.target.value === 'FY')) {
+                                        setSelectedDept(e.target.value); // dynamically sets 'FE' or 'FY'
                                         setSelectedDivision('A'); // Set a default
                                     } else {
                                         setSelectedDept('');
@@ -371,8 +374,8 @@ export default function BulkAddStudents({ instituteId, instituteName }) {
                                     <option value="">-- Choose Department --</option>
                                     {!isAgri && <option value="MIXED" style={{ fontWeight: 'bold', color: '#2563eb' }}>📂 Multiple Departments (From CSV)</option>}
                                     {departments.map((dept, idx) => (
-                                        // Don't show the "FE" or "First Year" department in this list for SE/TE/BE Engg HODs
-                                        (isAgri || (dept !== 'FE' && dept !== 'First Year' && dept !== 'FirstYear')) &&
+                                        // ✅ Added "FY" to the exclusion list so it correctly hides for upper years
+                                        (isAgri || (dept !== 'FE' && dept !== 'FY' && dept !== 'First Year' && dept !== 'FirstYear')) &&
                                         <option key={idx} value={dept}>{dept}</option>
                                     ))}
                                 </select>

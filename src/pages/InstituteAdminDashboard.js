@@ -60,7 +60,7 @@ const DashboardHome = ({ instituteName, instituteId }) => {
    useEffect(() => {
         if (!instituteId || !config) return; 
 
-        const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
+        const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
 
         // ✅ FIXED: Changed to getDocs
         const fetchStats = async () => {
@@ -227,6 +227,10 @@ export default function InstituteAdminDashboard() {
     const [newTargetYear, setNewTargetYear] = useState('2026-2027');
     const [isPromoting, setIsPromoting] = useState(false);
     const [classToPromote, setClassToPromote] = useState('ALL');
+
+    const { config } = useInstitution(); 
+    const isEngg = config?.domain === 'ENGINEERING';
+    const academicLevels = config?.academicConfig?.levels || (isEngg ? ['FE', 'SE', 'TE', 'BE'] : ['FY', 'SY', 'TY', 'Final Year']);
 
     const navigate = useNavigate();
 
@@ -605,65 +609,67 @@ const FaceRequestsManager = ({ user }) => {
                         <span className="promo-badge-outline">Recommended</span>
                     </div>
                     
-                    {/* Modern Interactive Grid */}
+                   {/* Modern Interactive Grid */}
                     <div className="promo-cards-grid">
-                        {/* FE -> SE */}
+                        {/* 1st Year */}
                         <div className="promo-card theme-blue stagger-2">
                             <div className="promo-card-icon-wrapper">
                                 <i className="fas fa-seedling"></i>
                             </div>
                             <div className="promo-card-body">
-                                <h4>First Year (FE)</h4>
-                                <p>Move all active FE students into Second Year (SE).</p>
+                                <h4>First Year ({academicLevels[0]})</h4>
+                                <p>Move all active {academicLevels[0]} students into Second Year ({academicLevels[1]}).</p>
                             </div>
-                            <button className="promo-card-btn" onClick={() => { setClassToPromote('FE'); setIsPromoteModalOpen(true); }}>
-                                Promote to SE <i className="fas fa-arrow-right"></i>
+                            <button className="promo-card-btn" onClick={() => { setClassToPromote(academicLevels[0]); setIsPromoteModalOpen(true); }}>
+                                Promote to {academicLevels[1]} <i className="fas fa-arrow-right"></i>
                             </button>
                         </div>
 
-                        {/* SE -> TE */}
+                        {/* 2nd Year */}
                         <div className="promo-card theme-green stagger-3">
                             <div className="promo-card-icon-wrapper">
                                 <i className="fas fa-leaf"></i>
                             </div>
                             <div className="promo-card-body">
-                                <h4>Second Year (SE)</h4>
-                                <p>Move all active SE students into Third Year (TE).</p>
+                                <h4>Second Year ({academicLevels[1]})</h4>
+                                <p>Move all active {academicLevels[1]} students into Third Year ({academicLevels[2]}).</p>
                             </div>
-                            <button className="promo-card-btn" onClick={() => { setClassToPromote('SE'); setIsPromoteModalOpen(true); }}>
-                                Promote to TE <i className="fas fa-arrow-right"></i>
+                            <button className="promo-card-btn" onClick={() => { setClassToPromote(academicLevels[1]); setIsPromoteModalOpen(true); }}>
+                                Promote to {academicLevels[2]} <i className="fas fa-arrow-right"></i>
                             </button>
                         </div>
 
-                        {/* TE -> BE */}
+                        {/* 3rd Year */}
                         <div className="promo-card theme-purple stagger-4">
                             <div className="promo-card-icon-wrapper">
                                 <i className="fas fa-tree"></i>
                             </div>
                             <div className="promo-card-body">
-                                <h4>Third Year (TE)</h4>
-                                <p>Move all active TE students into Final Year (BE).</p>
+                                <h4>Third Year ({academicLevels[2]})</h4>
+                                <p>Move all active {academicLevels[2]} students into {academicLevels[3] ? `Final Year (${academicLevels[3]})` : 'Alumni status'}.</p>
                             </div>
-                            <button className="promo-card-btn" onClick={() => { setClassToPromote('TE'); setIsPromoteModalOpen(true); }}>
-                                Promote to BE <i className="fas fa-arrow-right"></i>
+                            <button className="promo-card-btn" onClick={() => { setClassToPromote(academicLevels[2]); setIsPromoteModalOpen(true); }}>
+                                {academicLevels[3] ? `Promote to ${academicLevels[3]}` : 'Graduate Class'} <i className="fas fa-arrow-right"></i>
                             </button>
                         </div>
 
-                        {/* BE -> Alumni */}
+                        {/* 4th Year (If exists) */}
+                        {academicLevels[3] && (
                         <div className="promo-card theme-orange stagger-5">
                             <div className="promo-card-icon-wrapper">
                                 <i className="fas fa-graduation-cap"></i>
                             </div>
                             <div className="promo-card-body">
-                                <h4>Final Year (BE)</h4>
-                                <p>Graduate BE students and assign Alumni status.</p>
+                                <h4>Final Year ({academicLevels[3]})</h4>
+                                <p>Graduate {academicLevels[3]} students and assign Alumni status.</p>
                             </div>
-                            <button className="promo-card-btn" onClick={() => { setClassToPromote('BE'); setIsPromoteModalOpen(true); }}>
+                            <button className="promo-card-btn" onClick={() => { setClassToPromote(academicLevels[3]); setIsPromoteModalOpen(true); }}>
                                 Graduate Class <i className="fas fa-check-circle"></i>
                             </button>
                         </div>
+                        )}
                     </div>
-
+                    
                     {/* Danger Zone: Bulk Promote All */}
                     <div className="promo-danger-zone stagger-6">
                         <div className="promo-danger-content">

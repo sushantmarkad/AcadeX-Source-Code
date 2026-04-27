@@ -1331,22 +1331,28 @@ const FeedbackView = ({ user }) => {
         const fetchPromises = [];
 
         // 1. Fetch Forms
-        if (!cachedFeedbackForms) {
-            const formsPromise = fetch(`${BACKEND_URL}/getFeedbackForms`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    department: user.department,
-                    year: user.year,
-                    academicYear: user.academicYear || '2025-2026'
-                })
-            }).then(res => res.json()).then(data => {
-                const myDiv = user.division || user.div;
-                const filtered = (data.forms || []).filter(f => !f.division || f.division === 'All' || f.division === myDiv);
-                cachedFeedbackForms = filtered;
-                setFeedbackForms(filtered);
-            }).catch(err => console.error("Error fetching forms", err));
-            fetchPromises.push(formsPromise);
-        }
+            if (!cachedFeedbackForms) {
+                const formsPromise = fetch(`${BACKEND_URL}/getFeedbackForms`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        department: user.department,
+                        year: user.year,
+                        academicYear: user.academicYear || '2025-2026'
+                    })
+                }).then(res => res.json()).then(data => {
+                    const myDiv = user.division || user.div;
+                    // ✅ Safely filters forms if divisions don't exist in Agri/Pharma
+                    const filtered = (data.forms || []).filter(f => {
+                        const formDiv = f.division ? String(f.division).trim() : '';
+                        if (!formDiv || formDiv.toLowerCase() === 'all') return true;
+                        return formDiv === (myDiv ? String(myDiv).trim() : '');
+                    });
+                    cachedFeedbackForms = filtered;
+                    setFeedbackForms(filtered);
+                }).catch(err => console.error("Error fetching forms", err));
+                fetchPromises.push(formsPromise);
+            }
+
         // 2. Fetch Teachers (Safely checking enrolled departments for Agri)
         if (!cachedDeptTeachers) {
             // If they are in the COMMON pool, we must fetch teachers for ALL their enrolled departments
@@ -1415,9 +1421,15 @@ const FeedbackView = ({ user }) => {
                 (teacher.assignedClasses || []).filter(cls => {
                     const matchesYear = cls.year === user.year;
                     let matchesDiv = true;
+                    
                     if (user.year === 'FE' || user.year === 'First Year') {
                         const myDiv = user.division || user.div;
-                        matchesDiv = (!cls.divisions || cls.divisions === myDiv);
+                        const classDiv = cls.divisions ? String(cls.divisions).trim() : '';
+                        
+                        // ✅ Supports non-engg colleges by allowing empty/undefined divisions
+                        if (classDiv && classDiv.toLowerCase() !== 'all') {
+                            matchesDiv = (classDiv === (myDiv ? String(myDiv).trim() : ''));
+                        }
                     }
 
                     // ✅ CHECK: Has this student already submitted feedback for this teacher/subject?
@@ -2388,8 +2400,7 @@ export default function StudentDashboard() {
                 // ✅ 1. Construct the EXACT ID that HOD Dashboard uses
                 let docId = `${user.instituteId}_${user.department}_${user.year}_Timetable`;
 
-                // If FE, append the Division (e.g., _FE_A_Timetable)
-                if (user.year === 'FE' && user.division) {
+              if ((user.year === 'FE' || user.year === 'FY') && user.division) {
                     docId = `${user.instituteId}_${user.department}_${user.year}_${user.division}_Timetable`;
                 }
 

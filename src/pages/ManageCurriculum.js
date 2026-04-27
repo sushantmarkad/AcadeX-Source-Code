@@ -23,10 +23,12 @@ export default function ManageCurriculum({ instituteId }) {
     // ✅ NEW: Delete Modal State
     const [deleteModal, setDeleteModal] = useState({ isOpen: false, collectionName: '', id: '', itemName: '' });
 
-   const ACADEMIC_YEARS = ['2023-2024', '2024-2025', '2025-2026', '2026-2027'];
+  const ACADEMIC_YEARS = ['2023-2024', '2024-2025', '2025-2026', '2026-2027'];
     
-    const classLevels = config?.academicConfig?.levels || ['FE', 'SE', 'TE', 'BE'];
-    const levelNomenclature = config?.academicConfig?.levelNomenclature || 'Class';
+    // ✅ Dynamically forces FY/SY/TY for Agri/Pharmacy colleges
+    const isEngg = config?.domain === 'ENGINEERING';
+    const classLevels = isEngg ? ['FE', 'SE', 'TE', 'BE'] : ['FY', 'SY', 'TY', 'Final Year'];
+    const levelNomenclature = config?.academicConfig?.levelNomenclature || (isEngg ? 'Class' : 'Year');
 
     // Fetch Data
     useEffect(() => {

@@ -18,9 +18,11 @@ import CustomDropdown from '../components/CustomDropdown';
 import ReactDOM from 'react-dom';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
+import FeatureGuard from '../components/FeatureGuard';
 import autoTable from 'jspdf-autotable';
 import { getCountFromServer } from 'firebase/firestore';
 import { useInstitution } from '../contexts/InstitutionContext';
+import html2pdf from 'html2pdf.js';
 
 
 
@@ -2016,20 +2018,23 @@ useEffect(() => {
                                         />
                                     </div>
 
-                                    {(feedbackForm.targetYear === 'FE' || isFE) && (
-                                        <div style={{ flex: 1 }}>
-                                            <CustomMobileSelect
-                                                label="Target Division"
-                                                icon="fa-layer-group"
-                                                value={feedbackForm.division}
-                                                onChange={(val) => setFeedbackForm({ ...feedbackForm, division: val })}
-                                                options={[
-                                                    { value: 'All', label: 'All Divisions' },
-                                                    ...DIVISIONS.map(div => ({ value: div, label: `Division ${div}` }))
-                                                ]}
-                                            />
-                                        </div>
-                                    )}
+                                   {/* ✅ Wrapped in FeatureGuard to hide from Agri/Pharmacy/Medical */}
+                                    <FeatureGuard requiredDomain="ENGINEERING">
+                                        {(feedbackForm.targetYear === 'FE' || isFE) && (
+                                            <div style={{ flex: 1 }}>
+                                                <CustomMobileSelect
+                                                    label="Target Division"
+                                                    icon="fa-layer-group"
+                                                    value={feedbackForm.division}
+                                                    onChange={(val) => setFeedbackForm({ ...feedbackForm, division: val })}
+                                                    options={[
+                                                        { value: 'All', label: 'All Divisions' },
+                                                        ...DIVISIONS.map(div => ({ value: div, label: `Division ${div}` }))
+                                                    ]}
+                                                />
+                                            </div>
+                                        )}
+                                    </FeatureGuard>
                                 </div>
 
                                 <h3 style={{ fontSize: '18px', color: '#1e293b', borderBottom: '2px solid #f1f5f9', paddingBottom: '10px', marginBottom: '20px' }}>
@@ -2308,24 +2313,9 @@ useEffect(() => {
                                                 <i className="fas fa-file-excel"></i> Download Excel
                                             </button>
 
-                                            <button
+                                          <button
                                                 onClick={() => {
-                                                    // 📄 PDF EXPORT LOGIC
-                                                    const doc = new jsPDF();
-
-                                                    // Header (College Name & Details)
-                                                    doc.setFontSize(18);
-                                                    doc.setTextColor(30, 41, 59);
-                                                    doc.text(hodInfo.instituteName || "Institute Feedback Report", 14, 20);
-
-                                                    doc.setFontSize(11);
-                                                    doc.setTextColor(100, 116, 139);
-                                                    doc.text(`Department: ${hodInfo.department}`, 14, 28);
-                                                    doc.text(`Form Title: ${selectedFormToView.title}`, 14, 34);
-                                                    doc.text(`Target Audience: ${selectedFormToView.targetYear} ${selectedFormToView.division !== 'All' ? `(Div ${selectedFormToView.division})` : ''}`, 14, 40);
-                                                    doc.text(`Total Submissions: ${formResponses.length}`, 14, 46);
-
-                                                    let startY = 55;
+                                                    const toastId = toast.loading("Generating Perfectly Aligned PDF...");
 
                                                     // Group responses by Teacher/Subject
                                                     const grouped = formResponses.reduce((acc, curr) => {
@@ -2335,52 +2325,103 @@ useEffect(() => {
                                                         return acc;
                                                     }, {});
 
-                                                    Object.values(grouped).forEach((group, index) => {
-                                                        const teacherInfo = deptUsers.find(u => u.id === group.teacherId);
-                                                        const teacherName = teacherInfo ? `${teacherInfo.firstName} ${teacherInfo.lastName}` : 'Unknown Teacher';
+                                                    // 1. Build a Beautiful, Modern HTML Template with strict Page Break rules
+                                                    const reportHTML = `
+                                                        <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #1e293b; width: 100%; max-width: 1100px; margin: 0 auto;">
+                                                            
+                                                            <style>
+                                                                .avoid-break { page-break-inside: avoid !important; margin-bottom: 30px; }
+                                                                table { page-break-inside: auto; }
+                                                                tr { page-break-inside: avoid !important; page-break-after: auto; }
+                                                                thead { display: table-header-group; }
+                                                            </style>
 
-                                                        // Section Title
-                                                        doc.setFontSize(13);
-                                                        doc.setTextColor(37, 99, 235);
-                                                        doc.text(`Teacher: ${teacherName} | Subject: ${group.subject}`, 14, startY);
-                                                        startY += 6;
+                                                            <div class="avoid-break" style="background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); color: white; padding: 30px; border-radius: 12px; margin-bottom: 25px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+                                                                <h1 style="margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -0.5px;">${hodInfo.instituteName || "Institute Feedback Report"}</h1>
+                                                                <p style="margin: 8px 0 0 0; font-size: 14px; opacity: 0.9; font-weight: 500;">
+                                                                    Department: ${hodInfo.department} &nbsp;|&nbsp; Generated on: ${new Date().toLocaleDateString('en-GB')}
+                                                                </p>
+                                                            </div>
+                                                            
+                                                            <div class="avoid-break" style="padding: 18px 25px; background: #f8fafc; border-left: 5px solid #3b82f6; border-radius: 0 10px 10px 0;">
+                                                                <h2 style="margin: 0; color: #0f172a; font-size: 18px; font-weight: 700;">${selectedFormToView.title}</h2>
+                                                                <p style="margin: 8px 0 0 0; color: #475569; font-size: 14px; font-weight: 500;">
+                                                                    Target: <span style="color: #2563eb;">${selectedFormToView.targetYear} ${selectedFormToView.division !== 'All' ? `(Div ${selectedFormToView.division})` : ''}</span> 
+                                                                    &nbsp;&nbsp;•&nbsp;&nbsp; 
+                                                                    Total Submissions: <span style="color: #2563eb;">${formResponses.length}</span>
+                                                                </p>
+                                                            </div>
 
-                                                        // Table Data
-                                                        const tableColumn = selectedFormToView.questions.map(q => q.text);
-                                                        const tableRows = group.responses.map(r => {
-                                                            return selectedFormToView.questions.map(q => {
-                                                                const ans = r.answers.find(a => a.questionText === q.text);
-                                                                return ans ? ans.answer : '-';
-                                                            });
-                                                        });
+                                                            ${Object.values(grouped).map(group => {
+                                                                const teacherInfo = deptUsers.find(u => u.id === group.teacherId);
+                                                                const teacherName = teacherInfo ? `${teacherInfo.firstName} ${teacherInfo.lastName}` : 'Unknown Faculty';
+                                                                
+                                                                return `
+                                                                <div class="avoid-break">
+                                                                    <div style="background: #e2e8f0; padding: 14px 20px; border-radius: 10px 10px 0 0; display: flex; justify-content: space-between; align-items: center; border: 1px solid #cbd5e1; border-bottom: none;">
+                                                                        <h3 style="margin: 0; color: #1e293b; font-size: 14px; font-weight: 700;">
+                                                                            👨‍🏫 Faculty: <span style="color: #2563eb;">${teacherName}</span>
+                                                                        </h3>
+                                                                        <h3 style="margin: 0; color: #1e293b; font-size: 14px; font-weight: 700;">
+                                                                            📚 Subject: <span style="color: #2563eb;">${group.subject}</span>
+                                                                        </h3>
+                                                                    </div>
+                                                                    
+                                                                    <table style="width: 100%; border-collapse: collapse; background: white; border: 1px solid #cbd5e1;">
+                                                                        <thead>
+                                                                            <tr style="background: #f1f5f9;">
+                                                                                ${selectedFormToView.questions.map(q => 
+                                                                                    `<th style="padding: 12px 10px; border: 1px solid #cbd5e1; color: #334155; font-weight: 700; font-size: 12px; text-align: left; line-height: 1.4;">${q.text}</th>`
+                                                                                ).join('')}
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody>
+                                                                            ${group.responses.map((r, idx) => `
+                                                                                <tr style="background: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+                                                                                    ${selectedFormToView.questions.map(q => {
+                                                                                        const ans = r.answers.find(a => a.questionText === q.text);
+                                                                                        return `<td style="padding: 12px 10px; border: 1px solid #cbd5e1; color: #475569; font-size: 12px; line-height: 1.5;">${ans ? ans.answer : '-'}</td>`;
+                                                                                    }).join('')}
+                                                                                </tr>
+                                                                            `).join('')}
+                                                                        </tbody>
+                                                                    </table>
+                                                                </div>
+                                                                `;
+                                                            }).join('')}
+                                                            
+                                                            <div class="avoid-break" style="text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0; color: #94a3b8; font-size: 12px;">
+                                                                Generated via trackee System
+                                                            </div>
+                                                        </div>
+                                                    `;
 
-                                                        // ✅ THE FIX: Call autoTable directly and pass 'doc' as the first argument
-                                                        autoTable(doc, {
-                                                            startY: startY,
-                                                            head: [tableColumn],
-                                                            body: tableRows,
-                                                            theme: 'grid',
-                                                            styles: { fontSize: 8, cellPadding: 3 },
-                                                            headStyles: { fillColor: [59, 130, 246], textColor: 255 },
-                                                            margin: { top: 15 }
-                                                        });
+                                                    const element = document.createElement('div');
+                                                    element.innerHTML = reportHTML;
 
-                                                        startY = doc.lastAutoTable.finalY + 15;
+                                                    // ✅ 2. Upgraded html2pdf Settings for Perfect Alignment
+                                                    const opt = {
+                                                        margin:       0.4, // Adds physical margins to the document (inches)
+                                                        filename:     `${selectedFormToView.title}_Report.pdf`,
+                                                        image:        { type: 'jpeg', quality: 1.0 },
+                                                        html2canvas:  { scale: 2, useCORS: true, windowWidth: 1200 }, // Locks width so tables don't squish
+                                                        jsPDF:        { unit: 'in', format: 'a4', orientation: 'landscape' },
+                                                        pagebreak:    { mode: ['css', 'legacy'] } // Strictly forces the CSS page-break rules we wrote above
+                                                    };
 
-                                                        // Add page break if running out of space
-                                                        if (startY > 270) {
-                                                            doc.addPage();
-                                                            startY = 20;
-                                                        }
+                                                    // 3. Generate and Download
+                                                    html2pdf().from(element).set(opt).save().then(() => {
+                                                        toast.success("Perfect PDF Downloaded!", { id: toastId });
+                                                    }).catch(err => {
+                                                        console.error(err);
+                                                        toast.error("Failed to generate PDF.", { id: toastId });
                                                     });
-
-                                                    doc.save(`${selectedFormToView.title}_Report.pdf`);
                                                 }}
                                                 style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe', padding: '10px 16px', borderRadius: '10px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.2s' }}
                                                 onMouseOver={e => e.currentTarget.style.background = '#dbeafe'}
                                                 onMouseOut={e => e.currentTarget.style.background = '#eff6ff'}
                                             >
-                                                <i className="fas fa-file-pdf"></i> Download PDF
+                                                <i className="fas fa-file-pdf"></i> Download Perfect PDF
                                             </button>
                                         </div>
                                     )}

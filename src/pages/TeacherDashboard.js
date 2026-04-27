@@ -947,11 +947,11 @@ const DashboardHome = ({
         if (sessionType === 'practical' || pastType === 'practical') {
             let prefix = 'A'; // Fallback
 
-            if (selectedYear === 'FE') {
+         if (selectedYear === 'FE' || selectedYear === 'FY') {
                 prefix = (selectedDiv && selectedDiv !== 'All') ? selectedDiv : 'A';
-            } else if (selectedYear === 'SE') prefix = 'S';
-            else if (selectedYear === 'TE') prefix = 'T';
-            else if (selectedYear === 'BE') prefix = 'B';
+            } else if (selectedYear === 'SE' || selectedYear === 'SY') prefix = 'S';
+            else if (selectedYear === 'TE' || selectedYear === 'TY') prefix = 'T';
+            else if (selectedYear === 'BE' || selectedYear === 'Final Year') prefix = 'B';
 
             setSelectedBatch(`${prefix}1`);
         }
@@ -1039,12 +1039,12 @@ const DashboardHome = ({
         let prefix = '';
         let count = 6; // Default to 6 batches (A1-A6)
 
-        if (selectedYear === 'FE') {
-            // For FE, prefix is the Division (A -> A1, A2...)
+        if (selectedYear === 'FE' || selectedYear === 'FY') {
+            // For FE/FY, prefix is the Division (A -> A1, A2...)
             prefix = (selectedDiv && selectedDiv !== 'All') ? selectedDiv : 'A';
-        } else if (selectedYear === 'SE') prefix = 'S';
-        else if (selectedYear === 'TE') prefix = 'T';
-        else if (selectedYear === 'BE') prefix = 'B';
+        } else if (selectedYear === 'SE' || selectedYear === 'SY') prefix = 'S';
+        else if (selectedYear === 'TE' || selectedYear === 'TY') prefix = 'T';
+        else if (selectedYear === 'BE' || selectedYear === 'Final Year') prefix = 'B';
         else prefix = 'B';
 
         for (let i = 1; i <= count; i++) {
@@ -3347,11 +3347,10 @@ export default function TeacherDashboard() {
         if (activeSemesters[selectedYear]) {
             setHistorySemester(Number(activeSemesters[selectedYear]));
         } else {
-            // Fallbacks if HOD hasn't set anything
-            if (selectedYear === 'FE') setHistorySemester(1);
-            else if (selectedYear === 'SE') setHistorySemester(3);
-            else if (selectedYear === 'TE') setHistorySemester(5);
-            else if (selectedYear === 'BE') setHistorySemester(7);
+          if (selectedYear === 'FE' || selectedYear === 'FY') setHistorySemester(1);
+                else if (selectedYear === 'SE' || selectedYear === 'SY') setHistorySemester(3);
+                else if (selectedYear === 'TE' || selectedYear === 'TY') setHistorySemester(5);
+                else if (selectedYear === 'BE' || selectedYear === 'Final Year') setHistorySemester(7);
         }
     }, [selectedYear, activeSemesters]);
 
@@ -3941,18 +3940,14 @@ export default function TeacherDashboard() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
 
                             {teacherInfo?.assignedClasses?.flatMap(cls => {
-                                // 1. If FE, generate separate buttons for each assigned Division (ONLY for Engg)
-                                if (cls.year === 'FE' && cls.divisions && !isNonEngg) {
+                                // 1. If FE/FY, generate separate buttons for each assigned Division (ONLY for Engg)
+                                if ((cls.year === 'FE' || cls.year === 'FY') && cls.divisions && !isNonEngg) {
                                     if (cls.divisions.toLowerCase() === 'all') {
-                                        return [{ ...cls, displayDiv: 'All', uniqueKey: `FE-All-${cls.subject}` }];
+                                        return [{ ...cls, displayDiv: 'All', uniqueKey: `${cls.year}-All-${cls.subject}` }];
                                     }
-                                    // Split "A, B" -> Objects for A and B
-                                    return cls.divisions.split(',').map(d => ({
-                                        ...cls,
-                                        displayDiv: d.trim(),
-                                        uniqueKey: `${cls.year}-${d.trim()}-${cls.subject}`
-                                    }));
+                                    return cls.divisions.split(',').map(d => ({ ...cls, displayDiv: d.trim(), uniqueKey: `${cls.year}-${d.trim()}-${cls.subject}` }));
                                 }
+
                                 // 2. Default for SE/TE/BE AND ALL Non-Engg Classes
                                 return [{ ...cls, displayDiv: null, uniqueKey: `${cls.year}-${cls.subject}` }];
                             }).map(cls => (
