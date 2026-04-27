@@ -56,7 +56,7 @@ export default function ManageInstituteUsers({ instituteId, showModal }) {
                 const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL';
                 const groups = {};
 
-                users.forEach(user => {
+               users.forEach(user => {
                     let dept = user.department || "General";
                     if (user.role === 'student' && isNonEngg) {
                         dept = 'Common';
@@ -67,7 +67,10 @@ export default function ManageInstituteUsers({ instituteId, showModal }) {
                     if (user.role === 'hod') groups[dept].hods.push(user);
                     if (user.role === 'teacher') groups[dept].teachers.push(user);
                     if (user.role === 'student') {
-                        const year = user.year || "Unknown";
+                        // ✅ CRITICAL FIX: Safely extract year from root OR extras object
+                        const rawYear = user.year || (user.extras && user.extras.year) || user.level || (user.extras && user.extras.level) || "Unknown";
+                        const year = String(rawYear).trim().toUpperCase();
+                        
                         if (!groups[dept].studentsByYear[year]) groups[dept].studentsByYear[year] = [];
                         groups[dept].studentsByYear[year].push(user);
                     }
@@ -233,8 +236,9 @@ export default function ManageInstituteUsers({ instituteId, showModal }) {
                                 {Object.keys(studentsByYear).length > 0 && (
                                     <div className="role-section">
                                         <h4 className="role-title" style={{ marginTop: '20px' }}>Students</h4>
-                                        <div className="year-container">
-                                            {['FE', 'SE', 'TE', 'BE'].map(year => {
+                                       <div className="year-container">
+                                            {/* ✅ DYNAMIC HEADERS: Sorts existing keys so it works for ANY domain */}
+                                            {Object.keys(studentsByYear).sort().map(year => {
                                                 const students = studentsByYear[year] || [];
                                                 if (students.length === 0) return null;
 

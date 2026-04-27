@@ -182,8 +182,11 @@ export default function HODDashboard() {
     // ✅ Include 'FY' in the First Year check
     const isFE = hodInfo?.department === 'FE' || hodInfo?.department === 'FY' || hodInfo?.department === 'First Year' || hodInfo?.department === 'FirstYear';
     
-    // ✅ Strictly force FY/SY/TY based on domain (Ignores stale database configs)
-    const academicLevels = isEngg ? ['FE', 'SE', 'TE', 'BE'] : ['FY', 'SY', 'TY', 'Final Year'];
+    // ✅ CRITICAL FIX: Wrap in useMemo to prevent infinite re-render loops!
+    const academicLevels = useMemo(() => {
+        return isEngg ? ['FE', 'SE', 'TE', 'BE'] : ['FY', 'SY', 'TY', 'Final Year'];
+    }, [isEngg]);
+    
     const levelName = config?.academicConfig?.levelNomenclature || (isEngg ? 'Class' : 'Year');
 
     useEffect(() => {
@@ -330,22 +333,22 @@ export default function HODDashboard() {
 
    useEffect(() => {
         if (hodInfo && academicLevels.length > 0 && config) {
-            // ✅ Ensure 'FY' triggers the First Year logic
             const isFE = hodInfo.department === 'FE' || hodInfo.department === 'FY' || hodInfo.department === 'First Year' || hodInfo.department === 'FirstYear';
             const isNonEngg = config.domain !== 'ENGINEERING';
 
-            // ✅ SMART DEFAULT: If it's an Engineering Dept HOD (not FE), default to SE. Otherwise, use the first level.
             const defaultYear = (!isNonEngg && !isFE && academicLevels.length > 1)
                 ? academicLevels[1]
                 : academicLevels[0];
 
-            setAnalyticsYear(defaultYear);
-            setAnalyticsDivision('All');
-
-            // Forces the Enrollment and Analytics tabs to open on the correct default year
-            setEnrollmentYear(defaultYear);
+            // ✅ CRITICAL FIX: Only set the default if the user hasn't selected a valid year yet!
+            // This stops the dropdown from being "frozen" on FY.
+            setAnalyticsYear(prev => (prev && academicLevels.includes(prev)) ? prev : defaultYear);
+            setEnrollmentYear(prev => (prev && academicLevels.includes(prev)) ? prev : defaultYear);
+            
+            // Only set division default if it's currently empty
+            setAnalyticsDivision(prev => prev || 'All');
         }
-    }, [hodInfo, academicLevels, config]);
+    }, [hodInfo?.department, config?.domain, academicLevels]); // Safely scoped dependencies
 
     // --- 1. FETCH SESSIONS (Raw Data for Accurate Math) ---
     useEffect(() => {
@@ -559,16 +562,14 @@ export default function HODDashboard() {
         }
     };
 
-   // ✅ 1. ALL students in the college (Used by the Enrollment Tab to show the Common Pool)
+// ✅ 1. ALL students in the college (Used by the Enrollment Tab to show the Common Pool)
     const allCollegeStudents = useMemo(() => {
-        return deptUsers
-            .filter(u => u.role === 'student')
-            .map(s => ({
-                ...s,
-                // ✅ CRITICAL FIX: Safely extracts 'year' and 'division' even if the Admin Bulk Upload hid them inside 'extras'
-                year: String(s.year || s.extras?.year || s.level || s.extras?.level || '').trim(),
-                division: String(s.division || s.extras?.division || '').trim()
-            }));
+        return deptUsers.filter(u => u.role === 'student').map(s => {
+            // ✅ Safely extracts the year and forces exact string matching
+            const rawYear = s.year || (s.extras && s.extras.year) || s.level || (s.extras && s.extras.level) || '';
+            const cleanYear = String(rawYear).trim().toUpperCase();
+            return { ...s, cleanYear };
+        });
     }, [deptUsers]);
 
     // ✅ 2. ONLY students enrolled in THIS HOD's department (Used for Analytics, Dept Users tab, etc.)
@@ -582,7 +583,7 @@ export default function HODDashboard() {
         );
     }, [allCollegeStudents, hodInfo, config]);
 
-   // ✅ 3. Teachers for this specific department
+    // ✅ 3. Teachers for this specific department
     const teachersList = useMemo(() => {
         const isNonEngg = config?.domain === 'AGRICULTURE' || config?.domain === 'MEDICAL' || config?.domain === 'PHARMACY';
         return deptUsers.filter(u => u.role === 'teacher' && (!isNonEngg || u.department === hodInfo?.department));
@@ -592,22 +593,10 @@ export default function HODDashboard() {
     const filteredEnrollmentStudents = useMemo(() => {
         const eYear = String(enrollmentYear || '').trim().toUpperCase();
         return allCollegeStudents
-            .filter(s => String(s.year || '').trim().toUpperCase() === eYear)
+            // ✅ CRITICAL FIX: Changed to use 's.cleanYear' so it successfully reads the extracted data!
+            .filter(s => s.cleanYear === eYear)
             .sort((a, b) => (a.rollNo || "").localeCompare(b.rollNo, undefined, { numeric: true }));
     }, [allCollegeStudents, enrollmentYear]);
-
-  // ✅ AUTO-POPULATE CHECKBOXES FOR ENROLLMENT
-    useEffect(() => {
-        if (!hodInfo || !filteredEnrollmentStudents) return;
-
-        // Find students who are already enrolled in this HOD's department
-        const alreadyEnrolled = filteredEnrollmentStudents.filter(s =>
-            s.department === hodInfo.department ||
-            (s.enrolledDepartments && s.enrolledDepartments.includes(hodInfo.department))
-        ).map(s => s.id || s.uid);
-
-        setEnrolledStudentIds(alreadyEnrolled);
-    }, [filteredEnrollmentStudents, hodInfo]);
 
     // ✅ SAVE HOD ENROLLMENT (BATCH WRITE)
     const handleSaveEnrollment = async () => {
@@ -1949,11 +1938,10 @@ useEffect(() => {
 
                                 return labelsToShow.map((label, index) => {
 
-                                    // Count Logic
+                                   // ✅ FIXED: Uses cleanYear to accurately count students
                                     const count = studentsList.filter(s =>
-                                        isFE ? s.division === label : (s.level === label || s.year === label)
+                                        isFE ? s.division === label : s.cleanYear === String(label).toUpperCase()
                                     ).length;
-
                                     // Dynamic Colors
                                     const colors = {
                                         'A': '#3b82f6', 'B': '#8b5cf6', 'C': '#f59e0b', 'D': '#10b981',
